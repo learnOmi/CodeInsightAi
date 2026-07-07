@@ -42,3 +42,4 @@ logs/
 # Misc
 *.pyc
 __pycache__/
+codeinsight-frontend/next-env.d.ts

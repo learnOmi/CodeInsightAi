@@ -18,7 +18,12 @@ RUN pip install --no-cache-dir uv
 
 RUN uv sync --extra dev
 
-COPY . .
+COPY packages/shared/src ./packages/shared/src
+COPY codeinsight-backend .
+
+RUN uv run datamodel-codegen \
+    --input ./packages/shared/src/index.ts \
+    --output ./codeinsight/schemas/shared.py
 
 EXPOSE 8000
 

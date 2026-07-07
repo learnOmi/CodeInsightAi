@@ -50,8 +50,8 @@ services:
 
   backend:
     build:
-      context: ./codeinsight-backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: codeinsight-backend/Dockerfile
     container_name: codeinsight-backend
     environment:
       POSTGRES_HOST: postgres
@@ -79,8 +79,8 @@ services:
 
   celery-worker:
     build:
-      context: ./codeinsight-backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: codeinsight-backend/Dockerfile
     container_name: codeinsight-celery-worker
     command: ["uv", "run", "celery", "-A", "tasks", "worker", "--loglevel=info"]
     environment:
@@ -104,8 +104,8 @@ services:
 
   frontend:
     build:
-      context: ./codeinsight-frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: codeinsight-frontend/Dockerfile
     container_name: codeinsight-frontend
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}

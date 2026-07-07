@@ -9,7 +9,7 @@ const pluginReactRefresh = require("eslint-plugin-react-refresh");
 /** @type {import('eslint').Linter.Config[]} */
 module.exports = [
   {
-    ignores: ["dist/", ".next/", "node_modules/"],
+    ignores: ["dist/", ".next/", "node_modules/", "*.d.ts"],
   },
   {
     files: ["**/*.{js,jsx}"],

@@ -226,3 +226,185 @@ P1-02 任务已完成。Docker Compose 全服务编排已创建，包含：
 5. **环境变量**：统一的 `.env.example` 模板，支持自定义配置
 
 **下一步**: P1-03 SQLAlchemy 2.0 ORM 模型定义 + 数据库 Migration。
+
+---
+
+## 八、补充修复：shared 包 Docker 整合
+
+> **修复时间**: 2026-07-07  
+> **修复原因**: shared 包引用导致 Docker 前端构建失败
+
+### 8.1 问题描述
+
+前端 `tsconfig.json` 的路径别名指向 `../packages/shared/src`，但 Docker 构建时 context 只包含 `codeinsight-frontend/` 目录，`../packages/shared` 不存在于构建上下文中，导致 TypeScript 无法解析 `@codeinsight/shared` → 构建失败。
+
+### 8.2 修复方案
+
+**修改文件**：
+
+| 文件 | 修改内容 |
+|------|---------|
+| [docker-compose.yml](file:///c:/Users/Administrator/CodeInsightAi/docker-compose.yml#L107) | frontend context 从 `./codeinsight-frontend` 改为 `.`（根目录） |
+| [codeinsight-frontend/Dockerfile](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-frontend/Dockerfile) | deps 阶段复制所有 workspace 的 package.json，builder 阶段先编译 shared 再构建前端 |
+
+### 8.3 修复后的前端构建流程
+
+```
+Docker 构建流程（frontend）
+├── deps 阶段
+│   ├── 复制根 package.json + lock
+│   ├── 复制 packages/shared/package.json
+│   ├── 复制 codeinsight-frontend/package.json
+│   └── npm ci（安装所有 workspace 依赖）
+├── builder 阶段
+│   ├── 复制所有代码（包括 packages/shared）
+│   ├── npm run build:shared（编译共享类型）
+│   └── npm run build:frontend（构建前端）
+└── runner 阶段
+    └── 复制前端构建产物
+```
+
+### 8.4 后端补充修复
+
+**问题**：后端 Python 需要使用 `datamodel-codegenerator` 从 TS 类型生成 Pydantic model，但 Docker context 是 `./codeinsight-backend`，无法访问 `../packages/shared`。
+
+**修改文件**：
+
+| 文件 | 修改内容 |
+|------|---------|
+| [docker-compose.yml](file:///c:/Users/Administrator/CodeInsightAi/docker-compose.yml#L53) | backend context 从 `./codeinsight-backend` 改为 `.`（根目录） |
+| [docker-compose.yml](file:///c:/Users/Administrator/CodeInsightAi/docker-compose.yml#L82) | celery-worker context 从 `./codeinsight-backend` 改为 `.`（根目录） |
+| [codeinsight-backend/Dockerfile](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/Dockerfile) | 复制 shared 目录并自动生成 Pydantic model |
+| [codeinsight-backend/pyproject.toml](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/pyproject.toml#L34) | 添加 `datamodel-codegenerator>=0.25.0` 依赖 |
+
+**后端构建流程**：
+
+```
+Docker 构建流程（backend）
+├── 安装编译依赖（tree-sitter 需要）
+├── 复制 pyproject.toml + uv.lock
+├── pip install uv + uv sync --extra dev
+├── COPY packages/shared/src ./packages/shared/src
+├── COPY codeinsight-backend .
+├── datamodel-codegen 生成 Pydantic model → codeinsight/schemas/shared.py
+└── CMD: uvicorn codeinsight.main:app
+```
+
+---
+
+## 九、后续修复事项汇总
+
+> **修复时间**: 2026-07-07  
+> **修复原因**: 项目启动和 CI 运行中的兼容性问题
+
+### 9.1 Python 版本兼容性
+
+**问题**：系统默认 Python 为 3.13，但 `tree-sitter-languages` 只支持到 Python 3.12
+
+**修复**：
+- 安装 Python 3.12.10
+- 更新 `pyproject.toml` 中 `requires-python` 为 `>=3.12`
+- 更新 `npm run dev:backend` 脚本使用 `py -3.12`
+
+### 9.2 后端配置优化
+
+**问题**：Docker Compose 传递的环境变量与后端配置不匹配
+
+**修复**（[codeinsight/config.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/config.py)）：
+- 将单一的 `database_url` 拆分为 `postgres_host`、`postgres_port`、`postgres_db`、`postgres_user`、`postgres_password`
+- 将单一的 `redis_url` 拆分为 `redis_host`、`redis_port`
+- 添加 `@property` 方法动态构建连接字符串
+- 默认值保持本地开发友好（`localhost`），Docker 环境通过环境变量覆盖
+
+### 9.3 datamodel-codegenerator 依赖修复
+
+**问题**：包名错误，`datamodel-codegenerator` 应为 `datamodel-code-generator`（带连字符）
+
+**修复**（[pyproject.toml](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/pyproject.toml#L34)）：
+```diff
+- "datamodel-codegenerator>=0.25.0",
++ "datamodel-code-generator>=0.57.0",
+```
+
+### 9.4 前端 ESLint 配置优化
+
+**问题**：ESLint 报告三斜杠引用错误（`.next/types/routes.d.ts`）
+
+**修复**（[eslint.config.js](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-frontend/eslint.config.js#L12)）：
+```diff
+ignores: ["dist/", ".next/", "node_modules/", "*.d.ts"],
+```
+
+### 9.5 Next.js Workspace 根目录警告
+
+**问题**：Next.js 在 monorepo 中检测到多个 lockfile，推断根目录不正确
+
+**修复**（[next.config.ts](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-frontend/next.config.ts#L5)）：
+```diff
+outputFileTracingRoot: process.cwd(),
+```
+
+### 9.6 Tailwind CSS 4 样式修复
+
+**问题**：CSS 中使用了未定义的 `var(--font-work-sans)` 变量，导致 SSR 水合错误
+
+**修复**（[globals.css](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-frontend/src/app/globals.css)）：
+- 使用标准的 `@theme` 块定义颜色变量
+- 使用 `--color-` 前缀符合 Tailwind 规范
+- 移除未定义的 `--font-work-sans` 变量
+
+### 9.7 前端 shared 包引用配置
+
+**修复**（[codeinsight-frontend/package.json](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-frontend/package.json#L23)）：
+- 添加 `@codeinsight/shared: "*"` 依赖
+
+**修复**（[codeinsight-frontend/tsconfig.json](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-frontend/tsconfig.json#L19)）：
+- 添加路径别名 `"@codeinsight/shared": ["../packages/shared/src"]`
+
+### 9.8 根目录 lockfile 管理
+
+**修复**（[.gitignore](file:///c:/Users/Administrator/CodeInsightAi/.gitignore#L4)）：
+- 保留根目录 `package-lock.json` 被 Git 跟踪
+- 忽略子目录的 lockfile：`*/package-lock.json`
+
+### 9.9 后端 uv 安装
+
+**问题**：Python 3.12 环境中未安装 uv
+
+**修复**：
+```bash
+py -3.12 -m pip install uv
+```
+
+### 9.10 虚拟环境清理
+
+**问题**：存在用 Python 3.13 创建的旧 `.venv`，导致 `uv` 使用错误的 Python 版本
+
+**修复**：删除旧虚拟环境，重新执行 `py -3.12 -m uv sync`
+
+---
+
+## 十、当前状态
+
+### 10.1 后端
+- ✅ Python 3.12 环境配置完成
+- ✅ uv 包管理器安装完成
+- ✅ 所有依赖安装成功（179 个包）
+- ✅ 配置支持 Docker 和本地开发
+- ✅ 健康检查端点可用：`GET /api/v1/health`
+
+### 10.2 前端
+- ✅ Next.js 15 配置完成
+- ✅ ESLint 9 配置完成
+- ✅ shared 包引用配置完成
+- ✅ Tailwind CSS 4 样式修复完成
+- ✅ SSR 水合错误修复完成
+
+### 10.3 Docker
+- ✅ 所有服务 context 改为根目录
+- ✅ shared 包整合到前后端构建流程
+- ✅ 环境变量映射正确
+
+### 10.4 待完成
+- ⚠️ P1-03：数据库模型设计（SQLAlchemy + Alembic）
+- ⚠️ P1-04：消息队列与异步任务（Celery）
