@@ -256,3 +256,59 @@ P1-01 任务已完成。Monorepo 项目结构已搭建完毕，包含：
 5. **开发规范对齐**：项目结构、命名约定、注释规范均符合 DEVELOPMENT-STANDARDS.md
 
 **下一步**: P1-02 Docker Compose 全服务编排。
+
+---
+
+## 八、CI 问题修复补充
+
+> **修复时间**: 2026-07-07  
+> **修复内容**: P1-01 完成后发现的 CI 流程问题
+
+### 8.1 后端 CI 问题（7 项）
+
+| # | 问题 | 原因 | 修复方式 | 文件 |
+|---|------|------|---------|------|
+| 1 | `tree-sitter-languages` 不支持 Python 3.13 | 该包只提供到 cp312 的 wheel | Python 版本从 3.13 改为 3.12 | `.github/workflows/ci.yml` |
+| 2 | Node 20 被弃用警告 | GitHub Actions 已默认使用 Node 24 | Node 版本从 20 改为 22 | `.github/workflows/ci.yml` |
+| 3 | `[dependency-groups]` 未知字段 | uv 版本不支持 PEP 735 新语法 | 改回 `[project.optional-dependencies]` | `codeinsight-backend/pyproject.toml` |
+| 4 | `uv sync --group dev` 报错 | 与 `[dependency-groups]` 配套使用 | 改为 `uv sync --extra dev` | `.github/workflows/ci.yml` |
+| 5 | mypy 找不到 `pydantic_settings` | 缺少该依赖包 | 添加 `pydantic-settings>=2.6.0` | `codeinsight-backend/pyproject.toml` |
+| 6 | Ruff lint 错误（I001/F401/W293/UP011） | 导入排序、未使用导入、空行空格、多余括号 | 手动修复代码 + CI 添加 `--fix` | 多个文件 |
+| 7 | CI lint 失败后无法自动修复 | CI 修改的文件不会自动提交 | 添加 pre-commit 钩子配置 | `codeinsight-backend/.pre-commit-config.yaml` |
+
+### 8.2 前端 CI 问题（6 项）
+
+| # | 问题 | 原因 | 修复方式 | 文件 |
+|---|------|------|---------|------|
+| 1 | `package-lock.json` 未被 Git 跟踪 | `.gitignore` 排除了根目录的 lock 文件 | 移除 `package-lock.json` 排除规则 | `.gitignore` |
+| 2 | CI cache-dependency-path 错误 | 指向了不存在的 `codeinsight-frontend/package-lock.json` | 改为 `package-lock.json` | `.github/workflows/ci.yml` |
+| 3 | `next lint` 已弃用 | Next.js 15 移除了内置 lint 命令 | 配置独立 ESLint | `codeinsight-frontend/package.json` |
+| 4 | ESLint 找不到配置文件 | ESLint 9 需要 flat config 格式 | 创建 `eslint.config.js` | `codeinsight-frontend/eslint.config.js` |
+| 5 | ESLint 无法解析 TypeScript | 缺少 `@typescript-eslint/parser` | 添加 TypeScript 解析器和插件 | `codeinsight-frontend/package.json` |
+| 6 | `React.ReactNode` 未定义 | React 17+ 使用新 JSX 转换，不需要导入 React | 从 `react` 导入 `ReactNode` | `codeinsight-frontend/src/app/layout.tsx` |
+
+### 8.3 CI 流程优化
+
+**后端流程**：
+```
+检查代码 → 安装 Python 3.12 → 安装 uv → uv sync --extra dev → ruff check . --fix → mypy → pytest
+```
+
+**前端流程**：
+```
+检查代码 → 安装 Node 22 → npm ci（根目录） → eslint → typecheck → next build
+```
+
+### 8.4 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `codeinsight-frontend/eslint.config.js` | ESLint 9 flat config 配置 |
+| `codeinsight-backend/.pre-commit-config.yaml` | pre-commit 钩子配置 |
+
+### 8.5 经验教训
+
+1. **版本兼容性**：选择依赖时要确认支持的 Python/Node 版本，特别是 CI 环境的版本
+2. **配置文件格式**：ESLint 9 已改用 flat config，不要再使用旧的 `.eslintrc.*`
+3. **Git 忽略规则**：monorepo 结构下，根目录的 `package-lock.json` 需要被跟踪
+4. **pre-commit 钩子**：在 CI 中使用 `--fix` 只能临时解决问题，真正的解决方案是 pre-commit 钩子

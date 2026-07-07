@@ -23,6 +23,28 @@
 
 ### 安装
 
+#### 方式一：Docker Compose（推荐）
+
+```bash
+# 1. 克隆仓库
+git clone <repo-url>
+cd CodeInsightAi
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env 填入实际值（特别是 SECRET_KEY）
+
+# 3. 启动所有服务
+docker compose up -d
+
+# 4. 访问服务
+# 前端: http://localhost:3000
+# 后端 API: http://localhost:8000
+# Meilisearch: http://localhost:7700
+```
+
+#### 方式二：本地开发
+
 ```bash
 # 1. 克隆仓库
 git clone <repo-url>
@@ -35,7 +57,7 @@ cd codeinsight-frontend && npm install && cd ..
 cd codeinsight-backend && uv sync && cd ..
 
 # 4. 启动基础设施（PostgreSQL, Redis, Meilisearch）
-docker compose up -d
+docker compose up -d postgres redis meilisearch
 
 # 5. 配置环境变量
 cp codeinsight-backend/.env.example codeinsight-backend/.env

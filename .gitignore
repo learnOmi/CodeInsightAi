@@ -9,6 +9,9 @@ uv.lock
 .env.local
 .env.*.local
 
+# Docker
+docker-compose.override.yml
+
 # Build
 .next/
 dist/
