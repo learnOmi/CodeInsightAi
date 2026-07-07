@@ -1,0 +1,41 @@
+{
+  "name": "codeinsight-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI 驱动的代码知识提取与可视化分析平台",
+  "homepage": "https://github.com/your-org/codeinsight-ai",
+  "license": "MIT",
+  "author": "CodeInsight Team",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd codeinsight-backend && uv run uvicorn codeinsight.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "cd codeinsight-frontend && npm run dev",
+    "build": "npm run build:shared && npm run build:backend && npm run build:frontend",
+    "build:shared": "cd packages/shared && npm run build",
+    "build:backend": "cd codeinsight-backend && echo 'Backend build complete'",
+    "build:frontend": "cd codeinsight-frontend && npm run build",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd codeinsight-backend && ruff check .",
+    "lint:frontend": "cd codeinsight-frontend && npm run lint",
+    "format": "npm run format:backend && npm run format:frontend",
+    "format:backend": "cd codeinsight-backend && ruff format .",
+    "format:frontend": "cd codeinsight-frontend && npm run format",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd codeinsight-backend && pytest",
+    "test:frontend": "cd codeinsight-frontend && npm run test",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:frontend",
+    "typecheck:shared": "cd packages/shared && npm run typecheck",
+    "typecheck:frontend": "cd codeinsight-frontend && npm run typecheck"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "codeinsight-frontend"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

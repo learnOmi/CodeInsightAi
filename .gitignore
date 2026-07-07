@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+*/node_modules/
+package-lock.json
+*/package-lock.json
+uv.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build
+.next/
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+coverage/
+htmlcov/
+.pytest_cache/
+.coverage
+.coverage.*
+
+# Logs
+*.log
+logs/
+
+# Misc
+*.pyc
+__pycache__/
