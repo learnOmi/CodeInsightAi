@@ -4,8 +4,9 @@
 使用 Pydantic BaseSettings 从环境变量加载配置。
 """
 
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -57,7 +58,7 @@ class Settings(BaseSettings):
     }
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """获取配置单例"""
     return Settings()

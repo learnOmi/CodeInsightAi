@@ -5,11 +5,12 @@ FastAPI 应用初始化，注册路由中间件和生命周期事件。
 """
 
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from codeinsight.api import analysis, knowledge, repositories, search, versions
 from codeinsight.config import settings
-from codeinsight.api import repositories, analysis, knowledge, search, versions
 
 
 @asynccontextmanager

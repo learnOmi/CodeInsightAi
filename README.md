@@ -18,7 +18,7 @@
 ### 前置要求
 
 - Python 3.12+
-- Node.js 18+
+- Node.js 22+
 - Docker & Docker Compose
 
 ### 安装

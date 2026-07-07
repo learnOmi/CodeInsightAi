@@ -4,8 +4,9 @@
 提供仓库的增删改查接口。
 """
 
-from fastapi import APIRouter, HTTPException, Depends
 from uuid import UUID
+
+from fastapi import APIRouter
 
 router = APIRouter()
 
@@ -14,7 +15,7 @@ router = APIRouter()
 async def create_repository():
     """
     添加代码仓库
-    
+
     添加一个新的代码仓库并开始分析。
     """
     # TODO: P1-07 实现
@@ -25,7 +26,7 @@ async def create_repository():
 async def list_repositories():
     """
     获取仓库列表
-    
+
     分页返回用户的所有仓库。
     """
     # TODO: P1-07 实现
