@@ -10,6 +10,7 @@
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd codeinsight-backend && py -3.12 -m uv sync && py -3.12 -m uv run uvicorn codeinsight.main:app --reload --host 0.0.0.0 --port 8000",
     "dev:frontend": "cd codeinsight-frontend && npm run dev",
+    "gen:types": "cd codeinsight-backend && py -3.12 -m uv run python scripts/export_openapi.py && cd .. && npx openapi-typescript packages/shared/src/openapi.json -o packages/shared/src/generated.ts",
     "build": "npm run build:shared && npm run build:backend && npm run build:frontend",
     "build:shared": "cd packages/shared && npm run build",
     "build:backend": "cd codeinsight-backend && echo 'Backend build complete'",
@@ -36,6 +37,7 @@
     "codeinsight-frontend"
   ],
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "openapi-typescript": "^7.13.0"
   }
 }

@@ -1,0 +1,1714 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CodeInsight AI API",
+    "description": "AI 驱动的代码知识提取与可视化分析平台",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/repositories": {
+      "get": {
+        "tags": [
+          "仓库管理"
+        ],
+        "summary": "List Repositories",
+        "description": "获取仓库列表\n\n分页返回用户的所有仓库。",
+        "operationId": "list_repositories_api_v1_repositories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Repository"
+                  },
+                  "type": "array",
+                  "title": "Response List Repositories Api V1 Repositories Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "仓库管理"
+        ],
+        "summary": "Create Repository",
+        "description": "添加代码仓库\n\n添加一个新的代码仓库并开始分析。",
+        "operationId": "create_repository_api_v1_repositories_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepositoryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repository"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}": {
+      "get": {
+        "tags": [
+          "仓库管理"
+        ],
+        "summary": "Get Repository",
+        "description": "获取仓库详情",
+        "operationId": "get_repository_api_v1_repositories__repository_id__get",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repository"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "仓库管理"
+        ],
+        "summary": "Update Repository",
+        "description": "更新仓库信息",
+        "operationId": "update_repository_api_v1_repositories__repository_id__put",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepositoryUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repository"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "仓库管理"
+        ],
+        "summary": "Delete Repository",
+        "description": "删除仓库及其所有分析数据",
+        "operationId": "delete_repository_api_v1_repositories__repository_id__delete",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/analyze": {
+      "post": {
+        "tags": [
+          "分析任务"
+        ],
+        "summary": "Submit Analysis",
+        "description": "提交分析任务",
+        "operationId": "submit_analysis_api_v1_repositories__repository_id__analyze_post",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisTask"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "分析任务"
+        ],
+        "summary": "Get Task Status",
+        "description": "查询任务状态",
+        "operationId": "get_task_status_api_v1_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisTask"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/cancel": {
+      "post": {
+        "tags": [
+          "分析任务"
+        ],
+        "summary": "Cancel Task",
+        "description": "取消分析任务",
+        "operationId": "cancel_task_api_v1_tasks__task_id__cancel_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge-points": {
+      "get": {
+        "tags": [
+          "知识点"
+        ],
+        "summary": "List Knowledge Points",
+        "description": "获取知识点列表",
+        "operationId": "list_knowledge_points_api_v1_knowledge_points_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KnowledgePoint"
+                  },
+                  "type": "array",
+                  "title": "Response List Knowledge Points Api V1 Knowledge Points Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge-points/{point_id}": {
+      "get": {
+        "tags": [
+          "知识点"
+        ],
+        "summary": "Get Knowledge Point",
+        "description": "获取知识点详情",
+        "operationId": "get_knowledge_point_api_v1_knowledge_points__point_id__get",
+        "parameters": [
+          {
+            "name": "point_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Point Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgePoint"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/knowledge-stats": {
+      "get": {
+        "tags": [
+          "知识点"
+        ],
+        "summary": "Get Knowledge Stats",
+        "description": "获取知识点统计",
+        "operationId": "get_knowledge_stats_api_v1_repositories__repository_id__knowledge_stats_get",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeStats"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/search": {
+      "post": {
+        "tags": [
+          "搜索"
+        ],
+        "summary": "Search",
+        "description": "搜索知识点",
+        "operationId": "search_api_v1_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/search/suggestions": {
+      "get": {
+        "tags": [
+          "搜索"
+        ],
+        "summary": "Search Suggestions",
+        "description": "获取搜索建议",
+        "operationId": "search_suggestions_api_v1_search_suggestions_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchSuggestionsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/versions": {
+      "get": {
+        "tags": [
+          "版本管理"
+        ],
+        "summary": "List Versions",
+        "description": "获取分析版本列表",
+        "operationId": "list_versions_api_v1_repositories__repository_id__versions_get",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AnalysisVersion"
+                  },
+                  "title": "Response List Versions Api V1 Repositories  Repository Id  Versions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/switch-version": {
+      "post": {
+        "tags": [
+          "版本管理"
+        ],
+        "summary": "Switch Version",
+        "description": "切换到指定版本",
+        "operationId": "switch_version_api_v1_repositories__repository_id__switch_version_post",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/rollback": {
+      "post": {
+        "tags": [
+          "版本管理"
+        ],
+        "summary": "Rollback Version",
+        "description": "回滚到指定版本",
+        "operationId": "rollback_version_api_v1_repositories__repository_id__rollback_post",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "健康检查"
+        ],
+        "summary": "Health Check",
+        "description": "健康检查端点",
+        "operationId": "health_check_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalysisMode": {
+        "type": "string",
+        "enum": [
+          "full",
+          "incremental"
+        ],
+        "title": "AnalysisMode",
+        "description": "分析模式"
+      },
+      "AnalysisProgress": {
+        "properties": {
+          "currentStep": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "percent": {
+            "type": "number",
+            "title": "Percent"
+          },
+          "filesProcessed": {
+            "type": "integer",
+            "title": "Filesprocessed"
+          },
+          "filesTotal": {
+            "type": "integer",
+            "title": "Filestotal"
+          },
+          "knowledgePointsFound": {
+            "type": "integer",
+            "title": "Knowledgepointsfound"
+          }
+        },
+        "type": "object",
+        "required": [
+          "currentStep",
+          "percent",
+          "filesProcessed",
+          "filesTotal",
+          "knowledgePointsFound"
+        ],
+        "title": "AnalysisProgress",
+        "description": "分析进度信息"
+      },
+      "AnalysisTask": {
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "title": "Taskid"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/AnalysisMode"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/AnalysisProgress"
+          },
+          "submittedAt": {
+            "type": "string",
+            "title": "Submittedat"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          },
+          "errorMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errormessage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "taskId",
+          "repositoryId",
+          "status",
+          "mode",
+          "progress",
+          "submittedAt"
+        ],
+        "title": "AnalysisTask",
+        "description": "分析任务"
+      },
+      "AnalysisVersion": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "totalFiles": {
+            "type": "integer",
+            "title": "Totalfiles"
+          },
+          "knowledgePointsCount": {
+            "type": "integer",
+            "title": "Knowledgepointscount"
+          },
+          "isCurrent": {
+            "type": "boolean",
+            "title": "Iscurrent"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "status",
+          "totalFiles",
+          "knowledgePointsCount",
+          "isCurrent",
+          "createdAt"
+        ],
+        "title": "AnalysisVersion",
+        "description": "分析版本"
+      },
+      "AnalyzeRequest": {
+        "properties": {
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "design_pattern",
+                    "architecture",
+                    "algorithm",
+                    "engineering_tips",
+                    "domain_knowledge"
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agents"
+          }
+        },
+        "type": "object",
+        "title": "AnalyzeRequest",
+        "description": "提交分析任务请求"
+      },
+      "CallChainNode": {
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "title": "Nodeid"
+          },
+          "nodeType": {
+            "type": "string",
+            "enum": [
+              "function",
+              "class",
+              "method",
+              "function_call",
+              "import",
+              "module"
+            ],
+            "title": "Nodetype"
+          },
+          "file": {
+            "type": "string",
+            "title": "File"
+          },
+          "lines": {
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Lines"
+          },
+          "signature": {
+            "type": "string",
+            "title": "Signature"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "entry",
+              "call",
+              "implementation",
+              "export"
+            ],
+            "title": "Direction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nodeId",
+          "nodeType",
+          "file",
+          "lines",
+          "signature",
+          "direction"
+        ],
+        "title": "CallChainNode",
+        "description": "调用链节点"
+      },
+      "CodeSnippet": {
+        "properties": {
+          "filePath": {
+            "type": "string",
+            "title": "Filepath"
+          },
+          "startLine": {
+            "type": "integer",
+            "title": "Startline"
+          },
+          "endLine": {
+            "type": "integer",
+            "title": "Endline"
+          },
+          "highlightedLines": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Highlightedlines",
+            "default": []
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "signature": {
+            "type": "string",
+            "title": "Signature"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filePath",
+          "startLine",
+          "endLine",
+          "language",
+          "signature"
+        ],
+        "title": "CodeSnippet",
+        "description": "代码片段"
+      },
+      "ExpansionContent": {
+        "properties": {
+          "principle": {
+            "type": "string",
+            "title": "Principle"
+          },
+          "applicableScenarios": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Applicablescenarios",
+            "default": []
+          },
+          "bestPractices": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Bestpractices",
+            "default": []
+          },
+          "relatedPatterns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Relatedpatterns",
+            "default": []
+          },
+          "learningResources": {
+            "items": {
+              "$ref": "#/components/schemas/LearningResource"
+            },
+            "type": "array",
+            "title": "Learningresources",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "principle"
+        ],
+        "title": "ExpansionContent",
+        "description": "拓展内容"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KnowledgeCategory": {
+        "type": "string",
+        "enum": [
+          "DP-",
+          "AD-",
+          "AL-",
+          "ET-",
+          "DK-"
+        ],
+        "title": "KnowledgeCategory",
+        "description": "知识点分类枚举\n\nDP-: 设计模式 (Design Pattern)\nAD-: 架构决策 (Architecture Decision)\nAL-: 算法实现 (Algorithm)\nET-: 工程技巧 (Engineering Tip)\nDK-: 领域知识 (Domain Knowledge)"
+      },
+      "KnowledgeMetadata": {
+        "properties": {
+          "agent": {
+            "type": "string",
+            "title": "Agent"
+          },
+          "promptVersion": {
+            "type": "string",
+            "title": "Promptversion"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "tokensUsed": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tokensused",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent",
+          "promptVersion",
+          "model"
+        ],
+        "title": "KnowledgeMetadata",
+        "description": "知识点元数据"
+      },
+      "KnowledgePoint": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "category": {
+            "$ref": "#/components/schemas/KnowledgeCategory"
+          },
+          "categoryName": {
+            "type": "string",
+            "title": "Categoryname"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          },
+          "codeSnippets": {
+            "items": {
+              "$ref": "#/components/schemas/CodeSnippet"
+            },
+            "type": "array",
+            "title": "Codesnippets",
+            "default": []
+          },
+          "callChain": {
+            "items": {
+              "$ref": "#/components/schemas/CallChainNode"
+            },
+            "type": "array",
+            "title": "Callchain",
+            "default": []
+          },
+          "expansion": {
+            "$ref": "#/components/schemas/ExpansionContent"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/KnowledgeMetadata"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "categoryName",
+          "title",
+          "description",
+          "confidence",
+          "expansion",
+          "version",
+          "repositoryId",
+          "metadata",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "KnowledgePoint",
+        "description": "知识点"
+      },
+      "KnowledgeStats": {
+        "properties": {
+          "totalPoints": {
+            "type": "integer",
+            "title": "Totalpoints"
+          },
+          "byCategory": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/KnowledgeCategory"
+            },
+            "type": "object",
+            "title": "Bycategory",
+            "default": {}
+          },
+          "byConfidence": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Byconfidence",
+            "default": {}
+          },
+          "topTags": {
+            "items": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Toptags",
+            "default": []
+          },
+          "filesCovered": {
+            "type": "integer",
+            "title": "Filescovered",
+            "default": 0
+          },
+          "totalLinesAnalyzed": {
+            "type": "integer",
+            "title": "Totallinesanalyzed",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "totalPoints"
+        ],
+        "title": "KnowledgeStats",
+        "description": "知识点统计"
+      },
+      "LearningResource": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "book",
+              "article",
+              "video",
+              "course"
+            ],
+            "title": "Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "url",
+          "type"
+        ],
+        "title": "LearningResource",
+        "description": "学习资料"
+      },
+      "Repository": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RepositoryStatus"
+          },
+          "currentVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currentversion"
+          },
+          "fileCount": {
+            "type": "integer",
+            "title": "Filecount",
+            "default": 0
+          },
+          "lineCount": {
+            "type": "integer",
+            "title": "Linecount",
+            "default": 0
+          },
+          "knowledgePointsCount": {
+            "type": "integer",
+            "title": "Knowledgepointscount",
+            "default": 0
+          },
+          "languageDistribution": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Languagedistribution",
+            "default": {}
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          },
+          "lastAnalyzedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lastanalyzedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "path",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "Repository",
+        "description": "仓库信息"
+      },
+      "RepositoryCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "autoAnalyze": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autoanalyze"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "path"
+        ],
+        "title": "RepositoryCreate",
+        "description": "创建仓库请求"
+      },
+      "RepositoryStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "analyzing",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "RepositoryStatus",
+        "description": "仓库分析状态"
+      },
+      "RepositoryUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "title": "RepositoryUpdate",
+        "description": "更新仓库请求"
+      },
+      "SearchMode": {
+        "type": "string",
+        "enum": [
+          "text",
+          "vector",
+          "hybrid"
+        ],
+        "title": "SearchMode",
+        "description": "搜索模式"
+      },
+      "SearchRequest": {
+        "properties": {
+          "q": {
+            "type": "string",
+            "title": "Q"
+          },
+          "repositoryId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repositoryid"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SearchMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "pageSize": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pagesize"
+          }
+        },
+        "type": "object",
+        "required": [
+          "q"
+        ],
+        "title": "SearchRequest",
+        "description": "搜索请求参数"
+      },
+      "SearchResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/SearchMode"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResult"
+            },
+            "type": "array",
+            "title": "Results",
+            "default": []
+          },
+          "facets": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Facets"
+          },
+          "durationMs": {
+            "type": "integer",
+            "title": "Durationms",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "mode"
+        ],
+        "title": "SearchResponse",
+        "description": "搜索响应"
+      },
+      "SearchResult": {
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/SearchResultType"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "pointId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pointid"
+          },
+          "point": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Point"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository"
+          },
+          "matchedText": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matchedtext"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "score"
+        ],
+        "title": "SearchResult",
+        "description": "搜索结果"
+      },
+      "SearchResultType": {
+        "type": "string",
+        "enum": [
+          "knowledge_point",
+          "repository",
+          "file"
+        ],
+        "title": "SearchResultType",
+        "description": "搜索结果类型"
+      },
+      "SearchSuggestion": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "type",
+          "count"
+        ],
+        "title": "SearchSuggestion",
+        "description": "搜索建议"
+      },
+      "SearchSuggestionsResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/SearchSuggestion"
+            },
+            "type": "array",
+            "title": "Suggestions",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "SearchSuggestionsResponse",
+        "description": "搜索建议响应"
+      },
+      "TaskStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "scanning",
+          "parsing",
+          "analyzing_modules",
+          "storing",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "TaskStatus",
+        "description": "分析任务状态"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
