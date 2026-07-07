@@ -2,7 +2,7 @@
 name = "codeinsight-backend"
 version = "0.1.0"
 description = "CodeInsight AI 后端服务"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
@@ -43,7 +43,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 line-length = 120
 
 [tool.ruff.lint]

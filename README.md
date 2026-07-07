@@ -17,7 +17,7 @@
 
 ### 前置要求
 
-- Python 3.13+
+- Python 3.12+
 - Node.js 18+
 - Docker & Docker Compose
 
@@ -77,7 +77,7 @@ CodeInsightAi/
 | 层级 | 技术 |
 |------|------|
 | 前端 | Next.js 15, TypeScript, Tailwind CSS, Shiki, Zustand |
-| 后端 | Python 3.13, FastAPI, SQLAlchemy 2.0, Celery |
+| 后端 | Python 3.12+, FastAPI, SQLAlchemy 2.0, Celery |
 | AI | LangGraph, Claude/GPT-4o, Ollama, LiteLLM |
 | 代码解析 | Tree-sitter, GitPython |
 | 数据库 | PostgreSQL 16 + pgvector, Redis 7, Meilisearch |
