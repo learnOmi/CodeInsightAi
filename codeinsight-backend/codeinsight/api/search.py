@@ -5,6 +5,7 @@
 """
 
 from fastapi import APIRouter
+
 from codeinsight.schemas import SearchRequest, SearchResponse, SearchSuggestionsResponse
 
 router = APIRouter()

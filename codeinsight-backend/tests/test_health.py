@@ -3,8 +3,8 @@
 """
 
 from fastapi.testclient import TestClient
-from codeinsight.main import app
 
+from codeinsight.main import app
 
 client = TestClient(app)
 

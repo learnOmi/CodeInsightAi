@@ -4,9 +4,9 @@
 提供仓库的增删改查接口。
 """
 
-from typing import List
 
 from fastapi import APIRouter
+
 from codeinsight.schemas import Repository, RepositoryCreate, RepositoryUpdate
 
 router = APIRouter()
@@ -22,7 +22,7 @@ async def create_repository(request: RepositoryCreate):
     raise NotImplementedError("P1-07: 仓库创建接口待实现")
 
 
-@router.get("", response_model=List[Repository])
+@router.get("", response_model=list[Repository])
 async def list_repositories():
     """
     获取仓库列表

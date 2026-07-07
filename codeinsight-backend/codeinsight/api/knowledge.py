@@ -4,15 +4,15 @@
 提供知识点的列表、详情、统计接口。
 """
 
-from typing import List
 
 from fastapi import APIRouter
+
 from codeinsight.schemas import KnowledgePoint, KnowledgeStats
 
 router = APIRouter()
 
 
-@router.get("/knowledge-points", response_model=List[KnowledgePoint])
+@router.get("/knowledge-points", response_model=list[KnowledgePoint])
 async def list_knowledge_points():
     """获取知识点列表"""
     raise NotImplementedError("P3-05: 知识点列表接口待实现")

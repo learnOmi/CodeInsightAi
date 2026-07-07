@@ -2,15 +2,21 @@
 知识点相关 Pydantic Schema
 
 以 Pydantic 模型为单一事实来源，通过 OpenAPI 自动同步到前端 TypeScript 类型。
+
+字段命名约定：
+- Python 字段使用 snake_case（符合 PEP 8 与 ruff N815 规则）
+- 通过 alias_generator=to_camel 在 API 序列化时自动转为 camelCase
+- populate_by_name=True 允许同时使用 snake_case 和 camelCase 进行反序列化
 """
 
-from enum import Enum
-from typing import Dict, List, Literal, Optional
+from enum import StrEnum
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 
 
-class KnowledgeCategory(str, Enum):
+class KnowledgeCategory(StrEnum):
     """
     知识点分类枚举
 
@@ -31,24 +37,31 @@ class KnowledgeCategory(str, Enum):
 class CodeSnippet(BaseModel):
     """代码片段"""
 
-    filePath: str
-    startLine: int
-    endLine: int
-    highlightedLines: List[int] = []
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    file_path: str
+    start_line: int
+    end_line: int
+    highlighted_lines: list[int] = []
     language: str
     signature: str
-
-    model_config = {
-        "from_attributes": True,
-        "populate_by_name": True,
-    }
 
 
 class CallChainNode(BaseModel):
     """调用链节点"""
 
-    nodeId: str
-    nodeType: Literal[
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    node_id: str
+    node_type: Literal[
         "function", "class", "method", "function_call", "import", "module"
     ]
     file: str
@@ -56,90 +69,90 @@ class CallChainNode(BaseModel):
     signature: str
     direction: Literal["entry", "call", "implementation", "export"]
 
-    model_config = {
-        "from_attributes": True,
-        "populate_by_name": True,
-    }
-
 
 class LearningResource(BaseModel):
     """学习资料"""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
 
     title: str
     url: str
     type: Literal["book", "article", "video", "course"]
 
-    model_config = {
-        "from_attributes": True,
-        "populate_by_name": True,
-    }
-
 
 class ExpansionContent(BaseModel):
     """拓展内容"""
 
-    principle: str
-    applicableScenarios: List[str] = []
-    bestPractices: List[str] = []
-    relatedPatterns: List[str] = []
-    learningResources: List[LearningResource] = []
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
 
-    model_config = {
-        "from_attributes": True,
-        "populate_by_name": True,
-    }
+    principle: str
+    applicable_scenarios: list[str] = []
+    best_practices: list[str] = []
+    related_patterns: list[str] = []
+    learning_resources: list[LearningResource] = []
 
 
 class KnowledgeMetadata(BaseModel):
     """知识点元数据"""
 
-    agent: str
-    promptVersion: str
-    model: str
-    tokensUsed: Dict[str, int] = {}
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
 
-    model_config = {
-        "from_attributes": True,
-        "populate_by_name": True,
-    }
+    agent: str
+    prompt_version: str
+    model: str
+    tokens_used: dict[str, int] = {}
 
 
 class KnowledgePoint(BaseModel):
     """知识点"""
 
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
     id: str
     category: KnowledgeCategory
-    categoryName: str
+    category_name: str
     title: str
     description: str
     confidence: float
-    tags: List[str] = []
-    codeSnippets: List[CodeSnippet] = []
-    callChain: List[CallChainNode] = []
+    tags: list[str] = []
+    code_snippets: list[CodeSnippet] = []
+    call_chain: list[CallChainNode] = []
     expansion: ExpansionContent
     version: str
-    repositoryId: str
+    repository_id: str
     metadata: KnowledgeMetadata
-    createdAt: str
-    updatedAt: str
-
-    model_config = {
-        "from_attributes": True,
-        "populate_by_name": True,
-    }
+    created_at: str
+    updated_at: str
 
 
 class KnowledgeStats(BaseModel):
     """知识点统计"""
 
-    totalPoints: int
-    byCategory: Dict[KnowledgeCategory, int] = {}
-    byConfidence: Dict[str, int] = {}
-    topTags: List[Dict[str, int]] = []
-    filesCovered: int = 0
-    totalLinesAnalyzed: int = 0
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
 
-    model_config = {
-        "from_attributes": True,
-        "populate_by_name": True,
-    }
+    total_points: int
+    by_category: dict[KnowledgeCategory, int] = {}
+    by_confidence: dict[str, int] = {}
+    top_tags: list[dict[str, int]] = []
+    files_covered: int = 0
+    total_lines_analyzed: int = 0

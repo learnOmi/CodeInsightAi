@@ -5,7 +5,8 @@
 """
 
 from fastapi import APIRouter
-from codeinsight.schemas import AnalysisTask, AnalyzeRequest, AnalysisMode
+
+from codeinsight.schemas import AnalysisTask, AnalyzeRequest
 
 router = APIRouter()
 

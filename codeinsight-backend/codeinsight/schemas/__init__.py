@@ -4,32 +4,32 @@ CodeInsight AI Pydantic Schema
 以 Pydantic 模型为单一事实来源，通过 FastAPI 的 OpenAPI 能力自动同步到前端 TypeScript 类型。
 """
 
-from .repository import Repository, RepositoryCreate, RepositoryUpdate, RepositoryStatus
+from .analysis import (
+    AgentType,
+    AnalysisMode,
+    AnalysisProgress,
+    AnalysisTask,
+    AnalysisVersion,
+    AnalyzeRequest,
+    TaskStatus,
+)
 from .knowledge import (
-    KnowledgeCategory,
-    CodeSnippet,
     CallChainNode,
-    LearningResource,
+    CodeSnippet,
     ExpansionContent,
+    KnowledgeCategory,
     KnowledgeMetadata,
     KnowledgePoint,
     KnowledgeStats,
+    LearningResource,
 )
-from .analysis import (
-    AnalysisMode,
-    TaskStatus,
-    AgentType,
-    AnalysisProgress,
-    AnalyzeRequest,
-    AnalysisTask,
-    AnalysisVersion,
-)
+from .repository import Repository, RepositoryCreate, RepositoryStatus, RepositoryUpdate
 from .search import (
     SearchMode,
-    SearchResultType,
     SearchRequest,
-    SearchResult,
     SearchResponse,
+    SearchResult,
+    SearchResultType,
     SearchSuggestion,
     SearchSuggestionsResponse,
 )

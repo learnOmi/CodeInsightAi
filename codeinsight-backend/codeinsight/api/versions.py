@@ -4,15 +4,15 @@
 提供分析版本的切换和回滚接口。
 """
 
-from typing import List
 
 from fastapi import APIRouter
+
 from codeinsight.schemas import AnalysisVersion
 
 router = APIRouter()
 
 
-@router.get("/repositories/{repository_id}/versions", response_model=List[AnalysisVersion])
+@router.get("/repositories/{repository_id}/versions", response_model=list[AnalysisVersion])
 async def list_versions(repository_id: int):
     """获取分析版本列表"""
     raise NotImplementedError("P1-05: 版本列表接口待实现")
