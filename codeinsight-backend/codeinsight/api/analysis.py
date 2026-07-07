@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.post("/repositories/{repository_id}/analyze", response_model=AnalysisTask, status_code=202)
-async def submit_analysis(repository_id: str, request: AnalyzeRequest = None):
+async def submit_analysis(repository_id: str, request: AnalyzeRequest | None = None):
     """
     提交分析任务
     """
