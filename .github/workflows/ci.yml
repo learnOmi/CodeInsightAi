@@ -17,16 +17,25 @@ jobs:
           python-version: "3.12"
       - name: Install uv
         run: pip install uv
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('codeinsight-backend/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
       - name: Install dependencies
-        run: |
-          cd codeinsight-backend
-          uv sync --extra dev
+        working-directory: codeinsight-backend
+        run: uv sync --extra dev
       - name: Lint
-        run: cd codeinsight-backend && uv run ruff check . --fix
+        working-directory: codeinsight-backend
+        run: uv run ruff check . --fix
       - name: Type check
-        run: cd codeinsight-backend && uv run mypy codeinsight
+        working-directory: codeinsight-backend
+        run: uv run mypy codeinsight
       - name: Test
-        run: cd codeinsight-backend && uv run pytest --cov=codeinsight --cov-report=xml
+        working-directory: codeinsight-backend
+        run: uv run pytest --cov=codeinsight --cov-report=xml
 
   frontend:
     runs-on: ubuntu-latest
@@ -41,8 +50,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Lint
-        run: cd codeinsight-frontend && npm run lint
+        working-directory: codeinsight-frontend
+        run: npm run lint
       - name: Type check
-        run: cd codeinsight-frontend && npm run typecheck
+        working-directory: codeinsight-frontend
+        run: npm run typecheck
       - name: Build
-        run: cd codeinsight-frontend && npm run build
+        working-directory: codeinsight-frontend
+        run: npm run build

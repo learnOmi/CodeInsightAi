@@ -5,6 +5,7 @@ const tsPlugin = require("@typescript-eslint/eslint-plugin");
 const pluginReact = require("eslint-plugin-react");
 const pluginReactHooks = require("eslint-plugin-react-hooks");
 const pluginReactRefresh = require("eslint-plugin-react-refresh");
+const nextjsPlugin = require("@next/eslint-plugin-next");
 
 /** @type {import('eslint').Linter.Config[]} */
 module.exports = [
@@ -61,6 +62,7 @@ module.exports = [
       react: pluginReact,
       "react-hooks": pluginReactHooks,
       "react-refresh": pluginReactRefresh,
+      "@next/next": nextjsPlugin,
     },
     rules: {
       ...pluginJs.configs.recommended.rules,
@@ -68,6 +70,8 @@ module.exports = [
       ...pluginReact.configs.recommended.rules,
       ...pluginReact.configs["jsx-runtime"].rules,
       ...pluginReactHooks.configs.recommended.rules,
+      ...nextjsPlugin.configs.recommended.rules,
+      ...nextjsPlugin.configs["core-web-vitals"].rules,
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },
