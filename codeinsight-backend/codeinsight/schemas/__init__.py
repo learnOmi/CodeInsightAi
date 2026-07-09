@@ -23,6 +23,7 @@ from .knowledge import (
     KnowledgeStats,
     LearningResource,
 )
+from .file import File, FileCreate, FileUpdate
 from .repository import Repository, RepositoryCreate, RepositoryStatus, RepositoryUpdate
 from .search import (
     SearchMode,
@@ -35,6 +36,10 @@ from .search import (
 )
 
 __all__ = [
+    # file
+    "File",
+    "FileCreate",
+    "FileUpdate",
     # repository
     "Repository",
     "RepositoryCreate",

@@ -6,11 +6,13 @@ FastAPI 应用初始化，注册路由中间件和生命周期事件。
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from codeinsight.api import analysis, knowledge, repositories, search, versions
+from codeinsight.api import analysis, files, knowledge, repositories, search, versions
 from codeinsight.config import settings
+from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
 
 
 @asynccontextmanager
@@ -43,6 +45,21 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # 注册全局异常处理器
+    @app.exception_handler(RepositoryPathExistsError)
+    async def repository_path_exists_handler(request: Request, exc: RepositoryPathExistsError):
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"Repository path already exists: {exc.path}"},
+        )
+
+    @app.exception_handler(RepositoryNotFoundError)
+    async def repository_not_found_handler(request: Request, exc: RepositoryNotFoundError):
+        return JSONResponse(
+            status_code=404,
+            content={"detail": f"Repository not found: {exc.repository_id}"},
+        )
 
     # 注册路由
     app.include_router(repositories.router, prefix="/api/v1/repositories", tags=["仓库管理"])
