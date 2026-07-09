@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from codeinsight.api import analysis, files, knowledge, repositories, search, versions
+from codeinsight.api import analysis, knowledge, repositories, search, versions
 from codeinsight.config import settings
 from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
 

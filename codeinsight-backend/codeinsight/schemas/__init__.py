@@ -13,6 +13,7 @@ from .analysis import (
     AnalyzeRequest,
     TaskStatus,
 )
+from .file import File, FileCreate, FileUpdate
 from .knowledge import (
     CallChainNode,
     CodeSnippet,
@@ -20,10 +21,11 @@ from .knowledge import (
     KnowledgeCategory,
     KnowledgeMetadata,
     KnowledgePoint,
+    KnowledgePointListRequest,
     KnowledgeStats,
     LearningResource,
+    PaginatedKnowledgePoints,
 )
-from .file import File, FileCreate, FileUpdate
 from .repository import Repository, RepositoryCreate, RepositoryStatus, RepositoryUpdate
 from .search import (
     SearchMode,
@@ -53,7 +55,9 @@ __all__ = [
     "ExpansionContent",
     "KnowledgeMetadata",
     "KnowledgePoint",
+    "KnowledgePointListRequest",
     "KnowledgeStats",
+    "PaginatedKnowledgePoints",
     # analysis
     "AnalysisMode",
     "TaskStatus",

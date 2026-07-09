@@ -142,6 +142,38 @@ class KnowledgePoint(BaseModel):
     updated_at: str
 
 
+class KnowledgePointListRequest(BaseModel):
+    """知识点列表请求参数"""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    version: str | None = None
+    category: str | None = None
+    tag: str | None = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+
+
+class PaginatedKnowledgePoints(BaseModel):
+    """分页知识点列表响应"""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    items: list[KnowledgePoint]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
 class KnowledgeStats(BaseModel):
     """知识点统计"""
 

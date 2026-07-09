@@ -14,6 +14,11 @@ from codeinsight.db.session import get_db_session
 from codeinsight.repositories.file import FileDAO
 from codeinsight.schemas import File, FileCreate, FileUpdate
 
+
+class DeleteFileResponse(BaseModel):
+    """删除文件响应"""
+    message: str
+
 router = APIRouter()
 
 
@@ -57,7 +62,7 @@ async def get_file(
 @router.get("/by-hash/{content_hash}", response_model=list[File])
 async def get_files_by_hash(
     content_hash: str,
-    repository_id: UUID = Query(..., description="仓库 ID"),
+    repository_id: UUID = Query(..., description="仓库 ID"),  # noqa: B008
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
     dao: FileDAO = Depends(get_file_dao),  # noqa: B008
 ):
@@ -88,7 +93,7 @@ async def update_file(
     return file_obj
 
 
-@router.delete("/{file_id}", response_model=BaseModel, status_code=200)
+@router.delete("/{file_id}", response_model=DeleteFileResponse, status_code=200)
 async def delete_file(
     file_id: UUID,
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
@@ -101,4 +106,4 @@ async def delete_file(
     if not deleted:
         raise HTTPException(status_code=404, detail=f"File {file_id} not found")
 
-    return BaseModel()
+    return DeleteFileResponse(message=f"File {file_id} deleted successfully")
