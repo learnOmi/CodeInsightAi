@@ -136,6 +136,7 @@ class KnowledgePoint(BaseModel):
     expansion: ExpansionContent
     version: str
     repository_id: str
+    embedding: list[float] | None = None  # pgvector 向量嵌入
     metadata: KnowledgeMetadata = Field(validation_alias="knowledge_metadata")
     created_at: str
     updated_at: str

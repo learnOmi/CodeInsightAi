@@ -107,7 +107,10 @@ class AnalysisVersion(BaseModel):
     version: str
     status: TaskStatus
     total_files: int
+    analyzed_files: int = 0
     knowledge_points_count: int
     is_current: bool
-    created_at: str
+    started_at: str | None = None
     completed_at: str | None = None
+    error_message: str | None = None
+    created_at: str
