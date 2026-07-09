@@ -44,3 +44,4 @@ logs/
 *.pyc
 __pycache__/
 codeinsight-frontend/next-env.d.ts
+scripts/cleanup.ps1

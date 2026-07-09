@@ -12,7 +12,7 @@
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 
@@ -136,7 +136,7 @@ class KnowledgePoint(BaseModel):
     expansion: ExpansionContent
     version: str
     repository_id: str
-    metadata: KnowledgeMetadata
+    metadata: KnowledgeMetadata = Field(validation_alias="knowledge_metadata")
     created_at: str
     updated_at: str
 
