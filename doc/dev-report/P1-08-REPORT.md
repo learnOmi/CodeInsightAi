@@ -34,7 +34,46 @@
 |------|------|---------|
 | api/analysis | 3 个端点全是 NotImplementedError | 替换为真实实现 |
 | config.py | 缺少 Celery 配置项 | 新增 `celery_task_always_eager` |
-| pyproject.toml | redis 包未显式声明 | 补充 `redis>=5.2.0` 依赖 |
+| pyproject.toml | ✅ | redis 包未显式声明 | 补充 `redis>=5.2.0` 依赖 |
+
+### 2.3 修复 SQLAlchemy ORM 模型类型推断问题（mypy 12 errors → 0）
+
+**根因**：旧式 `Column` 声明风格导致 mypy 将属性类型推断为 `Column[str]` 而非 `str`，不得不使用 `cast()` 和 `# type: ignore` 绕过。
+
+**解决方案**：将 4 个 ORM 模型从 `Column` 风格迁移到 SQLAlchemy 2.0 `Mapped` + `mapped_column` 声明式风格，配合 SQLAlchemy 内置 mypy 插件实现正确的静态类型推断。
+
+#### 修改清单
+
+| 文件 | 改动 |
+|------|------|
+| [models/repository.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/repository.py) | `Column(...)` → `Mapped[T] = mapped_column(...)` |
+| [models/analysis_version.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/analysis_version.py) | 同上 |
+| [models/file.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/file.py) | 同上 |
+| [models/knowledge_point.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/knowledge_point.py) | 同上 |
+| [api/versions.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/versions.py) | 移除所有 `cast()` 和 `# type: ignore`，代码恢复自然写法 |
+| [api/analysis.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/analysis.py) | Redis 客户端缓存改用模块级变量 + `cast`，消除 `attr-defined` 错误 |
+| [pyproject.toml](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/pyproject.toml) | 启用 `sqlalchemy.ext.mypy.plugin`，移除冲突的 `sqlalchemy-stubs` |
+
+#### 示例对比
+
+```python
+# Before (Column 风格 — mypy 看到 Column[str])
+class RepositoryModel(Base):
+    current_version = Column(String, nullable=True)  # mypy: Column[str]
+
+# After (Mapped 风格 — mypy 正确推断 str)
+class RepositoryModel(Base):
+    current_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # mypy: str
+```
+
+#### 修复前后对比
+
+| 检查项 | 修复前 | 修复后 |
+|--------|--------|--------|
+| mypy 错误数 | **12 errors** in 3 files | **0 errors** |
+| versions.py 中的 cast() | 9 处 `cast(str, v.version)` | 0 处 |
+| versions.py 中的 type: ignore | 4 处 `# type: ignore[assignment]` | 0 处 |
+| pytest | 73 passed | 87 passed |
 
 ---
 
@@ -255,7 +294,7 @@ def _get_redis_client() -> redis.Redis:
 - **Mock Redis**：patch `_get_redis_client()` 返回 `MagicMock`
 - **直接测试 API 函数**：绕过 TestClient，直接调用异步函数并传入 mock 对象
 
-### 6.2 测试用例清单（14 个）— [tests/test_analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/tests/test_analysis_tasks.py)
+### 6.2 测试用例清单（14 → 23 个）— [tests/test_analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/tests/test_analysis_tasks.py)
 
 | 类别 | 测试数 | 覆盖场景 |
 |------|--------|---------|
@@ -263,11 +302,13 @@ def _get_redis_client() -> redis.Redis:
 | query | 4 | pending, completed(100%+知识点数), failure(Exception info 容错), not_found(404) |
 | cancel | 4 | running(revoke succeed), already_completed, already_failed, not_found(404) |
 | redis | 3 | mapping_on_submit(setex), lookup_from_redis, redis_error(degrade) |
+| 去重 | 2 | rejects_duplicate_active_task(409), cancel_clears_active_task_marker |
+| 细粒度取消 | 7 | check_no_flag, check_with_flag_raises, check_redis_error_silenced, cancel_at_scanning/parsing/storing, no_cancellation_completes |
 
 ### 6.3 测试结果
 
 ```
-======================== 14 passed in 0.82s =========================
+96 passed, 9 warnings in 1.22s
 ```
 
 ---
@@ -276,8 +317,9 @@ def _get_redis_client() -> redis.Redis:
 
 | 检查项 | 状态 | 说明 |
 |--------|------|------|
-| Ruff lint | ✅ 通过 | UP017 datetime.UTC、B904 raise from、N806 lowercase、I001 import sort |
-| pytest | ✅ 通过 | **14 passed, 0 failed**（全量 87 passed，0 regression） |
+| Ruff lint | ✅ 通过 | UP045 `Optional[X]` → `X | None` 风格统一 |
+| mypy | ✅ 通过 | **0 errors in 33 source files**（ORM 模型改用 `Mapped` 风格） |
+| pytest | ✅ 通过 | **96 passed, 9 warnings**（全量 96，0 regression） |
 | API 类型对齐 | ✅ 完成 | UUID 统一，response_model 正确 |
 | Docker Compose | ✅ 已有 | celery-worker 服务已定义 |
 
@@ -288,15 +330,39 @@ def _get_redis_client() -> redis.Redis:
 | 文件 | 操作 | 行数变化 |
 |------|------|---------|
 | [tasks/__init__.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/tasks/__init__.py) | 新建 | +57 |
-| [tasks/analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/tasks/analysis_tasks.py) | 新建 | +239 |
-| [api/analysis.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/analysis.py) | 重写 | +264 / -36 |
-| [tests/test_analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/tests/test_analysis_tasks.py) | 新建 | +362 |
+| [tasks/analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/tasks/analysis_tasks.py) | 新建 | +272 |
+| [api/analysis.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/analysis.py) | 重写 | +310 / -36 |
+| [tests/test_analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/tests/test_analysis_tasks.py) | 新建 | +568 |
 | [config.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/config.py) | 修改 | +2 |
 | [pyproject.toml](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/pyproject.toml) | 修改 | +1 |
 
 ---
 
-## 九、待后续工作
+## 九、P1-08 优化项实现
+
+### 9.1 细粒度取消（Redis 取消标志 + 每阶段检查）
+
+**实现方式**：在 `run_analysis` 的 4 个关键阶段（scanning、parsing、analyzing、storing）后各插入 `_check_cancelled()` 调用，从 Redis 读取 `task:{task_id}:cancel` 标志，存在则抛出 `CancelledError` 终止任务。
+
+| 组件 | 文件 | 说明 |
+|------|------|------|
+| `_check_cancelled()` | [tasks/analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/tasks/analysis_tasks.py) | Redis 标志检查，Redis 异常时降级（不中断任务） |
+| `CancelledError` | 同上 | 自定义异常，在 `except` 中设置仓库状态为 `cancelled` |
+| `cancel_task` API | [api/analysis.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/analysis.py) | 设置 `task:{task_id}:cancel` 标志（60s 过期）+ 清理 `active_task` 标记 |
+
+### 9.2 重复提交去重（Redis 活跃任务标记）
+
+**实现方式**：提交任务前检查 `repo:{repository_id}:active_task` 是否存在，存在则返回 409 Conflict；任务提交后写入该标记，取消/完成时清理。
+
+| 组件 | 文件 | 说明 |
+|------|------|------|
+| `submit_analysis` 前置检查 | [api/analysis.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/analysis.py) | `client.get(f"repo:{repo_id}:active_task")` → 存在则 409 |
+| `submit_analysis` 写入标记 | 同上 | `client.setex(f"repo:{repo_id}:active_task", TTL, task_id)` |
+| `cancel_task` 清理标记 | 同上 | `client.delete(f"repo:{repo_id}:active_task")` |
+
+---
+
+## 十、待后续工作
 
 | 任务 | 关联阶段 | 说明 |
 |------|---------|------|
@@ -305,8 +371,6 @@ def _get_redis_client() -> redis.Redis:
 | P3-02 LangGraph Agent | Phase 3 | 接入多 Agent 分析逻辑 |
 | P3-06 Embedding 向量化 | Phase 3 | 接入 pgvector 存储 |
 | P3-07 Meilisearch 索引 | Phase 3 | 接入全文搜索索引 |
-| 细粒度取消 | P1-08 优化 | 每个 phase 检查 Redis 取消标志，支持中断当前阶段 |
-| 重复提交去重 | P1-08 优化 | Redis SETNX 分布式锁，防止同一仓库重复提交 |
 | 集成测试 | P5-02 | 当前为 Mock 测试，Phase 5 补充真实 Redis/Celery 容器测试 |
 
 ---

@@ -14,6 +14,9 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import redis
+
+from codeinsight.config import settings
 from codeinsight.db.session import async_session_factory
 from codeinsight.repositories import AnalysisVersionDAO, RepositoryDAO
 from codeinsight.schemas import AnalysisMode, TaskStatus
@@ -26,6 +29,42 @@ logger = logging.getLogger(__name__)
 def _utcnow() -> str:
     """返回当前 UTC 时间 ISO 字符串"""
     return datetime.now(UTC).isoformat()
+
+
+# ================================================================
+# 取消检查辅助
+# ================================================================
+
+
+def _check_cancelled(task_instance: Any, task_id: str) -> None:
+    """
+    检查 Redis 中是否存在取消标志，存在则抛出 CancelledError 终止任务。
+
+    Args:
+        task_instance: Celery task 实例（self）
+        task_id: Celery 任务 ID
+
+    Raises:
+        CancelledError: 当检测到取消标志时
+    """
+    try:
+        client = redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            decode_responses=True,
+        )
+        cancelled = client.get(f"task:{task_id}:cancel")
+        if cancelled:
+            client.delete(f"task:{task_id}:cancel")
+            logger.info("检测到取消标志，终止任务: task_id=%s", task_id)
+            raise CancelledError(f"Task {task_id} was cancelled by user")
+    except redis.RedisError as exc:
+        logger.warning("Redis 取消检查失败: %s", exc)
+
+
+class CancelledError(Exception):
+    """用户手动取消任务的异常"""
+    pass
 
 
 # ================================================================
@@ -167,6 +206,7 @@ def run_analysis(
     """
     repo_uuid = UUID(repository_id)
     version_tag = f"v{datetime.now(UTC).strftime('%Y%m%d')}-{uuid.uuid4().hex[:7]}"
+    task_id = self.request.id if self else None  # type: ignore[attr-defined]
 
     logger.info("开始分析任务: repo=%s, version=%s, mode=%s", repository_id, version_tag, mode)
 
@@ -178,6 +218,8 @@ def run_analysis(
 
         # ---- Step 2: 扫描文件 ----
         _update_progress(self, TaskStatus.SCANNING, 10.0, 0, total_files)
+        if task_id:
+            _check_cancelled(self, task_id)
 
         # Phase 2: 此处接入 GitPython 文件扫描逻辑
         # scanned_files = scan_repository(repo.path)
@@ -185,21 +227,24 @@ def run_analysis(
 
         # ---- Step 3: AST 解析 ----
         _update_progress(self, TaskStatus.PARSING, 25.0, 0, total_files)
+        if task_id:
+            _check_cancelled(self, task_id)
 
         # Phase 2: 此处接入 Tree-sitter 解析逻辑
         # structures = parse_all_files(scanned_files)
 
         # ---- Step 4: AI 分析 ----
         _update_progress(self, TaskStatus.ANALYZING_MODULES, 50.0, total_files, total_files)
+        if task_id:
+            _check_cancelled(self, task_id)
 
         # Phase 3: 此处接入 LangGraph Agent 分析逻辑
         # knowledge_points = analyze_with_agents(structures, agents)
 
         # ---- Step 5: 存储结果 ----
         _update_progress(self, TaskStatus.STORING, 80.0, total_files, total_files, 0)
-
-        # Phase 3: 此处接入向量存储和全文索引逻辑
-        # await store_knowledge_points(knowledge_points)
+        if task_id:
+            _check_cancelled(self, task_id)
 
         # ---- Step 6: 完成 ----
         _update_progress(self, TaskStatus.COMPLETED, 100.0, total_files, total_files, 0)
@@ -213,6 +258,11 @@ def run_analysis(
             "version_tag": version_tag,
             "status": TaskStatus.COMPLETED.value,
         }
+
+    except CancelledError as exc:
+        logger.info("分析任务被用户取消: version=%s, error=%s", version_tag, exc)
+        asyncio.run(_set_repo_status(repo_uuid, TaskStatus.CANCELLED.value))
+        raise
 
     except Exception as exc:
         logger.exception("分析任务失败: repo=%s, error=%s", repository_id, exc)

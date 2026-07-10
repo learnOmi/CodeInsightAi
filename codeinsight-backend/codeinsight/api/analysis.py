@@ -178,6 +178,19 @@ async def submit_analysis(
     mode = request.mode if request and request.mode else AnalysisMode.FULL
     agents = request.agents if request and request.agents else None
 
+    # 检查是否已有正在运行的任务（防止重复提交）
+    try:
+        client = _get_redis_client()
+        existing_task_id = client.get(f"repo:{repository_id}:active_task")
+        if existing_task_id:
+            logger.warning("仓库已有活跃任务，拒绝重复提交: repo=%s, existing_task=%s", repository_id, existing_task_id)
+            raise HTTPException(
+                status_code=409,
+                detail=f"Repository {repository_id} already has an active task: {existing_task_id}",
+            )
+    except redis.RedisError as exc:
+        logger.warning("Redis 检查失败，允许继续: %s", exc)
+
     # 提交 Celery 任务
     celery_result = run_analysis.delay(
         repository_id=str(repository_id),
@@ -193,6 +206,8 @@ async def submit_analysis(
             str(repository_id),
             ex=_MAPPING_TTL,
         )
+        # 记录仓库的活跃任务 ID（用于去重）
+        client.set(f"repo:{repository_id}:active_task", celery_result.id, ex=_MAPPING_TTL)
     except redis.RedisError as exc:
         logger.warning("Redis 写入映射失败: %s", exc)
 
@@ -280,6 +295,15 @@ async def cancel_task(task_id: str):
 
     if revoked:
         logger.info("任务已取消: task_id=%s", task_id)
+        # 清理 Redis 中的活跃任务标记和取消标志
+        try:
+            client = _get_redis_client()
+            repo_id_raw = client.get(f"task:{task_id}:repo")
+            if repo_id_raw:
+                client.delete(f"repo:{repo_id_raw}:active_task")
+            client.set(f"task:{task_id}:cancel", "1", ex=60)  # 1 分钟过期
+        except redis.RedisError as exc:
+            logger.warning("Redis 清理失败: %s", exc)
         return {"message": f"Task {task_id} cancellation requested"}
     else:
         logger.warning("任务取消请求失败: task_id=%s", task_id)
