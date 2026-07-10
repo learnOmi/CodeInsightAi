@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # 文件上传
     max_repository_path_length: int = 500
 
+    # Celery（开发环境同步执行方便调试）
+    celery_task_always_eager: bool = True
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

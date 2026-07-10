@@ -4,8 +4,8 @@
 提供分析版本的列表、切换和回滚接口。
 """
 
+from typing import cast
 from uuid import UUID
-from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -94,7 +94,7 @@ async def switch_version(
         )
 
     previous_version = cast(str, repo.current_version)
-    setattr(repo, "current_version", version)  # type: ignore[assignment]
+    repo.current_version = version  # type: ignore[assignment]
 
     await db.flush()
     await db.refresh(repo)
