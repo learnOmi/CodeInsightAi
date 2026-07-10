@@ -5,6 +5,7 @@
 """
 
 from uuid import UUID
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from codeinsight.db.session import get_db_session
 from codeinsight.models import RepositoryModel
 from codeinsight.repositories.analysis_version import AnalysisVersionDAO
-from codeinsight.schemas import AnalysisVersion
+from codeinsight.schemas import AnalysisVersion, TaskStatus
 
 router = APIRouter()
 
@@ -45,17 +46,18 @@ async def list_versions(
 
     result = []
     for v in versions:
+        # Cast SQLAlchemy column descriptors to their actual runtime types
         result.append(
             AnalysisVersion(
-                version=v.version,
-                status=v.status,
-                total_files=v.total_files,
-                analyzed_files=v.analyzed_files,
-                knowledge_points_count=v.knowledge_points_count,
-                is_current=(v.version == current_version_tag),
+                version=str(cast(str, v.version)),
+                status=TaskStatus(cast(str, v.status)),
+                total_files=int(cast(int, v.total_files)),
+                analyzed_files=int(cast(int, v.analyzed_files)),
+                knowledge_points_count=int(cast(int, v.knowledge_points_count)),
+                is_current=(str(cast(str, v.version)) == current_version_tag),
                 started_at=str(v.started_at) if v.started_at else None,
                 completed_at=str(v.completed_at) if v.completed_at else None,
-                error_message=v.error_message,
+                error_message=cast(str | None, v.error_message),
                 created_at=str(v.created_at),
             )
         )
@@ -91,8 +93,8 @@ async def switch_version(
             detail=f"Version {version} not found for repository {repository_id}",
         )
 
-    previous_version = repo.current_version
-    repo.current_version = version
+    previous_version = cast(str, repo.current_version)
+    setattr(repo, "current_version", version)  # type: ignore[assignment]
 
     await db.flush()
     await db.refresh(repo)
@@ -133,8 +135,8 @@ async def rollback_version(
             detail=f"Version {version} not found for repository {repository_id}",
         )
 
-    rolled_back_from = repo.current_version
-    repo.current_version = version
+    rolled_back_from = cast(str, repo.current_version)
+    repo.current_version = version  # type: ignore[assignment]
 
     await db.flush()
     await db.refresh(repo)

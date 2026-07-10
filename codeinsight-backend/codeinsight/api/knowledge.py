@@ -68,8 +68,11 @@ async def list_knowledge_points(
 
     total_pages = max(1, (total + page_size - 1) // page_size)
 
+    # Convert ORM models to Pydantic schemas for PaginatedKnowledgePoints
+    items = [KnowledgePoint.model_validate(p) for p in points]
+
     return PaginatedKnowledgePoints(
-        items=points,
+        items=items,
         total=total,
         page=page,
         page_size=page_size,
@@ -110,10 +113,14 @@ async def get_knowledge_stats(
     """
     total_points = await dao.count(db=db, repository_id=repository_id, version=version)
 
+    from codeinsight.schemas import KnowledgeCategory
+
     # 按分类统计
-    by_category: dict[str, int] = {}
-    for cat in ["DP-", "AD-", "AL-", "ET-", "DK-"]:
-        count = await dao.count(db=db, repository_id=repository_id, version=version, category=cat)
+    by_category: dict[KnowledgeCategory, int] = {}
+    for cat in [KnowledgeCategory.DESIGN_PATTERN, KnowledgeCategory.ARCHITECTURE_DECISION,
+                KnowledgeCategory.ALGORITHM, KnowledgeCategory.ENGINEERING_TIP,
+                KnowledgeCategory.DOMAIN_KNOWLEDGE]:
+        count = await dao.count(db=db, repository_id=repository_id, version=version, category=cat.value)
         if count > 0:
             by_category[cat] = count
 

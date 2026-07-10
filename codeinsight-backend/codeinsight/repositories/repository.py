@@ -133,4 +133,4 @@ class RepositoryDAO:
         result = await db.execute(
             select(func.count(RepositoryModel.id)).where(RepositoryModel.path == path)
         )
-        return result.scalar() > 0
+        return (result.scalar() or 0) > 0
