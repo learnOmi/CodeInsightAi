@@ -4,7 +4,7 @@ Celery 应用工厂
 创建并配置 Celery 实例，供 Worker 和 API 层共享。
 """
 
-from celery import Celery
+from celery import Celery  # type: ignore[import-untyped]
 
 from codeinsight.config import settings
 

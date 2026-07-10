@@ -18,7 +18,7 @@ from codeinsight.db.session import async_session_factory
 from codeinsight.repositories import AnalysisVersionDAO, RepositoryDAO
 from codeinsight.schemas import AnalysisMode, TaskStatus
 
-from . import celery_app
+from . import celery_app  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +103,8 @@ async def _do_analysis_setup(
             "started_at": _utcnow(),
         })
 
-        # 更新仓库状态为 analyzing
-        repo.status = TaskStatus.ANALYZING.value
+        # 更新仓库状态为 analyzing（使用字符串字面量，RepositoryModel.status 是 Column[str]）
+        repo.status = "analyzing"
         await db.flush()
         await db.commit()
 

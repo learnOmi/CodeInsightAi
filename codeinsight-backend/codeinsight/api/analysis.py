@@ -8,10 +8,11 @@
 
 import logging
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import UUID
 
 import redis
-from celery.result import AsyncResult
+from celery.result import AsyncResult  # type: ignore[import-untyped]
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +36,9 @@ router = APIRouter()
 _MAPPING_TTL = 86400 * 7  # 映射保留 7 天
 
 
+_redis_client: redis.Redis | None = None
+
+
 def _get_redis_client() -> redis.Redis:
     """
     惰性创建并缓存 Redis 客户端（避免每次请求新建连接）
@@ -42,13 +46,14 @@ def _get_redis_client() -> redis.Redis:
     Returns:
         Redis 客户端实例
     """
-    if not hasattr(_get_redis_client, "_cache"):
-        _get_redis_client._cache = redis.Redis(  # type: ignore[attr-defined]
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.Redis(
             host=settings.redis_host,
             port=settings.redis_port,
             decode_responses=True,
         )
-    return _get_redis_client._cache  # type: ignore[attr-defined]
+    return cast(redis.Redis, _redis_client)
 
 
 def _utcnow() -> str:
@@ -70,9 +75,9 @@ def _lookup_repository(task_id: str) -> UUID:
     """
     try:
         client = _get_redis_client()
-        repo_id_str = client.get(f"task:{task_id}:repo")
-        if repo_id_str:
-            return UUID(repo_id_str)
+        raw: Any = client.get(f"task:{task_id}:repo")
+        if raw:
+            return UUID(raw)
     except redis.RedisError:
         logger.warning("Redis 查询失败，使用占位 repository_id: task_id=%s", task_id)
     return UUID("00000000-0000-0000-0000-000000000000")
@@ -98,9 +103,9 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
     elif result.state == "STARTED":
         # 从 meta 中获取实际进度
         meta = result.info or {}
-        step = meta.get("current_step")
+        step: str | None = meta.get("current_step")
         try:
-            status = TaskStatus(step)
+            status = TaskStatus(step) if step else TaskStatus.SCANNING
         except ValueError:
             status = TaskStatus.SCANNING
     elif result.state == "SUCCESS":
@@ -123,9 +128,9 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
     )
 
     submitted_at = _utcnow()
-    started_at = meta.get("started_at") if status != TaskStatus.PENDING else None
+    started_at: str | None = meta.get("started_at") if status != TaskStatus.PENDING else None
 
-    error_message = None
+    error_message: str | None = None
     if result.state == "FAILURE":
         err_info = result.info
         error_message = str(err_info) if err_info else None
@@ -203,7 +208,7 @@ async def submit_analysis(
             current_step=TaskStatus.PENDING,
             percent=0.0,
             files_processed=0,
-            files_total=repo.file_count,
+            files_total=int(repo.file_count),
             knowledge_points_found=0,
         ),
         submitted_at=_utcnow(),

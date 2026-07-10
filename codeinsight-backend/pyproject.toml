@@ -54,3 +54,13 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.mypy]
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+
+[dependency-groups]
+dev = [
+]
