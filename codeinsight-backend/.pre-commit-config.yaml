@@ -4,4 +4,16 @@ repos:
     hooks:
       - id: ruff
         args: ["--fix"]
+      - id: ruff
+        name: ruff-check
+        args: ["check"]
       - id: ruff-format
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy codeinsight/
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
