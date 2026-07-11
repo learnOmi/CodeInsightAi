@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from codeinsight.parsers.typescript_parser import TypeScriptParser
-from codeinsight.parsers.javascript_parser import JavaScriptParser
-from codeinsight.parsers.java_parser import JavaParser
-from codeinsight.parsers.go_parser import GoParser
 from codeinsight.parsers.base import ASTNodeList
+from codeinsight.parsers.go_parser import GoParser
+from codeinsight.parsers.java_parser import JavaParser
+from codeinsight.parsers.javascript_parser import JavaScriptParser
+from codeinsight.parsers.typescript_parser import TypeScriptParser
 
 
 @pytest.fixture

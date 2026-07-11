@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from codeinsight.parsers.python_parser import PythonParser
 from codeinsight.parsers.base import ASTNode, ASTNodeList
+from codeinsight.parsers.python_parser import PythonParser
 
 
 @pytest.fixture
