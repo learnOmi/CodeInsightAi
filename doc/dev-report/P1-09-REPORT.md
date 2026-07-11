@@ -116,9 +116,50 @@ fastapi.exceptions.ResponseValidationError: 3 validation errors:
   'updatedAt': '2026-07-09T18:43:21.135017+00:00'}]
 ```
 
+### 3.1 SQLAlchemy ORM `Mapped` 标注类型修正（mypy 9 errors → 0）
+
+**问题**：Schema 类型对齐后，`uv run mypy codeinsight` 发现 9 个类型错误，核心原因是两处不一致：
+
+1. **Schema 改为 `UUID`/`datetime` 后**，API 代码中构造 Pydantic 模型时仍传入 `str`（如 `str(repo_id)`、`str(v.created_at)`）
+2. **ORM 模型使用 `Mapped[DateTime]`/`Mapped[UUID]`**，这是 SQLAlchemy **列类型**而非 Python 原生类型，违反了 `Mapped` 的语义约定
+
+**根因**：SQLAlchemy 2.0 的 `Mapped[T]` 标注应该使用 **Python 原生类型**，而非 SQLAlchemy 列类型：
+
+| 错误写法 | 正确写法 |
+|----------|---------|
+| `Mapped[DateTime]`（SQLAlchemy 列类型） | `Mapped[datetime]`（Python 原生类型） |
+| `Mapped[UUID]`（SQLAlchemy 列类型） | `Mapped[uuid.UUID]`（Python 原生类型） |
+
+**解决方案**：
+
+- 4 个 ORM 模型文件：`Mapped[DateTime]` → `Mapped[datetime]`，`Mapped[UUID]` → `Mapped[uuid.UUID]`
+- API 代码：移除不必要的 `str()` 包装，直接传递原生 `UUID`/`datetime` 对象
+- `_utcnow()` 函数：返回值从 `str` 改为 `datetime`
+
+#### 修改清单
+
+| 文件 | 改动 |
+|------|------|
+| [models/repository.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/repository.py) | `Mapped[DateTime]` → `Mapped[datetime]`（3 处：created_at, updated_at, last_analyzed_at） |
+| [models/analysis_version.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/analysis_version.py) | `Mapped[DateTime]` → `Mapped[datetime]`（4 处：started_at, completed_at, created_at） |
+| [models/knowledge_point.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/knowledge_point.py) | `Mapped[DateTime]` → `Mapped[datetime]`（2 处：created_at, updated_at） |
+| [models/file.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/file.py) | `Mapped[DateTime]` → `Mapped[datetime]`（2 处：created_at, updated_at） |
+| [api/versions.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/versions.py) | `str(v.created_at)` → `v.created_at`（传递原生 datetime） |
+| [api/analysis.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/analysis.py) | `_utcnow()` 返回 `datetime`；移除 `str(repo_id)`、`str(value)` 包装；`meta["started_at"]` 从 ISO 字符串解析回 `datetime` |
+| [tests/test_analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/tests/test_analysis_tasks.py) | `result.repository_id == repo_uuid` → `str(result.repository_id) == repo_uuid` |
+| [repositories/analysis_version.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/repositories/analysis_version.py) | `session.add(version)` → `session.add_all(...)` |
+
+#### 验证结果
+
+```
+ruff check      → ✅ All checks passed!
+mypy            → ✅ Success: no issues found in 33 source files
+pytest          → ✅ 96 passed, 11 warnings
+```
+
 ---
 
-### 3.1 API 客户端层
+### 3.2 API 客户端层
 
 | 函数 | 用途 | 端点 |
 |------|------|------|
@@ -132,7 +173,7 @@ fastapi.exceptions.ResponseValidationError: 3 validation errors:
 
 **错误处理**：自定义 `APIError` 类，包含 `status` 和 `message`，便于组件根据 HTTP 状态码展示不同提示。
 
-### 3.2 React Query Hooks
+### 3.3 React Query Hooks
 
 | Hook | 功能 | 特性 |
 |------|------|------|
@@ -143,7 +184,7 @@ fastapi.exceptions.ResponseValidationError: 3 validation errors:
 | `useTaskStatus()` | 任务状态轮询 | 每 2 秒自动刷新 |
 | `useCancelTask()` | 取消任务 | 清理 Redis 取消标志 |
 
-### 3.3 UI 组件
+### 3.4 UI 组件
 
 #### RepoForm — 添加仓库表单
 
@@ -176,7 +217,7 @@ fastapi.exceptions.ResponseValidationError: 3 validation errors:
 | 加载状态 | 加载动画 |
 | 空状态 | 无数据提示 |
 
-### 3.4 页面组装
+### 3.5 页面组装
 
 `repositories/page.tsx` 整合所有组件：
 - 页面标题 + "添加仓库"按钮
@@ -214,13 +255,22 @@ fastapi.exceptions.ResponseValidationError: 3 validation errors:
 | src/components/.gitkeep | 删除 | - | 占位文件 |
 | src/hooks/.gitkeep | 删除 | - | 占位文件 |
 | src/store/.gitkeep | 删除 | - | 占位文件 |
-| **后端 Schema 修复** | | | |
+| **后端 Schema 修复（3.0）** | | | |
 | [schemas/repository.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/schemas/repository.py) | 修改 | +14 / -3 | `id`/`created_at`/`updated_at` → UUID/datetime + field_serializer |
 | [schemas/file.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/schemas/file.py) | 修改 | +14 / -3 | 同上 |
 | [schemas/knowledge.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/schemas/knowledge.py) | 修改 | +16 / -3 | 同上 |
 | [schemas/analysis.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/schemas/analysis.py) | 修改 | +20 / -5 | `repository_id`/时间字段 → UUID/datetime + field_serializer |
 | [tests/test_knowledge_points.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/tests/test_knowledge_points.py) | 修改 | +10 / -10 | mock UUID 改用 `str(uuid4())` |
 | [generated.ts](file:///c:/Users/Administrator/CodeInsightAi/packages/shared/src/generated.ts) | 重新生成 | — | OpenAPI spec 更新 |
+| **后端 ORM 类型修正（3.1）** | | | |
+| [models/repository.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/repository.py) | 修改 | - | `Mapped[DateTime]` → `Mapped[datetime]` (3 处) |
+| [models/analysis_version.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/analysis_version.py) | 修改 | - | `Mapped[DateTime]` → `Mapped[datetime]` (4 处) |
+| [models/knowledge_point.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/knowledge_point.py) | 修改 | - | `Mapped[DateTime]` → `Mapped[datetime]` (2 处) |
+| [models/file.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/models/file.py) | 修改 | - | `Mapped[DateTime]` → `Mapped[datetime]` (2 处) |
+| [api/versions.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/versions.py) | 修改 | - | 移除 `str()` 包装，传递原生 datetime |
+| [api/analysis.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/api/analysis.py) | 修改 | - | `_utcnow()` 返回 `datetime`；移除 `str()` 包装 |
+| [tests/test_analysis_tasks.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/tests/test_analysis_tasks.py) | 修改 | - | `str(result.repository_id) == repo_uuid` |
+| [repositories/analysis_version.py](file:///c:/Users/Administrator/CodeInsightAi/codeinsight-backend/codeinsight/repositories/analysis_version.py) | 修改 | - | `session.add_all(...)` |
 
 ---
 
@@ -232,6 +282,10 @@ fastapi.exceptions.ResponseValidationError: 3 validation errors:
 | TypeScript | ✅ 通过 | `tsc --noEmit` 无错误 |
 | Tailwind CSS | ✅ 通过 | v4 配置正确 |
 | React Query | ✅ 通过 | 缓存、刷新、失效逻辑正确 |
+| **后端 CI** | | |
+| Ruff check | ✅ 通过 | All checks passed! |
+| mypy | ✅ 通过 | Success: no issues found in 33 source files |
+| pytest | ✅ 通过 | 96 passed, 11 warnings |
 
 ---
 

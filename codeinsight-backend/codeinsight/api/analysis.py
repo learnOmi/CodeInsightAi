@@ -56,9 +56,9 @@ def _get_redis_client() -> redis.Redis:
     return cast(redis.Redis, _redis_client)
 
 
-def _utcnow() -> str:
-    """返回当前 UTC 时间 ISO 字符串"""
-    return datetime.now(UTC).isoformat()
+def _utcnow() -> datetime:
+    """返回当前 UTC 时间"""
+    return datetime.now(UTC)
 
 
 def _lookup_repository(task_id: str) -> UUID:
@@ -128,7 +128,10 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
     )
 
     submitted_at = _utcnow()
-    started_at: str | None = meta.get("started_at") if status != TaskStatus.PENDING else None
+    started_at_raw = meta.get("started_at") if status != TaskStatus.PENDING else None
+    started_at: datetime | None = (
+        datetime.fromisoformat(started_at_raw) if started_at_raw else None
+    )
 
     error_message: str | None = None
     if result.state == "FAILURE":
@@ -137,7 +140,7 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
 
     return AnalysisTask(
         task_id=task_id,
-        repository_id=str(repo_id),
+        repository_id=repo_id,
         status=status,
         mode=mode,
         progress=progress,
@@ -216,7 +219,7 @@ async def submit_analysis(
     # 立即返回初始任务信息
     task = AnalysisTask(
         task_id=celery_result.id,
-        repository_id=str(repository_id),
+        repository_id=repository_id,
         status=TaskStatus.PENDING,
         mode=mode,
         progress=AnalysisProgress(

@@ -5,8 +5,9 @@ Repository ORM 模型
 """
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import UUID, DateTime, Integer, String
+from sqlalchemy import UUID, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -32,15 +33,13 @@ class RepositoryModel(Base):
     line_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     knowledge_points_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     language_distribution: Mapped[dict] = mapped_column(JSONB, nullable=False, default=lambda: {})
-    created_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default=func.now()
     )
-    updated_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    updated_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default=func.now(), onupdate=func.now()
     )
-    last_analyzed_at: Mapped[DateTime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_analyzed_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     def __repr__(self) -> str:
         return f"<RepositoryModel(id={self.id}, name={self.name})>"

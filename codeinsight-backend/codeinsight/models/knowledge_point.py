@@ -5,9 +5,10 @@ KnowledgePoint ORM 模型
 """
 
 import uuid
+from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import UUID, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import UUID, Float, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -47,12 +48,8 @@ class KnowledgePointModel(Base):
     knowledge_metadata: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, default=lambda: {}
     )
-    created_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    updated_at: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
 
     def __repr__(self) -> str:
         return f"<KnowledgePointModel(id={self.id}, title={self.title})>"

@@ -53,10 +53,10 @@ async def list_versions(
                 analyzed_files=v.analyzed_files,
                 knowledge_points_count=v.knowledge_points_count,
                 is_current=(v.version == current_version_tag),
-                started_at=str(v.started_at) if v.started_at else None,
-                completed_at=str(v.completed_at) if v.completed_at else None,
+                started_at=v.started_at,
+                completed_at=v.completed_at,
                 error_message=v.error_message,
-                created_at=str(v.created_at),
+                created_at=v.created_at,
             )
         )
 
