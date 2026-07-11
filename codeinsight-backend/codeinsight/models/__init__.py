@@ -5,6 +5,7 @@ ORM 模型模块
 """
 
 from .analysis_version import AnalysisVersionModel
+from .ast_node import AstNodeModel
 from .file import FileModel
 from .knowledge_point import KnowledgePointModel
 from .repository import RepositoryModel
@@ -12,6 +13,7 @@ from .repository import RepositoryModel
 __all__ = [
     "RepositoryModel",
     "FileModel",
+    "AstNodeModel",
     "KnowledgePointModel",
     "AnalysisVersionModel",
 ]

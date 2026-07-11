@@ -517,21 +517,21 @@ def test_run_analysis_cancellation_at_parsing_phase():
     mock_scan_result.files = []
 
     with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
-         patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
-         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
-         patch("codeinsight.scanners.git_scanner.GitScanner") as mock_scanner_cls:
-        # scanning 通过，parsing 阶段取消
-        mock_check.side_effect = [None, CancelledError("cancelled")]
+             patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
+             patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
+             patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls:
+            # scanning 通过，parsing 阶段取消
+            mock_check.side_effect = [None, CancelledError("cancelled")]
 
-        mock_scanner_instance = MagicMock()
-        mock_scanner_instance.scan.return_value = mock_scan_result
-        mock_scanner_cls.return_value = mock_scanner_instance
+            mock_scanner_instance = MagicMock()
+            mock_scanner_instance.scan.return_value = mock_scan_result
+            mock_scanner_cls.return_value = mock_scanner_instance
 
-        with pytest.raises(CancelledError):
-            run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
+            with pytest.raises(CancelledError):
+                run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
 
-        assert mock_check.call_count == 2
-        assert mock_progress.call_count >= 2
+            assert mock_check.call_count == 2
+            assert mock_progress.call_count >= 2
 
 
 def test_run_analysis_cancellation_at_storing_phase():
@@ -550,21 +550,21 @@ def test_run_analysis_cancellation_at_storing_phase():
     mock_scan_result.files = []
 
     with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
-         patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
-         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
-         patch("codeinsight.scanners.git_scanner.GitScanner") as mock_scanner_cls:
-        # scanning, parsing, analyzing 通过，storing 阶段取消
-        mock_check.side_effect = [None, None, None, CancelledError("cancelled")]
+             patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
+             patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
+             patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls:
+            # scanning, parsing, analyzing 通过，storing 阶段取消
+            mock_check.side_effect = [None, None, None, CancelledError("cancelled")]
 
-        mock_scanner_instance = MagicMock()
-        mock_scanner_instance.scan.return_value = mock_scan_result
-        mock_scanner_cls.return_value = mock_scanner_instance
+            mock_scanner_instance = MagicMock()
+            mock_scanner_instance.scan.return_value = mock_scan_result
+            mock_scanner_cls.return_value = mock_scanner_instance
 
-        with pytest.raises(CancelledError):
-            run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
+            with pytest.raises(CancelledError):
+                run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
 
-        assert mock_check.call_count == 4
-        assert mock_progress.call_count >= 4
+            assert mock_check.call_count == 4
+            assert mock_progress.call_count >= 4
 
 
 def test_run_analysis_no_cancellation_completes_normally():
@@ -585,7 +585,7 @@ def test_run_analysis_no_cancellation_completes_normally():
     with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
          patch("codeinsight.tasks.analysis_tasks._update_progress"), \
          patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
-         patch("codeinsight.scanners.git_scanner.GitScanner") as mock_scanner_cls:
+         patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls:
         mock_check.return_value = None  # 无取消
 
         mock_scanner_instance = MagicMock()

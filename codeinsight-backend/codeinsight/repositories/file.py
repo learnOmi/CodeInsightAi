@@ -139,3 +139,87 @@ class FileDAO:
             .where(FileModel.repository_id == repository_id, FileModel.content_hash == content_hash)
         )
         return result.scalar_one_or_none()
+
+    async def create_many(self, db: AsyncSession, repository_id: UUID, files_data: list[dict]) -> list[FileModel]:
+        """
+        批量创建文件
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            files_data: 文件数据列表，每项包含 path, absolute_path, language, line_count, size_bytes, content_hash
+
+        Returns:
+            创建的 FileModel 列表
+        """
+        file_objects = [
+            FileModel(
+                repository_id=repository_id,
+                **data,
+            )
+            for data in files_data
+        ]
+        db.add_all(file_objects)
+        await db.flush()
+        for obj in file_objects:
+            await db.refresh(obj)
+        return file_objects
+
+    async def delete_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:
+        """
+        删除指定仓库的所有文件
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+
+        Returns:
+            删除的记录数
+        """
+        result = await db.execute(
+            select(FileModel).where(FileModel.repository_id == repository_id)
+        )
+        files = result.scalars().all()
+        for file_obj in files:
+            await db.delete(file_obj)
+        await db.flush()
+        return len(files)
+
+    async def get_by_repository(self, db: AsyncSession, repository_id: UUID) -> list[FileModel]:
+        """
+        获取指定仓库的所有文件
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+
+        Returns:
+            FileModel 列表
+        """
+        result = await db.execute(
+            select(FileModel).where(FileModel.repository_id == repository_id).order_by(FileModel.path)
+        )
+        return list(result.scalars().all())
+
+    async def get_all(self, db: AsyncSession, repository_id: UUID, skip: int = 0, limit: int = 100) -> list[FileModel]:
+        """
+        分页获取指定仓库的文件列表
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            skip: 跳过的记录数
+            limit: 返回的记录数上限
+
+        Returns:
+            FileModel 列表
+        """
+        result = await db.execute(
+            select(FileModel)
+            .where(FileModel.repository_id == repository_id)
+            .offset(skip)
+            .limit(limit)
+            .order_by(FileModel.path)
+        )
+        return list(result.scalars().all())
+

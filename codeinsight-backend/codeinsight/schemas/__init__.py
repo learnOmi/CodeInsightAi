@@ -13,6 +13,7 @@ from .analysis import (
     AnalyzeRequest,
     TaskStatus,
 )
+from .ast_node import AstNode, AstNodeCreate
 from .file import File, FileCreate, FileUpdate
 from .knowledge import (
     CallChainNode,
@@ -42,6 +43,9 @@ __all__ = [
     "File",
     "FileCreate",
     "FileUpdate",
+    # ast_node
+    "AstNode",
+    "AstNodeCreate",
     # repository
     "Repository",
     "RepositoryCreate",
