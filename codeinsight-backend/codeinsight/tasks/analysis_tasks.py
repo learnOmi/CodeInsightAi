@@ -221,9 +221,17 @@ def run_analysis(
         if task_id:
             _check_cancelled(self, task_id)
 
-        # Phase 2: 此处接入 GitPython 文件扫描逻辑
-        # scanned_files = scan_repository(repo.path)
-        # total_files = len(scanned_files)
+        # Phase 2: GitPython 文件扫描
+        from codeinsight.scanners.git_scanner import GitScanner
+
+        repo_dao = RepositoryDAO()
+        repo = asyncio.run(repo_dao.get_by_id(async_session_factory(), repo_uuid))
+        if repo is not None:
+            scanner = GitScanner(repo.path)
+            scan_result = scanner.scan()
+            total_files = scan_result.total_count
+            logger.info("扫描完成: repo=%s, files=%d, lines=%d", repo.path, total_files, scan_result.total_lines)
+            logger.info("语言分布: %s", scan_result.language_distribution)
 
         # ---- Step 3: AST 解析 ----
         _update_progress(self, TaskStatus.PARSING, 25.0, 0, total_files)

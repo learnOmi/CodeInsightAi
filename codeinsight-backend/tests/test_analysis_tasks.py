@@ -510,11 +510,22 @@ def test_run_analysis_cancellation_at_parsing_phase():
     mock_self = MagicMock()
     mock_self.request.id = "cancel-at-parsing"
 
+    mock_scan_result = MagicMock()
+    mock_scan_result.total_count = 10
+    mock_scan_result.total_lines = 100
+    mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
+    mock_scan_result.files = []
+
     with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
          patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
-         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check:
+         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
+         patch("codeinsight.scanners.git_scanner.GitScanner") as mock_scanner_cls:
         # scanning 通过，parsing 阶段取消
         mock_check.side_effect = [None, CancelledError("cancelled")]
+
+        mock_scanner_instance = MagicMock()
+        mock_scanner_instance.scan.return_value = mock_scan_result
+        mock_scanner_cls.return_value = mock_scanner_instance
 
         with pytest.raises(CancelledError):
             run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
@@ -532,11 +543,22 @@ def test_run_analysis_cancellation_at_storing_phase():
     mock_self = MagicMock()
     mock_self.request.id = "cancel-at-storing"
 
+    mock_scan_result = MagicMock()
+    mock_scan_result.total_count = 10
+    mock_scan_result.total_lines = 100
+    mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
+    mock_scan_result.files = []
+
     with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
          patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
-         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check:
+         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
+         patch("codeinsight.scanners.git_scanner.GitScanner") as mock_scanner_cls:
         # scanning, parsing, analyzing 通过，storing 阶段取消
         mock_check.side_effect = [None, None, None, CancelledError("cancelled")]
+
+        mock_scanner_instance = MagicMock()
+        mock_scanner_instance.scan.return_value = mock_scan_result
+        mock_scanner_cls.return_value = mock_scanner_instance
 
         with pytest.raises(CancelledError):
             run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
@@ -554,10 +576,21 @@ def test_run_analysis_no_cancellation_completes_normally():
     mock_self = MagicMock()
     mock_self.request.id = "normal-task"
 
+    mock_scan_result = MagicMock()
+    mock_scan_result.total_count = 10
+    mock_scan_result.total_lines = 100
+    mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
+    mock_scan_result.files = []
+
     with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
          patch("codeinsight.tasks.analysis_tasks._update_progress"), \
-         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check:
+         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
+         patch("codeinsight.scanners.git_scanner.GitScanner") as mock_scanner_cls:
         mock_check.return_value = None  # 无取消
+
+        mock_scanner_instance = MagicMock()
+        mock_scanner_instance.scan.return_value = mock_scan_result
+        mock_scanner_cls.return_value = mock_scanner_instance
 
         result = run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
 
