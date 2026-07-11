@@ -9,13 +9,12 @@ P2-03 阶段接入：
 """
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
-
-from codeinsight.models import AnalysisVersionModel, RepositoryModel
 
 import redis
 
@@ -69,6 +68,7 @@ def _check_cancelled(task_instance: Any, task_id: str) -> None:
 
 class CancelledError(Exception):
     """用户手动取消任务的异常"""
+
     pass
 
 
@@ -137,15 +137,18 @@ async def _do_analysis_setup(
         total_files = 0  # Phase 2: GitPython 扫描
 
         # 创建分析版本记录
-        version = await version_dao.create(db, {
-            "repository_id": repository_id,
-            "version": version_tag,
-            "status": TaskStatus.PENDING.value,
-            "total_files": total_files,
-            "analyzed_files": 0,
-            "knowledge_points_count": 0,
-            "started_at": _utcnow(),
-        })
+        version = await version_dao.create(
+            db,
+            {
+                "repository_id": repository_id,
+                "version": version_tag,
+                "status": TaskStatus.PENDING.value,
+                "total_files": total_files,
+                "analyzed_files": 0,
+                "knowledge_points_count": 0,
+                "started_at": _utcnow(),
+            },
+        )
 
         # 更新仓库状态为 analyzing（使用字符串字面量，RepositoryModel.status 是 Column[str]）
         repo.status = "analyzing"
@@ -299,19 +302,21 @@ async def _parse_and_store_ast(repo_uuid: UUID, scan_result: Any) -> None:
                 nodes_data = []
                 for node in ast_nodes:
                     parent_id = getattr(node, "parent_id", None)
-                    nodes_data.append({
-                        "repository_id": repo_uuid,
-                        "file_id": file_id,
-                        "node_type": node.node_type,
-                        "name": node.name,
-                        "start_line": node.start_line,
-                        "end_line": node.end_line,
-                        "start_column": node.start_column,
-                        "end_column": node.end_column,
-                        "parent_node_id": parent_id,
-                        "file_path": node.file_path,
-                        "language": node.language,
-                    })
+                    nodes_data.append(
+                        {
+                            "repository_id": repo_uuid,
+                            "file_id": file_id,
+                            "node_type": node.node_type,
+                            "name": node.name,
+                            "start_line": node.start_line,
+                            "end_line": node.end_line,
+                            "start_column": node.start_column,
+                            "end_column": node.end_column,
+                            "parent_node_id": parent_id,
+                            "file_path": node.file_path,
+                            "language": node.language,
+                        }
+                    )
                 if nodes_data:
                     await ast_dao.create_many(db, nodes_data)
                     parsed_count += len(nodes_data)
@@ -389,20 +394,24 @@ def run_analysis(
             logger.info("语言分布: %s", scan_result.language_distribution)
 
             # 更新分析版本：同步扫描后的真实文件数和状态
-            asyncio.run(_update_analysis_version(
-                version_id,
-                TaskStatus.SCANNING,
-                total_files=total_files,
-            ))
+            asyncio.run(
+                _update_analysis_version(
+                    version_id,
+                    TaskStatus.SCANNING,
+                    total_files=total_files,
+                )
+            )
 
             # 更新仓库统计信息
-            asyncio.run(_update_repository_stats(
-                repo_uuid,
-                total_files=total_files,
-                total_lines=scan_result.total_lines,
-                language_distribution=scan_result.language_distribution,
-                current_version=version_tag,
-            ))
+            asyncio.run(
+                _update_repository_stats(
+                    repo_uuid,
+                    total_files=total_files,
+                    total_lines=scan_result.total_lines,
+                    language_distribution=scan_result.language_distribution,
+                    current_version=version_tag,
+                )
+            )
         else:
             logger.error("仓库不存在，终止扫描: repo=%s", repo_uuid)
             raise ValueError(f"Repository {repo_uuid} not found for scanning")
@@ -410,14 +419,16 @@ def run_analysis(
         # Phase 2: 存储扫描结果到 files 表
         files_data = []
         for scanned_file in scan_result.files:
-            files_data.append({
-                "path": scanned_file.path,
-                "absolute_path": scanned_file.absolute_path,
-                "language": scanned_file.language,
-                "line_count": scanned_file.line_count,
-                "size_bytes": scanned_file.size_bytes,
-                "content_hash": scanned_file.content_hash,
-            })
+            files_data.append(
+                {
+                    "path": scanned_file.path,
+                    "absolute_path": scanned_file.absolute_path,
+                    "language": scanned_file.language,
+                    "line_count": scanned_file.line_count,
+                    "size_bytes": scanned_file.size_bytes,
+                    "content_hash": scanned_file.content_hash,
+                }
+            )
         asyncio.run(_store_files_to_db(repo_uuid, files_data))
 
         # ---- Step 3: AST 解析 ----
@@ -426,10 +437,12 @@ def run_analysis(
             _check_cancelled(self, task_id)
 
         # 更新分析版本状态为 parsing
-        asyncio.run(_update_analysis_version(
-            version_id,
-            TaskStatus.PARSING,
-        ))
+        asyncio.run(
+            _update_analysis_version(
+                version_id,
+                TaskStatus.PARSING,
+            )
+        )
 
         # Phase 2: AST 解析并存储到 ast_nodes 表
         asyncio.run(_parse_and_store_ast(repo_uuid, scan_result))
@@ -440,11 +453,13 @@ def run_analysis(
             _check_cancelled(self, task_id)
 
         # 更新分析版本状态为 analyzing_modules
-        asyncio.run(_update_analysis_version(
-            version_id,
-            TaskStatus.ANALYZING_MODULES,
-            analyzed_files=total_files,
-        ))
+        asyncio.run(
+            _update_analysis_version(
+                version_id,
+                TaskStatus.ANALYZING_MODULES,
+                analyzed_files=total_files,
+            )
+        )
 
         # Phase 3: 此处接入 LangGraph Agent 分析逻辑
         # knowledge_points = analyze_with_agents(structures, agents)
@@ -456,26 +471,30 @@ def run_analysis(
             _check_cancelled(self, task_id)
 
         # 更新分析版本状态为 storing
-        asyncio.run(_update_analysis_version(
-            version_id,
-            TaskStatus.STORING,
-            analyzed_files=total_files,
-            knowledge_points_count=knowledge_points_count,
-        ))
+        asyncio.run(
+            _update_analysis_version(
+                version_id,
+                TaskStatus.STORING,
+                analyzed_files=total_files,
+                knowledge_points_count=knowledge_points_count,
+            )
+        )
 
         # ---- Step 6: 完成 ----
         completed_at = _utcnow()
         _update_progress(self, TaskStatus.COMPLETED, 100.0, total_files, total_files, knowledge_points_count)
 
         # 持久化最终状态到数据库
-        asyncio.run(_update_analysis_version(
-            version_id,
-            TaskStatus.COMPLETED,
-            total_files=total_files,
-            analyzed_files=total_files,
-            knowledge_points_count=knowledge_points_count,
-            completed_at=completed_at,
-        ))
+        asyncio.run(
+            _update_analysis_version(
+                version_id,
+                TaskStatus.COMPLETED,
+                total_files=total_files,
+                analyzed_files=total_files,
+                knowledge_points_count=knowledge_points_count,
+                completed_at=completed_at,
+            )
+        )
         asyncio.run(_set_repo_status(repo_uuid, TaskStatus.COMPLETED.value))
 
         logger.info("分析任务完成: version=%s", version_tag)
@@ -489,29 +508,29 @@ def run_analysis(
     except CancelledError as exc:
         logger.info("分析任务被用户取消: version=%s, error=%s", version_tag, exc)
         # 持久化取消状态到数据库
-        try:
-            asyncio.run(_update_analysis_version(
-                version_id,
-                TaskStatus.CANCELLED,
-                completed_at=_utcnow(),
-            ))
-        except Exception:
-            pass  # version_id 可能未初始化，静默处理
+        with contextlib.suppress(Exception):  # version_id 可能未初始化，静默处理
+            asyncio.run(
+                _update_analysis_version(
+                    version_id,
+                    TaskStatus.CANCELLED,
+                    completed_at=_utcnow(),
+                )
+            )
         asyncio.run(_set_repo_status(repo_uuid, TaskStatus.CANCELLED.value))
         raise
 
     except Exception as exc:
         logger.exception("分析任务失败: repo=%s, error=%s", repository_id, exc)
         # 持久化失败状态到数据库
-        try:
-            asyncio.run(_update_analysis_version(
-                version_id,
-                TaskStatus.FAILED,
-                completed_at=_utcnow(),
-                error_message=str(exc),
-            ))
-        except Exception:
-            pass  # version_id 可能未初始化，静默处理
+        with contextlib.suppress(Exception):  # version_id 可能未初始化，静默处理
+            asyncio.run(
+                _update_analysis_version(
+                    version_id,
+                    TaskStatus.FAILED,
+                    completed_at=_utcnow(),
+                    error_message=str(exc),
+                )
+            )
         asyncio.run(_set_repo_status(repo_uuid, TaskStatus.FAILED.value))
 
         raise

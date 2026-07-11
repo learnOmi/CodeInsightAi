@@ -67,4 +67,5 @@ warn_unused_configs = true
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.6.0",
 ]

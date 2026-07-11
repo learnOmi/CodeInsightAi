@@ -43,9 +43,7 @@ class AnalysisVersionDAO:
         Returns:
             AnalysisVersionModel 实例，不存在则返回 None
         """
-        result = await db.execute(
-            select(AnalysisVersionModel).where(AnalysisVersionModel.id == version_id)
-        )
+        result = await db.execute(select(AnalysisVersionModel).where(AnalysisVersionModel.id == version_id))
         return result.scalar_one_or_none()
 
     async def list_by_repository(
@@ -94,8 +92,7 @@ class AnalysisVersionDAO:
             AnalysisVersionModel 实例，不存在则返回 None
         """
         result = await db.execute(
-            select(AnalysisVersionModel)
-            .where(
+            select(AnalysisVersionModel).where(
                 AnalysisVersionModel.repository_id == repository_id,
                 AnalysisVersionModel.version == version_tag,
             )

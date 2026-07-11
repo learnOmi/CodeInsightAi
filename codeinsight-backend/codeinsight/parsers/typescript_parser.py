@@ -19,6 +19,7 @@ _import_error = None
 try:
     from tree_sitter import Language, Parser
     from tree_sitter_typescript import language_typescript as typescript_language
+
     TREE_SITTER_AVAILABLE = True
     logger.info("tree-sitter-typescript 导入成功")
 except ImportError as exc:
@@ -45,8 +46,7 @@ class TypeScriptParser(LanguageParser):
     def __init__(self) -> None:
         if not TREE_SITTER_AVAILABLE:
             raise ImportError(
-                f"tree-sitter 不可用，请安装 tree-sitter 和 tree-sitter-typescript. "
-                f"Error: {_import_error}"
+                f"tree-sitter 不可用，请安装 tree-sitter 和 tree-sitter-typescript. Error: {_import_error}"
             )
         self._language = Language(typescript_language())
         self._parser = Parser(self._language)

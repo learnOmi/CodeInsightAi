@@ -27,9 +27,7 @@ class AstNodeModel(Base):
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False
     )
-    file_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("files.id", ondelete="CASCADE"), nullable=False
-    )
+    file_id: Mapped[uuid.UUID] = mapped_column(UUID, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
     node_type: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     start_line: Mapped[int] = mapped_column(Integer, nullable=False)

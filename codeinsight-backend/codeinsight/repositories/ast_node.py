@@ -94,9 +94,7 @@ class AstNodeDAO:
             AstNodeModel 列表
         """
         result = await db.execute(
-            select(AstNodeModel)
-            .where(AstNodeModel.repository_id == repository_id)
-            .order_by(AstNodeModel.start_line)
+            select(AstNodeModel).where(AstNodeModel.repository_id == repository_id).order_by(AstNodeModel.start_line)
         )
         return list(result.scalars().all())
 
@@ -111,9 +109,7 @@ class AstNodeDAO:
         Returns:
             删除的记录数
         """
-        result = await db.execute(
-            delete(AstNodeModel).where(AstNodeModel.repository_id == repository_id)
-        )
+        result = await db.execute(delete(AstNodeModel).where(AstNodeModel.repository_id == repository_id))
         await db.flush()
         return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
 
@@ -128,9 +124,7 @@ class AstNodeDAO:
         Returns:
             删除的记录数
         """
-        result = await db.execute(
-            delete(AstNodeModel).where(AstNodeModel.file_id == file_id)
-        )
+        result = await db.execute(delete(AstNodeModel).where(AstNodeModel.file_id == file_id))
         await db.flush()
         return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
 
@@ -147,7 +141,5 @@ class AstNodeDAO:
         """
         from sqlalchemy import func
 
-        result = await db.execute(
-            select(func.count()).where(AstNodeModel.repository_id == repository_id)
-        )
+        result = await db.execute(select(func.count()).where(AstNodeModel.repository_id == repository_id))
         return result.scalar() or 0

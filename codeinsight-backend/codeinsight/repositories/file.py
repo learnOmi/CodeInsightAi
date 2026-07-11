@@ -54,7 +54,9 @@ class FileDAO:
         result = await db.execute(select(FileModel).where(FileModel.id == file_id))
         return result.scalar_one_or_none()
 
-    async def list_by_repository(self, db: AsyncSession, repository_id: UUID, skip: int = 0, limit: int = 100) -> list[FileModel]:
+    async def list_by_repository(
+        self, db: AsyncSession, repository_id: UUID, skip: int = 0, limit: int = 100
+    ) -> list[FileModel]:
         """
         分页获取指定仓库的文件列表
 
@@ -135,8 +137,7 @@ class FileDAO:
             FileModel 实例，不存在则返回 None
         """
         result = await db.execute(
-            select(FileModel)
-            .where(FileModel.repository_id == repository_id, FileModel.content_hash == content_hash)
+            select(FileModel).where(FileModel.repository_id == repository_id, FileModel.content_hash == content_hash)
         )
         return result.scalar_one_or_none()
 
@@ -176,9 +177,7 @@ class FileDAO:
         Returns:
             删除的记录数
         """
-        result = await db.execute(
-            select(FileModel).where(FileModel.repository_id == repository_id)
-        )
+        result = await db.execute(select(FileModel).where(FileModel.repository_id == repository_id))
         files = result.scalars().all()
         for file_obj in files:
             await db.delete(file_obj)
@@ -222,4 +221,3 @@ class FileDAO:
             .order_by(FileModel.path)
         )
         return list(result.scalars().all())
-

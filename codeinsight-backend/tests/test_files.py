@@ -18,6 +18,7 @@ from codeinsight.schemas import FileCreate, FileUpdate
 @dataclass
 class FakeFile:
     """模拟 File ORM 对象，支持属性访问和 Pydantic from_attributes 序列化"""
+
     id: str = ""
     repository_id: str = "repo-default"
     path: str = "src/default.py"
@@ -60,6 +61,7 @@ async def test_dao_create(mock_session):
 
     async def fake_refresh(obj):
         obj.id = str(uuid4())
+
     mock_session.refresh = fake_refresh
 
     file_obj = await dao.create(mock_session, data)
@@ -128,11 +130,13 @@ async def test_dao_update(mock_session):
     """测试：DAO update 更新字段"""
     dao = FileDAO()
     existing = FakeFile(id="file-1", path="src/main.py", line_count=100, size_bytes=2048)
-    mock_session.execute = AsyncMock(side_effect=[
-        MagicMock(scalar_one_or_none=MagicMock(return_value=existing)),
-        MagicMock(),
-        MagicMock(refresh=AsyncMock()),
-    ])
+    mock_session.execute = AsyncMock(
+        side_effect=[
+            MagicMock(scalar_one_or_none=MagicMock(return_value=existing)),
+            MagicMock(),
+            MagicMock(refresh=AsyncMock()),
+        ]
+    )
 
     data = FileUpdate(line_count=150, size_bytes=3000)
     file_obj = await dao.update(mock_session, "file-1", data)
@@ -145,9 +149,7 @@ async def test_dao_delete_success(mock_session):
     """测试：DAO delete 成功删除"""
     dao = FileDAO()
     existing = FakeFile(id="file-1", path="src/main.py")
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing))
-    )
+    mock_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing)))
 
     result = await dao.delete(mock_session, "file-1")
     assert result is True
@@ -158,9 +160,7 @@ async def test_dao_delete_success(mock_session):
 async def test_dao_delete_not_found(mock_session):
     """测试：DAO delete 删除不存在的记录"""
     dao = FileDAO()
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
-    )
+    mock_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
 
     result = await dao.delete(mock_session, "nonexistent")
     assert result is False
@@ -202,15 +202,22 @@ async def test_api_create_file_success():
     mock_db = AsyncMock()
     mock_dao = MagicMock()
     mock_file = FakeFile(
-        id="file-new", path="src/app.py", absolute_path="/tmp/src/app.py",
-        language="python", line_count=50, size_bytes=1024,
+        id="file-new",
+        path="src/app.py",
+        absolute_path="/tmp/src/app.py",
+        language="python",
+        line_count=50,
+        size_bytes=1024,
         content_hash="xyz789",
     )
     mock_dao.create = AsyncMock(return_value=mock_file)
 
     request = FileCreate(
-        path="src/app.py", absolute_path="/tmp/src/app.py",
-        language="python", line_count=50, size_bytes=1024,
+        path="src/app.py",
+        absolute_path="/tmp/src/app.py",
+        language="python",
+        line_count=50,
+        size_bytes=1024,
         content_hash="xyz789",
     )
     result = await create_file(request, mock_db, mock_dao)
@@ -226,8 +233,12 @@ async def test_api_get_file_found():
     mock_db = AsyncMock()
     mock_dao = MagicMock()
     mock_file = FakeFile(
-        id="file-123", path="src/main.py", absolute_path="/tmp/src/main.py",
-        language="python", line_count=100, size_bytes=2048,
+        id="file-123",
+        path="src/main.py",
+        absolute_path="/tmp/src/main.py",
+        language="python",
+        line_count=100,
+        size_bytes=2048,
         content_hash="abc123",
     )
     mock_dao.get_by_id = AsyncMock(return_value=mock_file)
@@ -285,15 +296,23 @@ async def test_api_update_file():
     mock_db = AsyncMock()
     mock_dao = MagicMock()
     mock_file = FakeFile(
-        id="file-1", path="src/main.py", absolute_path="/tmp/src/main.py",
-        language="python", line_count=100, size_bytes=2048,
+        id="file-1",
+        path="src/main.py",
+        absolute_path="/tmp/src/main.py",
+        language="python",
+        line_count=100,
+        size_bytes=2048,
         content_hash="abc123",
     )
     mock_dao.get_by_id = AsyncMock(return_value=mock_file)
     # DAO update 返回更新后的对象
     mock_updated_file = FakeFile(
-        id="file-1", path="src/main.py", absolute_path="/tmp/src/main.py",
-        language="python", line_count=200, size_bytes=2048,
+        id="file-1",
+        path="src/main.py",
+        absolute_path="/tmp/src/main.py",
+        language="python",
+        line_count=200,
+        size_bytes=2048,
         content_hash="abc123",
     )
     mock_dao.update = AsyncMock(return_value=mock_updated_file)

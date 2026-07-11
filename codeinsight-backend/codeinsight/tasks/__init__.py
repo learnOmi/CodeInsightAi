@@ -32,11 +32,11 @@ def make_celery(app_name: str = "codeinsight.tasks") -> Celery:
         # 开发环境同步执行（直接调用而非走消息队列）
         task_always_eager=settings.celery_task_always_eager,
         # 任务超时（分析任务可能耗时较长）
-        task_soft_time_limit=3600,   # 1 小时软超时
-        task_time_limit=7200,         # 2 小时硬超时
+        task_soft_time_limit=3600,  # 1 小时软超时
+        task_time_limit=7200,  # 2 小时硬超时
         # 重试策略
-        task_acks_late=True,          # 任务执行完再确认，保证失败可重试
-        worker_prefetch_multiplier=1, # 每个 worker 一次只取一个任务
+        task_acks_late=True,  # 任务执行完再确认，保证失败可重试
+        worker_prefetch_multiplier=1,  # 每个 worker 一次只取一个任务
         # 队列路由
         task_default_queue="default",
         task_queues={

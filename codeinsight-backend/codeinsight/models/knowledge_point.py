@@ -45,9 +45,7 @@ class KnowledgePointModel(Base):
     call_chain: Mapped[list] = mapped_column(JSONB, nullable=False, default=lambda: [])
     expansion: Mapped[dict] = mapped_column(JSONB, nullable=False, default=lambda: {})
     embedding: Mapped[Vector | None] = mapped_column(Vector(1536), nullable=True)
-    knowledge_metadata: Mapped[dict] = mapped_column(
-        "metadata", JSONB, nullable=False, default=lambda: {}
-    )
+    knowledge_metadata: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=lambda: {})
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
 

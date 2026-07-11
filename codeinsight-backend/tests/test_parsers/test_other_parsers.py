@@ -39,6 +39,7 @@ def go_parser():
 
 # --- TypeScript 测试 ---
 
+
 class TestTypeScriptParser:
     """TypeScriptParser 测试"""
 
@@ -120,6 +121,7 @@ import * as path from "path";
 
 # --- JavaScript 测试 ---
 
+
 class TestJavaScriptParser:
     """JavaScriptParser 测试"""
 
@@ -182,6 +184,7 @@ import * as path from "path";
 
 
 # --- Java 测试 ---
+
 
 class TestJavaParser:
     """JavaParser 测试"""
@@ -260,6 +263,7 @@ public class Greeter {
 
 
 # --- Go 测试 ---
+
 
 class TestGoParser:
     """GoParser 测试"""

@@ -43,9 +43,7 @@ class KnowledgePointDAO:
         Returns:
             KnowledgePointModel 实例，不存在则返回 None
         """
-        result = await db.execute(
-            select(KnowledgePointModel).where(KnowledgePointModel.id == point_id)
-        )
+        result = await db.execute(select(KnowledgePointModel).where(KnowledgePointModel.id == point_id))
         return result.scalar_one_or_none()
 
     async def list(
@@ -77,9 +75,7 @@ class KnowledgePointDAO:
         Returns:
             KnowledgePointModel 列表
         """
-        query = select(KnowledgePointModel).where(
-            KnowledgePointModel.repository_id == repository_id
-        )
+        query = select(KnowledgePointModel).where(KnowledgePointModel.repository_id == repository_id)
 
         if version is not None:
             query = query.where(KnowledgePointModel.version == version)
@@ -88,9 +84,7 @@ class KnowledgePointDAO:
             query = query.where(KnowledgePointModel.category == category)
 
         if tag is not None:
-            query = query.where(
-                KnowledgePointModel.tags.contains([tag])
-            )
+            query = query.where(KnowledgePointModel.tags.contains([tag]))
 
         # 排序
         order_column = getattr(KnowledgePointModel, sort_by, KnowledgePointModel.created_at)
@@ -122,9 +116,7 @@ class KnowledgePointDAO:
         Returns:
             符合条件的记录数
         """
-        query = select(func.count()).where(
-            KnowledgePointModel.repository_id == repository_id
-        )
+        query = select(func.count()).where(KnowledgePointModel.repository_id == repository_id)
 
         if version is not None:
             query = query.where(KnowledgePointModel.version == version)

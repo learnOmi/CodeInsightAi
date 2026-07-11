@@ -115,7 +115,9 @@ def upgrade() -> None:
     # USING ivfflat: 使用倒排文件索引，适合大规模向量搜索
     # vector_cosine_ops: 使用余弦相似度度量
     # WITH (lists = 100): 索引列表数量，影响搜索精度和速度的平衡
-    op.execute("CREATE INDEX idx_knowledge_points_embedding ON knowledge_points USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)")
+    op.execute(
+        "CREATE INDEX idx_knowledge_points_embedding ON knowledge_points USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+    )
 
 
 def downgrade() -> None:

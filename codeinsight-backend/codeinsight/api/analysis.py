@@ -129,9 +129,7 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
 
     submitted_at = _utcnow()
     started_at_raw = meta.get("started_at") if status != TaskStatus.PENDING else None
-    started_at: datetime | None = (
-        datetime.fromisoformat(started_at_raw) if started_at_raw else None
-    )
+    started_at: datetime | None = datetime.fromisoformat(started_at_raw) if started_at_raw else None
 
     error_message: str | None = None
     if result.state == "FAILURE":

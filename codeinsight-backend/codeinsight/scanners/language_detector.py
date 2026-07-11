@@ -17,24 +17,19 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
     # Python
     ".py": "python",
     ".pyi": "python",
-
     # JavaScript / TypeScript
     ".js": "javascript",
     ".jsx": "javascript",
     ".ts": "typescript",
     ".tsx": "typescript",
-
     # Java
     ".java": "java",
     ".kt": "kotlin",
     ".kts": "kotlin",
-
     # Go
     ".go": "go",
-
     # Rust
     ".rs": "rust",
-
     # C / C++
     ".c": "c",
     ".h": "c",
@@ -43,19 +38,14 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
     ".cxx": "cpp",
     ".hpp": "cpp",
     ".hxx": "cpp",
-
     # C#
     ".cs": "csharp",
-
     # Ruby
     ".rb": "ruby",
-
     # PHP
     ".php": "php",
-
     # Swift
     ".swift": "swift",
-
     # 配置/数据文件（不解析 AST，但可记录）
     ".json": "json",
     ".yaml": "yaml",
@@ -63,7 +53,6 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
     ".toml": "toml",
     ".ini": "ini",
     ".cfg": "ini",
-
     # 文档（跳过）
     ".md": "markdown",
     ".txt": "text",
@@ -80,11 +69,23 @@ class LanguageDetector:
     """
 
     # 默认支持的语言（有 Tree-sitter 解析器的语言）
-    DEFAULT_SUPPORTED_LANGUAGES = frozenset({
-        "python", "javascript", "typescript", "java", "go",
-        "rust", "c", "cpp", "csharp", "ruby", "php", "swift",
-        "kotlin",
-    })
+    DEFAULT_SUPPORTED_LANGUAGES = frozenset(
+        {
+            "python",
+            "javascript",
+            "typescript",
+            "java",
+            "go",
+            "rust",
+            "c",
+            "cpp",
+            "csharp",
+            "ruby",
+            "php",
+            "swift",
+            "kotlin",
+        }
+    )
 
     def __init__(self, supported_languages: frozenset[str] | None = None) -> None:
         """
@@ -131,6 +132,4 @@ class LanguageDetector:
             True 如果文件是源代码文件
         """
         language = self.detect(file_path)
-        return language != "unknown" and language not in (
-            "markdown", "text", "rst", "json", "yaml", "toml", "ini"
-        )
+        return language != "unknown" and language not in ("markdown", "text", "rst", "json", "yaml", "toml", "ini")

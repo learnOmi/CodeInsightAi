@@ -27,9 +27,7 @@ def export_openapi():
 
     # 输出到 packages/shared/src/openapi.json
     monorepo_root = os.path.dirname(project_root)
-    output_path = os.path.join(
-        monorepo_root, "packages", "shared", "src", "openapi.json"
-    )
+    output_path = os.path.join(monorepo_root, "packages", "shared", "src", "openapi.json")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 

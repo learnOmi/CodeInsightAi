@@ -17,7 +17,9 @@ from codeinsight.schemas import File, FileCreate, FileUpdate
 
 class DeleteFileResponse(BaseModel):
     """删除文件响应"""
+
     message: str
+
 
 router = APIRouter()
 

@@ -19,6 +19,7 @@ router = APIRouter()
 
 class DeleteResponse(BaseModel):
     """删除响应"""
+
     message: str
 
 
@@ -40,10 +41,7 @@ async def create_repository(
     """
     # 检查路径是否已存在
     if await dao.exists_by_path(db, request.path):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Repository path already exists: {request.path}"
-        )
+        raise HTTPException(status_code=409, detail=f"Repository path already exists: {request.path}")
 
     repo = await dao.create(db, request)
     return repo

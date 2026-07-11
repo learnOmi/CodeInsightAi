@@ -130,7 +130,5 @@ class RepositoryDAO:
         Returns:
             是否存在
         """
-        result = await db.execute(
-            select(func.count(RepositoryModel.id)).where(RepositoryModel.path == path)
-        )
+        result = await db.execute(select(func.count(RepositoryModel.id)).where(RepositoryModel.path == path))
         return (result.scalar() or 0) > 0

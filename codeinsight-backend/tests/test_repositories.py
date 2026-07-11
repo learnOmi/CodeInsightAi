@@ -18,6 +18,7 @@ from codeinsight.schemas import RepositoryCreate, RepositoryUpdate
 @dataclass
 class FakeRepo:
     """模拟 Repository ORM 对象，支持属性访问和 Pydantic from_attributes 序列化"""
+
     id: str = ""
     name: str = "Default"
     path: str = "/tmp/default"
@@ -54,6 +55,7 @@ async def test_dao_create(mock_session):
 
     async def fake_refresh(obj):
         obj.id = str(uuid4())
+
     mock_session.refresh = fake_refresh
 
     repo = await dao.create(mock_session, data)
@@ -122,11 +124,13 @@ async def test_dao_update(mock_session):
     """测试：DAO update 更新字段"""
     dao = RepositoryDAO()
     existing = FakeRepo(id="repo-1", name="Old Name", status="pending")
-    mock_session.execute = AsyncMock(side_effect=[
-        MagicMock(scalar_one_or_none=MagicMock(return_value=existing)),
-        MagicMock(),
-        MagicMock(refresh=AsyncMock()),
-    ])
+    mock_session.execute = AsyncMock(
+        side_effect=[
+            MagicMock(scalar_one_or_none=MagicMock(return_value=existing)),
+            MagicMock(),
+            MagicMock(refresh=AsyncMock()),
+        ]
+    )
 
     data = RepositoryUpdate(name="New Name")
     repo = await dao.update(mock_session, "repo-1", data)
@@ -138,9 +142,7 @@ async def test_dao_delete_success(mock_session):
     """测试：DAO delete 成功删除"""
     dao = RepositoryDAO()
     existing = FakeRepo(id="repo-1", name="To Delete")
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing))
-    )
+    mock_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing)))
 
     result = await dao.delete(mock_session, "repo-1")
     assert result is True
@@ -151,9 +153,7 @@ async def test_dao_delete_success(mock_session):
 async def test_dao_delete_not_found(mock_session):
     """测试：DAO delete 删除不存在的记录"""
     dao = RepositoryDAO()
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
-    )
+    mock_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
 
     result = await dao.delete(mock_session, "nonexistent")
     assert result is False
@@ -163,9 +163,7 @@ async def test_dao_delete_not_found(mock_session):
 async def test_dao_exists_by_path_true(mock_session):
     """测试：DAO exists_by_path 路径已存在"""
     dao = RepositoryDAO()
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar=MagicMock(return_value=1))
-    )
+    mock_session.execute = AsyncMock(return_value=MagicMock(scalar=MagicMock(return_value=1)))
 
     exists = await dao.exists_by_path(mock_session, "/tmp/existing")
     assert exists is True
@@ -175,9 +173,7 @@ async def test_dao_exists_by_path_true(mock_session):
 async def test_dao_exists_by_path_false(mock_session):
     """测试：DAO exists_by_path 路径不存在"""
     dao = RepositoryDAO()
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar=MagicMock(return_value=0))
-    )
+    mock_session.execute = AsyncMock(return_value=MagicMock(scalar=MagicMock(return_value=0)))
 
     exists = await dao.exists_by_path(mock_session, "/tmp/new")
     assert exists is False
@@ -228,8 +224,12 @@ async def test_api_get_repository_found():
     mock_db = AsyncMock()
     mock_dao = MagicMock()
     mock_repo = FakeRepo(
-        id="repo-123", name="Found", status="completed",
-        file_count=100, line_count=5000, language_distribution={"python": 80, "java": 20},
+        id="repo-123",
+        name="Found",
+        status="completed",
+        file_count=100,
+        line_count=5000,
+        language_distribution={"python": 80, "java": 20},
     )
     mock_dao.get_by_id = AsyncMock(return_value=mock_repo)
 
@@ -259,8 +259,14 @@ async def test_api_list_repositories(mock_session):
 
     mock_dao = MagicMock()
     mock_repos = [
-        FakeRepo(id=f"id-{i}", name=f"Repo {i}", status="completed",
-                 file_count=100, line_count=5000, language_distribution={"python": 100})
+        FakeRepo(
+            id=f"id-{i}",
+            name=f"Repo {i}",
+            status="completed",
+            file_count=100,
+            line_count=5000,
+            language_distribution={"python": 100},
+        )
         for i in range(3)
     ]
     mock_dao.list = AsyncMock(return_value=mock_repos)
@@ -289,8 +295,12 @@ async def test_api_update_repository():
     mock_db = AsyncMock()
     mock_dao = MagicMock()
     mock_repo = FakeRepo(
-        id="repo-1", name="Updated", status="analyzing",
-        file_count=100, line_count=5000, language_distribution={"python": 100},
+        id="repo-1",
+        name="Updated",
+        status="analyzing",
+        file_count=100,
+        line_count=5000,
+        language_distribution={"python": 100},
     )
     mock_dao.get_by_id = AsyncMock(return_value=mock_repo)
     mock_dao.update = AsyncMock(return_value=mock_repo)

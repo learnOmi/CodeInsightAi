@@ -17,6 +17,7 @@ from codeinsight.repositories.analysis_version import AnalysisVersionDAO
 @dataclass
 class FakeAV:
     """模拟 AnalysisVersion ORM 对象，支持属性访问和 Pydantic from_attributes 序列化"""
+
     id: str = ""
     version: str = "v1"
     status: str = "pending"
@@ -59,6 +60,7 @@ async def test_dao_create(mock_session):
 
     async def fake_refresh(obj):
         obj.id = str(uuid4())
+
     mock_session.refresh = fake_refresh
 
     av = await dao.create(mock_session, data)
@@ -160,9 +162,7 @@ async def test_dao_delete_success(mock_session):
     """测试：DAO delete 成功删除"""
     dao = AnalysisVersionDAO()
     existing = FakeAV(id="av-1", version="v1")
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing))
-    )
+    mock_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing)))
 
     result = await dao.delete(mock_session, "av-1")
     assert result is True
@@ -173,9 +173,7 @@ async def test_dao_delete_success(mock_session):
 async def test_dao_delete_not_found(mock_session):
     """测试：DAO delete 删除不存在的记录"""
     dao = AnalysisVersionDAO()
-    mock_session.execute = AsyncMock(
-        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
-    )
+    mock_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None)))
 
     result = await dao.delete(mock_session, "nonexistent")
     assert result is False
@@ -193,10 +191,17 @@ async def test_api_list_versions():
     mock_dao = MagicMock()
 
     mock_avs = [
-        FakeAV(version=f"v{i+1}", status="completed", total_files=500,
-               analyzed_files=500, knowledge_points_count=128,
-               created_at="2026-07-09T00:00:00Z", started_at=None,
-               completed_at="2026-07-09T01:00:00Z", error_message=None)
+        FakeAV(
+            version=f"v{i + 1}",
+            status="completed",
+            total_files=500,
+            analyzed_files=500,
+            knowledge_points_count=128,
+            created_at="2026-07-09T00:00:00Z",
+            started_at=None,
+            completed_at="2026-07-09T01:00:00Z",
+            error_message=None,
+        )
         for i in range(3)
     ]
     mock_dao.list_by_repository = AsyncMock(return_value=mock_avs)
@@ -226,10 +231,17 @@ async def test_api_list_versions_no_current():
     mock_dao = MagicMock()
 
     mock_avs = [
-        FakeAV(version="v1", status="completed", total_files=100,
-               analyzed_files=100, knowledge_points_count=50,
-               created_at="2026-07-09T00:00:00Z", started_at=None,
-               completed_at=None, error_message=None)
+        FakeAV(
+            version="v1",
+            status="completed",
+            total_files=100,
+            analyzed_files=100,
+            knowledge_points_count=50,
+            created_at="2026-07-09T00:00:00Z",
+            started_at=None,
+            completed_at=None,
+            error_message=None,
+        )
     ]
     mock_dao.list_by_repository = AsyncMock(return_value=mock_avs)
 
@@ -255,10 +267,12 @@ async def test_api_switch_version_success():
     mock_repo_result = MagicMock()
     mock_repo = MagicMock(id="repo-1", current_version="v1")
     mock_repo_result.scalar_one_or_none.return_value = mock_repo
-    mock_db.execute = AsyncMock(side_effect=[
-        mock_repo_result,  # 查询仓库
-        MagicMock(),       # flush
-    ])
+    mock_db.execute = AsyncMock(
+        side_effect=[
+            mock_repo_result,  # 查询仓库
+            MagicMock(),  # flush
+        ]
+    )
 
     # 模拟目标版本存在
     mock_target_result = MagicMock()
@@ -266,7 +280,10 @@ async def test_api_switch_version_success():
     mock_dao.get_by_version_tag = AsyncMock(return_value=mock_target_result)
 
     result = await switch_version(
-        "repo-1", version="v2", db=mock_db, dao=mock_dao,
+        "repo-1",
+        version="v2",
+        db=mock_db,
+        dao=mock_dao,
     )
     assert result["current_version"] == "v2"
     assert result["previous_version"] == "v1"
@@ -325,10 +342,12 @@ async def test_api_rollback_version_success():
     mock_repo_result = MagicMock()
     mock_repo = MagicMock(id="repo-1", current_version="v3")
     mock_repo_result.scalar_one_or_none.return_value = mock_repo
-    mock_db.execute = AsyncMock(side_effect=[
-        mock_repo_result,  # 查询仓库
-        MagicMock(),       # flush
-    ])
+    mock_db.execute = AsyncMock(
+        side_effect=[
+            mock_repo_result,  # 查询仓库
+            MagicMock(),  # flush
+        ]
+    )
 
     # 模拟目标版本存在
     mock_target_result = MagicMock()
@@ -336,7 +355,10 @@ async def test_api_rollback_version_success():
     mock_dao.get_by_version_tag = AsyncMock(return_value=mock_target_result)
 
     result = await rollback_version(
-        "repo-1", version="v1", db=mock_db, dao=mock_dao,
+        "repo-1",
+        version="v1",
+        db=mock_db,
+        dao=mock_dao,
     )
     assert result["rolled_back_from"] == "v3"
     assert result["rolled_back_to"] == "v1"

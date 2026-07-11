@@ -19,6 +19,7 @@ from codeinsight.schemas import AnalysisMode, TaskStatus
 @dataclass
 class FakeRepo:
     """模拟 Repository ORM 对象，支持属性访问和 Pydantic from_attributes 序列化"""
+
     id: str = ""
     name: str = "Default"
     path: str = "/tmp/default"
@@ -54,8 +55,10 @@ async def test_submit_analysis_success():
     mock_celery_result = MagicMock()
     mock_celery_result.id = "test-celery-task-id"
 
-    with patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao, \
-         patch("codeinsight.api.analysis.run_analysis") as mock_run:
+    with (
+        patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
+        patch("codeinsight.api.analysis.run_analysis") as mock_run,
+    ):
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
@@ -85,8 +88,10 @@ async def test_submit_analysis_with_request():
     repo_uuid = str(uuid4())
     mock_repo = FakeRepo(id=repo_uuid, file_count=100)
 
-    with patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao, \
-         patch("codeinsight.api.analysis.run_analysis") as mock_run:
+    with (
+        patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
+        patch("codeinsight.api.analysis.run_analysis") as mock_run,
+    ):
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
@@ -142,8 +147,10 @@ async def test_get_task_status_pending():
     mock_result.info = {}
 
     repo_uuid = str(uuid4())
-    with patch("codeinsight.api.analysis.AsyncResult") as mock_async_result, \
-         patch("codeinsight.api.analysis._lookup_repository") as mock_lookup:
+    with (
+        patch("codeinsight.api.analysis.AsyncResult") as mock_async_result,
+        patch("codeinsight.api.analysis._lookup_repository") as mock_lookup,
+    ):
         mock_async_result.return_value = mock_result
         mock_lookup.return_value = UUID(repo_uuid)
 
@@ -171,8 +178,10 @@ async def test_get_task_status_completed():
     }
 
     repo_uuid = str(uuid4())
-    with patch("codeinsight.api.analysis.AsyncResult") as mock_async_result, \
-         patch("codeinsight.api.analysis._lookup_repository") as mock_lookup:
+    with (
+        patch("codeinsight.api.analysis.AsyncResult") as mock_async_result,
+        patch("codeinsight.api.analysis._lookup_repository") as mock_lookup,
+    ):
         mock_async_result.return_value = mock_result
         mock_lookup.return_value = UUID(repo_uuid)
 
@@ -195,8 +204,10 @@ async def test_get_task_status_failure():
     mock_result.info = Exception("Connection lost")
 
     repo_uuid = str(uuid4())
-    with patch("codeinsight.api.analysis.AsyncResult") as mock_async_result, \
-         patch("codeinsight.api.analysis._lookup_repository") as mock_lookup:
+    with (
+        patch("codeinsight.api.analysis.AsyncResult") as mock_async_result,
+        patch("codeinsight.api.analysis._lookup_repository") as mock_lookup,
+    ):
         mock_async_result.return_value = mock_result
         mock_lookup.return_value = UUID(repo_uuid)
 
@@ -241,8 +252,10 @@ async def test_cancel_task_success():
     mock_app = MagicMock()
     mock_app.control.revoke.return_value = True
 
-    with patch("codeinsight.api.analysis.AsyncResult", return_value=mock_result), \
-         patch("codeinsight.api.analysis.celery_app", mock_app):
+    with (
+        patch("codeinsight.api.analysis.AsyncResult", return_value=mock_result),
+        patch("codeinsight.api.analysis.celery_app", mock_app),
+    ):
         result = await cancel_task(task_id)
 
         assert "cancellation requested" in result["message"]
@@ -314,9 +327,11 @@ async def test_redis_mapping_on_submit():
     mock_celery_result = MagicMock()
     mock_celery_result.id = "mapped-task-id"
 
-    with patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao, \
-         patch("codeinsight.api.analysis.run_analysis") as mock_run, \
-         patch("codeinsight.api.analysis._get_redis_client") as mock_get_redis:
+    with (
+        patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
+        patch("codeinsight.api.analysis.run_analysis") as mock_run,
+        patch("codeinsight.api.analysis._get_redis_client") as mock_get_redis,
+    ):
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
@@ -348,9 +363,11 @@ async def test_submit_analysis_rejects_duplicate_active_task():
     repo_uuid = str(uuid4())
     mock_repo = FakeRepo(id=repo_uuid, file_count=10)
 
-    with patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao, \
-         patch("codeinsight.api.analysis.run_analysis") as mock_run, \
-         patch("codeinsight.api.analysis._get_redis_client") as mock_get_redis:
+    with (
+        patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
+        patch("codeinsight.api.analysis.run_analysis") as mock_run,
+        patch("codeinsight.api.analysis._get_redis_client") as mock_get_redis,
+    ):
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
@@ -382,9 +399,11 @@ async def test_cancel_task_clears_active_task_marker():
     mock_redis = MagicMock()
     mock_redis.get.return_value = "some-repo-id"
 
-    with patch("codeinsight.api.analysis.AsyncResult", return_value=mock_result), \
-         patch("codeinsight.api.analysis.celery_app", mock_app), \
-         patch("codeinsight.api.analysis._get_redis_client", return_value=mock_redis):
+    with (
+        patch("codeinsight.api.analysis.AsyncResult", return_value=mock_result),
+        patch("codeinsight.api.analysis.celery_app", mock_app),
+        patch("codeinsight.api.analysis._get_redis_client", return_value=mock_redis),
+    ):
         result = await cancel_task(task_id)
 
         assert "cancellation requested" in result["message"]
@@ -486,9 +505,11 @@ def test_run_analysis_cancellation_at_scanning_phase():
     mock_self = MagicMock()
     mock_self.request.id = "cancel-at-scanning"
 
-    with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
-         patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
-         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check:
+    with (
+        patch("codeinsight.tasks.analysis_tasks.asyncio.run"),
+        patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress,
+        patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check,
+    ):
         # 第一次调用 _check_cancelled (scanning 阶段) 抛出 CancelledError
         mock_check.side_effect = [CancelledError("cancelled")]
 
@@ -516,22 +537,24 @@ def test_run_analysis_cancellation_at_parsing_phase():
     mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
     mock_scan_result.files = []
 
-    with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
-             patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
-             patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
-             patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls:
-            # scanning 通过，parsing 阶段取消
-            mock_check.side_effect = [None, CancelledError("cancelled")]
+    with (
+        patch("codeinsight.tasks.analysis_tasks.asyncio.run"),
+        patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress,
+        patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check,
+        patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
+    ):
+        # scanning 通过，parsing 阶段取消
+        mock_check.side_effect = [None, CancelledError("cancelled")]
 
-            mock_scanner_instance = MagicMock()
-            mock_scanner_instance.scan.return_value = mock_scan_result
-            mock_scanner_cls.return_value = mock_scanner_instance
+        mock_scanner_instance = MagicMock()
+        mock_scanner_instance.scan.return_value = mock_scan_result
+        mock_scanner_cls.return_value = mock_scanner_instance
 
-            with pytest.raises(CancelledError):
-                run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
+        with pytest.raises(CancelledError):
+            run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
 
-            assert mock_check.call_count == 2
-            assert mock_progress.call_count >= 2
+        assert mock_check.call_count == 2
+        assert mock_progress.call_count >= 2
 
 
 def test_run_analysis_cancellation_at_storing_phase():
@@ -549,22 +572,24 @@ def test_run_analysis_cancellation_at_storing_phase():
     mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
     mock_scan_result.files = []
 
-    with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
-             patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress, \
-             patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
-             patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls:
-            # scanning, parsing, analyzing 通过，storing 阶段取消
-            mock_check.side_effect = [None, None, None, CancelledError("cancelled")]
+    with (
+        patch("codeinsight.tasks.analysis_tasks.asyncio.run"),
+        patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress,
+        patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check,
+        patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
+    ):
+        # scanning, parsing, analyzing 通过，storing 阶段取消
+        mock_check.side_effect = [None, None, None, CancelledError("cancelled")]
 
-            mock_scanner_instance = MagicMock()
-            mock_scanner_instance.scan.return_value = mock_scan_result
-            mock_scanner_cls.return_value = mock_scanner_instance
+        mock_scanner_instance = MagicMock()
+        mock_scanner_instance.scan.return_value = mock_scan_result
+        mock_scanner_cls.return_value = mock_scanner_instance
 
-            with pytest.raises(CancelledError):
-                run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
+        with pytest.raises(CancelledError):
+            run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
 
-            assert mock_check.call_count == 4
-            assert mock_progress.call_count >= 4
+        assert mock_check.call_count == 4
+        assert mock_progress.call_count >= 4
 
 
 def test_run_analysis_no_cancellation_completes_normally():
@@ -582,10 +607,12 @@ def test_run_analysis_no_cancellation_completes_normally():
     mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
     mock_scan_result.files = []
 
-    with patch("codeinsight.tasks.analysis_tasks.asyncio.run"), \
-         patch("codeinsight.tasks.analysis_tasks._update_progress"), \
-         patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check, \
-         patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls:
+    with (
+        patch("codeinsight.tasks.analysis_tasks.asyncio.run"),
+        patch("codeinsight.tasks.analysis_tasks._update_progress"),
+        patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check,
+        patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
+    ):
         mock_check.return_value = None  # 无取消
 
         mock_scanner_instance = MagicMock()

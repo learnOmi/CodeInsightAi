@@ -63,9 +63,7 @@ class CallChainNode(BaseModel):
     )
 
     node_id: str
-    node_type: Literal[
-        "function", "class", "method", "function_call", "import", "module"
-    ]
+    node_type: Literal["function", "class", "method", "function_call", "import", "module"]
     file: str
     lines: tuple[int, int]
     signature: str

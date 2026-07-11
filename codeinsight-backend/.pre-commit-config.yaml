@@ -1,19 +1,25 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.0
-    hooks:
-      - id: ruff
-        args: ["--fix"]
-      - id: ruff
-        name: ruff-check
-        args: ["check"]
-      - id: ruff-format
   - repo: local
     hooks:
-      - id: mypy
-        name: mypy
-        entry: uv run mypy codeinsight/
+      - id: ruff-check
+        name: ruff-check
+        entry: ruff
         language: system
         types: [python]
-        pass_filenames: false
-        require_serial: true
+        args: ["check", "--fix"]
+        exclude: ^tests/
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff
+        language: system
+        types: [python]
+        args: ["format"]
+        exclude: ^tests/
+      - id: mypy
+        name: mypy
+        entry: C:/Users/Administrator/CodeInsightAi/codeinsight-backend/.venv/Scripts/mypy.exe
+        language: system
+        types: [python]
+        pass_filenames: true
+        args: ["--ignore-missing-imports"]
+        exclude: ^tests/

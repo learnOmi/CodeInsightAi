@@ -109,9 +109,7 @@ class GoParser(LanguageParser):
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 结构体类型: type Name struct { }
-        elif node_type == "type_spec" and any(
-            child.type == "struct_type" for child in node.children
-        ):
+        elif node_type == "type_spec" and any(child.type == "struct_type" for child in node.children):
             ast_node = self._create_struct_node(node, file_path, language, parent_node)
             result.add(ast_node)
 

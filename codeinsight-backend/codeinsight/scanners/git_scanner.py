@@ -134,28 +134,30 @@ class GitScanner:
     """
 
     # 默认排除的目录名（不依赖 .gitignore）
-    DEFAULT_EXCLUDE_DIRS = frozenset({
-        ".git",
-        "node_modules",
-        "__pycache__",
-        ".venv",
-        "venv",
-        ".env",
-        "dist",
-        "build",
-        "target",
-        "out",
-        "bin",
-        "obj",
-        ".idea",
-        ".vscode",
-        ".next",
-        "coverage",
-        ".mypy_cache",
-        ".pytest_cache",
-        ".ruff_cache",
-        ".vs",
-    })
+    DEFAULT_EXCLUDE_DIRS = frozenset(
+        {
+            ".git",
+            "node_modules",
+            "__pycache__",
+            ".venv",
+            "venv",
+            ".env",
+            "dist",
+            "build",
+            "target",
+            "out",
+            "bin",
+            "obj",
+            ".idea",
+            ".vscode",
+            ".next",
+            "coverage",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".vs",
+        }
+    )
 
     def __init__(
         self,

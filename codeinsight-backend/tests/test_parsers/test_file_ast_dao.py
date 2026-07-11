@@ -16,6 +16,7 @@ from codeinsight.repositories import AstNodeDAO, FileDAO
 @dataclass
 class FakeFile:
     """模拟 File ORM 对象"""
+
     id: str = ""
     repository_id: str = ""
     path: str = ""
@@ -31,6 +32,7 @@ class FakeFile:
 @dataclass
 class FakeAstNode:
     """模拟 AstNode ORM 对象"""
+
     id: str = ""
     repository_id: str = ""
     file_id: str = ""
@@ -70,10 +72,22 @@ async def test_file_dao_create_many(mock_session):
     dao = FileDAO()
     repo_id = str(uuid4())
     files_data = [
-        {"path": "src/main.py", "absolute_path": "/tmp/src/main.py", "language": "python",
-         "line_count": 100, "size_bytes": 2000, "content_hash": "hash1"},
-        {"path": "src/utils.py", "absolute_path": "/tmp/src/utils.py", "language": "python",
-         "line_count": 50, "size_bytes": 1000, "content_hash": "hash2"},
+        {
+            "path": "src/main.py",
+            "absolute_path": "/tmp/src/main.py",
+            "language": "python",
+            "line_count": 100,
+            "size_bytes": 2000,
+            "content_hash": "hash1",
+        },
+        {
+            "path": "src/utils.py",
+            "absolute_path": "/tmp/src/utils.py",
+            "language": "python",
+            "line_count": 50,
+            "size_bytes": 1000,
+            "content_hash": "hash2",
+        },
     ]
 
     mock_session.add_all = MagicMock()
@@ -148,12 +162,32 @@ async def test_ast_node_dao_create_many(mock_session):
     """测试：AstNodeDAO create_many 批量创建"""
     dao = AstNodeDAO()
     nodes_data = [
-        {"repository_id": str(uuid4()), "file_id": str(uuid4()), "node_type": "function",
-         "name": "main", "start_line": 1, "end_line": 10, "start_column": 0, "end_column": 50,
-         "parent_node_id": None, "file_path": "src/main.py", "language": "python"},
-        {"repository_id": str(uuid4()), "file_id": str(uuid4()), "node_type": "class",
-         "name": "MyClass", "start_line": 15, "end_line": 100, "start_column": 0, "end_column": 50,
-         "parent_node_id": None, "file_path": "src/main.py", "language": "python"},
+        {
+            "repository_id": str(uuid4()),
+            "file_id": str(uuid4()),
+            "node_type": "function",
+            "name": "main",
+            "start_line": 1,
+            "end_line": 10,
+            "start_column": 0,
+            "end_column": 50,
+            "parent_node_id": None,
+            "file_path": "src/main.py",
+            "language": "python",
+        },
+        {
+            "repository_id": str(uuid4()),
+            "file_id": str(uuid4()),
+            "node_type": "class",
+            "name": "MyClass",
+            "start_line": 15,
+            "end_line": 100,
+            "start_column": 0,
+            "end_column": 50,
+            "parent_node_id": None,
+            "file_path": "src/main.py",
+            "language": "python",
+        },
     ]
 
     mock_session.add_all = MagicMock()

@@ -37,9 +37,7 @@ async def list_versions(
     versions = await dao.list_by_repository(db=db, repository_id=repository_id)
 
     # 获取仓库当前版本号，用于标记 is_current
-    repo = await db.execute(
-        select(RepositoryModel).where(RepositoryModel.id == repository_id)
-    )
+    repo = await db.execute(select(RepositoryModel).where(RepositoryModel.id == repository_id))
     current_repo = repo.scalar_one_or_none()
     current_version_tag = current_repo.current_version if current_repo else None
 
@@ -76,9 +74,7 @@ async def switch_version(
     将仓库的当前版本设置为指定版本，后续查询将使用该版本的数据。
     """
     # 验证仓库存在
-    repo_result = await db.execute(
-        select(RepositoryModel).where(RepositoryModel.id == repository_id)
-    )
+    repo_result = await db.execute(select(RepositoryModel).where(RepositoryModel.id == repository_id))
     repo = repo_result.scalar_one_or_none()
     if repo is None:
         raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
@@ -118,9 +114,7 @@ async def rollback_version(
     将仓库状态恢复到指定历史版本，并标记此次变更为"回滚"操作。
     """
     # 验证仓库存在
-    repo_result = await db.execute(
-        select(RepositoryModel).where(RepositoryModel.id == repository_id)
-    )
+    repo_result = await db.execute(select(RepositoryModel).where(RepositoryModel.id == repository_id))
     repo = repo_result.scalar_one_or_none()
     if repo is None:
         raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")

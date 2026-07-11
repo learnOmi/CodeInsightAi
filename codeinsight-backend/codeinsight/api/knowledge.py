@@ -117,9 +117,13 @@ async def get_knowledge_stats(
 
     # 按分类统计
     by_category: dict[KnowledgeCategory, int] = {}
-    for cat in [KnowledgeCategory.DESIGN_PATTERN, KnowledgeCategory.ARCHITECTURE_DECISION,
-                KnowledgeCategory.ALGORITHM, KnowledgeCategory.ENGINEERING_TIP,
-                KnowledgeCategory.DOMAIN_KNOWLEDGE]:
+    for cat in [
+        KnowledgeCategory.DESIGN_PATTERN,
+        KnowledgeCategory.ARCHITECTURE_DECISION,
+        KnowledgeCategory.ALGORITHM,
+        KnowledgeCategory.ENGINEERING_TIP,
+        KnowledgeCategory.DOMAIN_KNOWLEDGE,
+    ]:
         count = await dao.count(db=db, repository_id=repository_id, version=version, category=cat.value)
         if count > 0:
             by_category[cat] = count
