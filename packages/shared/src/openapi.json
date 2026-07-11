@@ -7,30 +7,6 @@
   },
   "paths": {
     "/api/v1/repositories": {
-      "get": {
-        "tags": [
-          "仓库管理"
-        ],
-        "summary": "List Repositories",
-        "description": "获取仓库列表\n\n分页返回用户的所有仓库。",
-        "operationId": "list_repositories_api_v1_repositories_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Repository"
-                  },
-                  "type": "array",
-                  "title": "Response List Repositories Api V1 Repositories Get"
-                }
-              }
-            }
-          }
-        }
-      },
       "post": {
         "tags": [
           "仓库管理"
@@ -39,14 +15,14 @@
         "description": "添加代码仓库\n\n添加一个新的代码仓库并开始分析。",
         "operationId": "create_repository_api_v1_repositories_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RepositoryCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -55,6 +31,69 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Repository"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "仓库管理"
+        ],
+        "summary": "List Repositories",
+        "description": "获取仓库列表\n\n分页返回用户的所有仓库。",
+        "operationId": "list_repositories_api_v1_repositories_get",
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "跳过的记录数",
+              "default": 0,
+              "title": "Skip"
+            },
+            "description": "跳过的记录数"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "description": "返回的记录数",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "返回的记录数"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Repository"
+                  },
+                  "title": "Response List Repositories Api V1 Repositories Get"
                 }
               }
             }
@@ -87,6 +126,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "format": "uuid",
               "title": "Repository Id"
             }
           }
@@ -128,6 +168,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "format": "uuid",
               "title": "Repository Id"
             }
           }
@@ -179,6 +220,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "format": "uuid",
               "title": "Repository Id"
             }
           }
@@ -188,7 +230,9 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteResponse"
+                }
               }
             }
           },
@@ -211,7 +255,7 @@
           "分析任务"
         ],
         "summary": "Submit Analysis",
-        "description": "提交分析任务",
+        "description": "提交分析任务\n\n创建一个异步分析任务并提交到 Celery 队列。\n返回 202 Accepted 状态码，表示任务已接受但尚未完成。\n\nArgs:\n    repository_id: 目标仓库 ID\n    request: 可选的分析参数（模式、启用的 Agent 列表）\n    db: 数据库会话\n\nReturns:\n    AnalysisTask: 包含 task_id、初始状态的响应",
         "operationId": "submit_analysis_api_v1_repositories__repository_id__analyze_post",
         "parameters": [
           {
@@ -220,6 +264,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "format": "uuid",
               "title": "Repository Id"
             }
           }
@@ -228,7 +273,15 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AnalyzeRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AnalyzeRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
               }
             }
           }
@@ -263,7 +316,7 @@
           "分析任务"
         ],
         "summary": "Get Task Status",
-        "description": "查询任务状态",
+        "description": "查询任务状态\n\n从 Celery result_backend 读取任务进度。\n\nArgs:\n    task_id: Celery 任务 ID\n\nReturns:\n    AnalysisTask: 包含当前状态和进度的响应\n\nRaises:\n    HTTPException 404: 任务不存在或无法检索",
         "operationId": "get_task_status_api_v1_tasks__task_id__get",
         "parameters": [
           {
@@ -306,7 +359,7 @@
           "分析任务"
         ],
         "summary": "Cancel Task",
-        "description": "取消分析任务",
+        "description": "取消分析任务\n\n通过 Celery control.revoke 终止正在执行的 Worker 任务。\n\nArgs:\n    task_id: Celery 任务 ID\n\nReturns:\n    包含成功消息的字典\n\nRaises:\n    HTTPException 404: 任务不存在",
         "operationId": "cancel_task_api_v1_tasks__task_id__cancel_post",
         "parameters": [
           {
@@ -347,19 +400,145 @@
           "知识点"
         ],
         "summary": "List Knowledge Points",
-        "description": "获取知识点列表",
+        "description": "获取知识点列表\n\n分页返回指定仓库的知识点列表，支持按版本、分类、标签筛选。",
         "operationId": "list_knowledge_points_api_v1_knowledge_points_get",
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "仓库 ID",
+              "title": "Repository Id"
+            },
+            "description": "仓库 ID"
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "分析版本号，不传则使用当前版本",
+              "title": "Version"
+            },
+            "description": "分析版本号，不传则使用当前版本"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按分类筛选：DP-/AD-/AL-/ET-/DK-",
+              "title": "Category"
+            },
+            "description": "按分类筛选：DP-/AD-/AL-/ET-/DK-"
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按标签筛选",
+              "title": "Tag"
+            },
+            "description": "按标签筛选"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页数量",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页数量"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "排序字段：created_at/title/confidence",
+              "default": "created_at",
+              "title": "Sort By"
+            },
+            "description": "排序字段：created_at/title/confidence"
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(asc|desc)$",
+              "description": "排序方向",
+              "default": "desc",
+              "title": "Sort Order"
+            },
+            "description": "排序方向"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/KnowledgePoint"
-                  },
-                  "type": "array",
-                  "title": "Response List Knowledge Points Api V1 Knowledge Points Get"
+                  "$ref": "#/components/schemas/PaginatedKnowledgePoints"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -373,7 +552,7 @@
           "知识点"
         ],
         "summary": "Get Knowledge Point",
-        "description": "获取知识点详情",
+        "description": "获取知识点详情\n\n根据 ID 获取单个知识点的完整信息，包括代码片段、调用链、拓展内容等。",
         "operationId": "get_knowledge_point_api_v1_knowledge_points__point_id__get",
         "parameters": [
           {
@@ -382,6 +561,7 @@
             "required": true,
             "schema": {
               "type": "string",
+              "format": "uuid",
               "title": "Point Id"
             }
           }
@@ -416,7 +596,7 @@
           "知识点"
         ],
         "summary": "Get Knowledge Stats",
-        "description": "获取知识点统计",
+        "description": "获取知识点统计\n\n返回指定仓库的知识点统计数据，包括按分类分布、置信度分布、热门标签等。",
         "operationId": "get_knowledge_stats_api_v1_repositories__repository_id__knowledge_stats_get",
         "parameters": [
           {
@@ -425,8 +605,27 @@
             "required": true,
             "schema": {
               "type": "string",
+              "format": "uuid",
               "title": "Repository Id"
             }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "分析版本号，不传则使用当前版本",
+              "title": "Version"
+            },
+            "description": "分析版本号，不传则使用当前版本"
           }
         ],
         "responses": {
@@ -544,7 +743,7 @@
           "版本管理"
         ],
         "summary": "List Versions",
-        "description": "获取分析版本列表",
+        "description": "获取分析版本列表\n\n返回指定仓库的所有分析版本，按创建时间降序排列。",
         "operationId": "list_versions_api_v1_repositories__repository_id__versions_get",
         "parameters": [
           {
@@ -552,7 +751,8 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Repository Id"
             }
           }
@@ -591,7 +791,7 @@
           "版本管理"
         ],
         "summary": "Switch Version",
-        "description": "切换到指定版本",
+        "description": "切换到指定版本\n\n将仓库的当前版本设置为指定版本，后续查询将使用该版本的数据。",
         "operationId": "switch_version_api_v1_repositories__repository_id__switch_version_post",
         "parameters": [
           {
@@ -599,9 +799,21 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Repository Id"
             }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "目标版本号",
+              "title": "Version"
+            },
+            "description": "目标版本号"
           }
         ],
         "responses": {
@@ -632,7 +844,7 @@
           "版本管理"
         ],
         "summary": "Rollback Version",
-        "description": "回滚到指定版本",
+        "description": "回滚到指定版本\n\n将仓库状态恢复到指定历史版本，并标记此次变更为\"回滚\"操作。",
         "operationId": "rollback_version_api_v1_repositories__repository_id__rollback_post",
         "parameters": [
           {
@@ -640,9 +852,21 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
+              "format": "uuid",
               "title": "Repository Id"
             }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "回滚目标版本",
+              "title": "Version"
+            },
+            "description": "回滚目标版本"
           }
         ],
         "responses": {
@@ -752,7 +976,14 @@
             "$ref": "#/components/schemas/AnalysisProgress"
           },
           "submittedAt": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Submittedat"
           },
           "startedAt": {
@@ -814,6 +1045,11 @@
             "type": "integer",
             "title": "Totalfiles"
           },
+          "analyzedFiles": {
+            "type": "integer",
+            "title": "Analyzedfiles",
+            "default": 0
+          },
           "knowledgePointsCount": {
             "type": "integer",
             "title": "Knowledgepointscount"
@@ -822,9 +1058,16 @@
             "type": "boolean",
             "title": "Iscurrent"
           },
-          "createdAt": {
-            "type": "string",
-            "title": "Createdat"
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
           },
           "completedAt": {
             "anyOf": [
@@ -836,6 +1079,28 @@
               }
             ],
             "title": "Completedat"
+          },
+          "errorMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Errormessage"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
           }
         },
         "type": "object",
@@ -992,6 +1257,20 @@
         ],
         "title": "CodeSnippet",
         "description": "代码片段"
+      },
+      "DeleteResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "DeleteResponse",
+        "description": "删除响应"
       },
       "ExpansionContent": {
         "properties": {
@@ -1156,6 +1435,20 @@
             "type": "string",
             "title": "Repositoryid"
           },
+          "embedding": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding"
+          },
           "metadata": {
             "$ref": "#/components/schemas/KnowledgeMetadata"
           },
@@ -1270,6 +1563,43 @@
         "title": "LearningResource",
         "description": "学习资料"
       },
+      "PaginatedKnowledgePoints": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgePoint"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "pageSize": {
+            "type": "integer",
+            "title": "Pagesize"
+          },
+          "totalPages": {
+            "type": "integer",
+            "title": "Totalpages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "pageSize",
+          "totalPages"
+        ],
+        "title": "PaginatedKnowledgePoints",
+        "description": "分页知识点列表响应"
+      },
       "Repository": {
         "properties": {
           "id": {
@@ -1322,11 +1652,25 @@
             "default": {}
           },
           "createdAt": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Createdat"
           },
           "updatedAt": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Updatedat"
           },
           "lastAnalyzedAt": {

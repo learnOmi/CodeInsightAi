@@ -9,10 +9,12 @@
 - populate_by_name=True 允许同时使用 snake_case 和 camelCase 进行反序列化
 """
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 from pydantic.alias_generators import to_camel
 
 
@@ -85,14 +87,24 @@ class AnalysisTask(BaseModel):
     )
 
     task_id: str
-    repository_id: str
+    repository_id: UUID
     status: TaskStatus
     mode: AnalysisMode
     progress: AnalysisProgress
-    submitted_at: str
-    started_at: str | None = None
-    completed_at: str | None = None
+    submitted_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     error_message: str | None = None
+
+    @field_serializer("repository_id")
+    def serialize_uuid(self, value: UUID, _info) -> str:
+        return str(value)
+
+    @field_serializer("submitted_at", "started_at", "completed_at")
+    def serialize_datetime(self, value: datetime | None, _info) -> str | None:
+        if value is None:
+            return None
+        return value.isoformat()
 
 
 class AnalysisVersion(BaseModel):
@@ -110,7 +122,13 @@ class AnalysisVersion(BaseModel):
     analyzed_files: int = 0
     knowledge_points_count: int
     is_current: bool
-    started_at: str | None = None
-    completed_at: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     error_message: str | None = None
-    created_at: str
+    created_at: datetime
+
+    @field_serializer("started_at", "completed_at", "created_at")
+    def serialize_datetime(self, value: datetime | None, _info) -> str | None:
+        if value is None:
+            return None
+        return value.isoformat()

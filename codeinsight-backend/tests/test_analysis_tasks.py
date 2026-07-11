@@ -64,7 +64,7 @@ async def test_submit_analysis_success():
         result = await submit_analysis(repo_uuid, None, mock_db)
 
         assert result.task_id == "test-celery-task-id"
-        assert result.repository_id == repo_uuid
+        assert str(result.repository_id) == repo_uuid
         assert result.status == TaskStatus.PENDING
         assert result.progress.percent == 0.0
         assert result.progress.files_total == 150

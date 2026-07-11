@@ -9,10 +9,12 @@
 - populate_by_name=True 允许同时使用 snake_case 和 camelCase 进行反序列化
 """
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from pydantic.alias_generators import to_camel
 
 
@@ -124,7 +126,7 @@ class KnowledgePoint(BaseModel):
         alias_generator=to_camel,
     )
 
-    id: str
+    id: UUID
     category: KnowledgeCategory
     category_name: str
     title: str
@@ -135,11 +137,19 @@ class KnowledgePoint(BaseModel):
     call_chain: list[CallChainNode] = []
     expansion: ExpansionContent
     version: str
-    repository_id: str
+    repository_id: UUID
     embedding: list[float] | None = None  # pgvector 向量嵌入
     metadata: KnowledgeMetadata = Field(validation_alias="knowledge_metadata")
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("id", "repository_id")
+    def serialize_uuid(self, value: UUID, _info) -> str:
+        return str(value)
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_datetime(self, value: datetime, _info) -> str:
+        return value.isoformat()
 
 
 class KnowledgePointListRequest(BaseModel):

@@ -72,6 +72,17 @@ export interface paths {
         /**
          * Submit Analysis
          * @description 提交分析任务
+         *
+         *     创建一个异步分析任务并提交到 Celery 队列。
+         *     返回 202 Accepted 状态码，表示任务已接受但尚未完成。
+         *
+         *     Args:
+         *         repository_id: 目标仓库 ID
+         *         request: 可选的分析参数（模式、启用的 Agent 列表）
+         *         db: 数据库会话
+         *
+         *     Returns:
+         *         AnalysisTask: 包含 task_id、初始状态的响应
          */
         post: operations["submit_analysis_api_v1_repositories__repository_id__analyze_post"];
         delete?: never;
@@ -90,6 +101,17 @@ export interface paths {
         /**
          * Get Task Status
          * @description 查询任务状态
+         *
+         *     从 Celery result_backend 读取任务进度。
+         *
+         *     Args:
+         *         task_id: Celery 任务 ID
+         *
+         *     Returns:
+         *         AnalysisTask: 包含当前状态和进度的响应
+         *
+         *     Raises:
+         *         HTTPException 404: 任务不存在或无法检索
          */
         get: operations["get_task_status_api_v1_tasks__task_id__get"];
         put?: never;
@@ -112,6 +134,17 @@ export interface paths {
         /**
          * Cancel Task
          * @description 取消分析任务
+         *
+         *     通过 Celery control.revoke 终止正在执行的 Worker 任务。
+         *
+         *     Args:
+         *         task_id: Celery 任务 ID
+         *
+         *     Returns:
+         *         包含成功消息的字典
+         *
+         *     Raises:
+         *         HTTPException 404: 任务不存在
          */
         post: operations["cancel_task_api_v1_tasks__task_id__cancel_post"];
         delete?: never;
@@ -130,6 +163,8 @@ export interface paths {
         /**
          * List Knowledge Points
          * @description 获取知识点列表
+         *
+         *     分页返回指定仓库的知识点列表，支持按版本、分类、标签筛选。
          */
         get: operations["list_knowledge_points_api_v1_knowledge_points_get"];
         put?: never;
@@ -150,6 +185,8 @@ export interface paths {
         /**
          * Get Knowledge Point
          * @description 获取知识点详情
+         *
+         *     根据 ID 获取单个知识点的完整信息，包括代码片段、调用链、拓展内容等。
          */
         get: operations["get_knowledge_point_api_v1_knowledge_points__point_id__get"];
         put?: never;
@@ -170,6 +207,8 @@ export interface paths {
         /**
          * Get Knowledge Stats
          * @description 获取知识点统计
+         *
+         *     返回指定仓库的知识点统计数据，包括按分类分布、置信度分布、热门标签等。
          */
         get: operations["get_knowledge_stats_api_v1_repositories__repository_id__knowledge_stats_get"];
         put?: never;
@@ -230,6 +269,8 @@ export interface paths {
         /**
          * List Versions
          * @description 获取分析版本列表
+         *
+         *     返回指定仓库的所有分析版本，按创建时间降序排列。
          */
         get: operations["list_versions_api_v1_repositories__repository_id__versions_get"];
         put?: never;
@@ -252,6 +293,8 @@ export interface paths {
         /**
          * Switch Version
          * @description 切换到指定版本
+         *
+         *     将仓库的当前版本设置为指定版本，后续查询将使用该版本的数据。
          */
         post: operations["switch_version_api_v1_repositories__repository_id__switch_version_post"];
         delete?: never;
@@ -272,6 +315,8 @@ export interface paths {
         /**
          * Rollback Version
          * @description 回滚到指定版本
+         *
+         *     将仓库状态恢复到指定历史版本，并标记此次变更为"回滚"操作。
          */
         post: operations["rollback_version_api_v1_repositories__repository_id__rollback_post"];
         delete?: never;
@@ -338,7 +383,7 @@ export interface components {
             mode: components["schemas"]["AnalysisMode"];
             progress: components["schemas"]["AnalysisProgress"];
             /** Submittedat */
-            submittedAt: string;
+            submittedAt: string | null;
             /** Startedat */
             startedAt?: string | null;
             /** Completedat */
@@ -356,14 +401,23 @@ export interface components {
             status: components["schemas"]["TaskStatus"];
             /** Totalfiles */
             totalFiles: number;
+            /**
+             * Analyzedfiles
+             * @default 0
+             */
+            analyzedFiles: number;
             /** Knowledgepointscount */
             knowledgePointsCount: number;
             /** Iscurrent */
             isCurrent: boolean;
-            /** Createdat */
-            createdAt: string;
+            /** Startedat */
+            startedAt?: string | null;
             /** Completedat */
             completedAt?: string | null;
+            /** Errormessage */
+            errorMessage?: string | null;
+            /** Createdat */
+            createdAt: string | null;
         };
         /**
          * AnalyzeRequest
@@ -421,6 +475,14 @@ export interface components {
             language: string;
             /** Signature */
             signature: string;
+        };
+        /**
+         * DeleteResponse
+         * @description 删除响应
+         */
+        DeleteResponse: {
+            /** Message */
+            message: string;
         };
         /**
          * ExpansionContent
@@ -522,6 +584,8 @@ export interface components {
             version: string;
             /** Repositoryid */
             repositoryId: string;
+            /** Embedding */
+            embedding?: number[] | null;
             metadata: components["schemas"]["KnowledgeMetadata"];
             /** Createdat */
             createdAt: string;
@@ -583,6 +647,22 @@ export interface components {
             type: "book" | "article" | "video" | "course";
         };
         /**
+         * PaginatedKnowledgePoints
+         * @description 分页知识点列表响应
+         */
+        PaginatedKnowledgePoints: {
+            /** Items */
+            items: components["schemas"]["KnowledgePoint"][];
+            /** Total */
+            total: number;
+            /** Page */
+            page: number;
+            /** Pagesize */
+            pageSize: number;
+            /** Totalpages */
+            totalPages: number;
+        };
+        /**
          * Repository
          * @description 仓库信息
          */
@@ -619,9 +699,9 @@ export interface components {
                 [key: string]: number;
             };
             /** Createdat */
-            createdAt: string;
+            createdAt: string | null;
             /** Updatedat */
-            updatedAt: string;
+            updatedAt: string | null;
             /** Lastanalyzedat */
             lastAnalyzedAt?: string | null;
         };
@@ -779,7 +859,12 @@ export type $defs = Record<string, never>;
 export interface operations {
     list_repositories_api_v1_repositories_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 跳过的记录数 */
+                skip?: number;
+                /** @description 返回的记录数 */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -793,6 +878,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Repository"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -913,7 +1007,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeleteResponse"];
                 };
             };
             /** @description Validation Error */
@@ -938,7 +1032,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["AnalyzeRequest"];
+                "application/json": components["schemas"]["AnalyzeRequest"] | null;
             };
         };
         responses: {
@@ -1026,7 +1120,24 @@ export interface operations {
     };
     list_knowledge_points_api_v1_knowledge_points_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description 仓库 ID */
+                repository_id: string;
+                /** @description 分析版本号，不传则使用当前版本 */
+                version?: string | null;
+                /** @description 按分类筛选：DP-/AD-/AL-/ET-/DK- */
+                category?: string | null;
+                /** @description 按标签筛选 */
+                tag?: string | null;
+                /** @description 页码 */
+                page?: number;
+                /** @description 每页数量 */
+                page_size?: number;
+                /** @description 排序字段：created_at/title/confidence */
+                sort_by?: string;
+                /** @description 排序方向 */
+                sort_order?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1039,7 +1150,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgePoint"][];
+                    "application/json": components["schemas"]["PaginatedKnowledgePoints"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1077,7 +1197,10 @@ export interface operations {
     };
     get_knowledge_stats_api_v1_repositories__repository_id__knowledge_stats_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 分析版本号，不传则使用当前版本 */
+                version?: string | null;
+            };
             header?: never;
             path: {
                 repository_id: string;
@@ -1175,7 +1298,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                repository_id: number;
+                repository_id: string;
             };
             cookie?: never;
         };
@@ -1203,10 +1326,13 @@ export interface operations {
     };
     switch_version_api_v1_repositories__repository_id__switch_version_post: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description 目标版本号 */
+                version: string;
+            };
             header?: never;
             path: {
-                repository_id: number;
+                repository_id: string;
             };
             cookie?: never;
         };
@@ -1234,10 +1360,13 @@ export interface operations {
     };
     rollback_version_api_v1_repositories__repository_id__rollback_post: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description 回滚目标版本 */
+                version: string;
+            };
             header?: never;
             path: {
-                repository_id: number;
+                repository_id: string;
             };
             cookie?: never;
         };

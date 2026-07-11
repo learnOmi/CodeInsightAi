@@ -9,9 +9,11 @@
 - populate_by_name=True 允许同时使用 snake_case 和 camelCase 进行反序列化
 """
 
+from datetime import datetime
 from enum import StrEnum
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 from pydantic.alias_generators import to_camel
 
 
@@ -34,7 +36,7 @@ class Repository(BaseModel):
         alias_generator=to_camel,
     )
 
-    id: str
+    id: UUID
     name: str
     path: str
     status: RepositoryStatus
@@ -43,9 +45,19 @@ class Repository(BaseModel):
     line_count: int = 0
     knowledge_points_count: int = 0
     language_distribution: dict[str, int] = {}
-    created_at: str
-    updated_at: str
-    last_analyzed_at: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    last_analyzed_at: datetime | None = None
+
+    @field_serializer("id")
+    def serialize_id(self, value: UUID, _info) -> str:
+        return str(value)
+
+    @field_serializer("created_at", "updated_at", "last_analyzed_at")
+    def serialize_datetime(self, value: datetime | None, _info) -> str | None:
+        if value is None:
+            return None
+        return value.isoformat()
 
 
 class RepositoryCreate(BaseModel):

@@ -60,10 +60,10 @@ async def test_dao_get_by_id_found(mock_session):
     """测试：DAO get_by_id 找到记录"""
     dao = KnowledgePointDAO()
     mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = MagicMock(id="kp-1", title="Found Point")
+    mock_result.scalar_one_or_none.return_value = MagicMock(id=str(uuid4()), title="Found Point")
     mock_session.execute = AsyncMock(return_value=mock_result)
 
-    kp = await dao.get_by_id(mock_session, "kp-1")
+    kp = await dao.get_by_id(mock_session, str(uuid4()))
     assert kp is not None
     assert kp.title == "Found Point"
 
@@ -86,13 +86,13 @@ async def test_dao_list(mock_session):
     dao = KnowledgePointDAO()
     mock_result = MagicMock()
     mock_kps = [
-        MagicMock(id=f"id-{i}", title=f"Point {i}")
+        MagicMock(id=str(uuid4()), title=f"Point {i}")
         for i in range(3)
     ]
     mock_result.scalars.return_value.all.return_value = mock_kps
     mock_session.execute = AsyncMock(return_value=mock_result)
 
-    kps = await dao.list(mock_session, repository_id="repo-1", skip=0, limit=10)
+    kps = await dao.list(mock_session, repository_id=str(uuid4()), skip=0, limit=10)
     assert len(kps) == 3
 
 
@@ -101,13 +101,13 @@ async def test_dao_list_with_filters(mock_session):
     """测试：DAO list 带版本/分类/标签筛选"""
     dao = KnowledgePointDAO()
     mock_result = MagicMock()
-    mock_kps = [MagicMock(id="kp-1", category="DP-")]
+    mock_kps = [MagicMock(id=str(uuid4()), category="DP-")]
     mock_result.scalars.return_value.all.return_value = mock_kps
     mock_session.execute = AsyncMock(return_value=mock_result)
 
     kps = await dao.list(
         mock_session,
-        repository_id="repo-1",
+        repository_id=str(uuid4()),
         version="v1",
         category="DP-",
         tag="Factory",
@@ -126,7 +126,7 @@ async def test_dao_count(mock_session):
         return_value=MagicMock(scalar=MagicMock(return_value=42))
     )
 
-    total = await dao.count(mock_session, repository_id="repo-1")
+    total = await dao.count(mock_session, repository_id=str(uuid4()))
     assert total == 42
 
 
@@ -138,7 +138,7 @@ async def test_dao_count_with_category(mock_session):
         return_value=MagicMock(scalar=MagicMock(return_value=5))
     )
 
-    total = await dao.count(mock_session, repository_id="repo-1", category="AD-")
+    total = await dao.count(mock_session, repository_id=str(uuid4()), category="AD-")
     assert total == 5
 
 
@@ -146,11 +146,11 @@ async def test_dao_count_with_category(mock_session):
 async def test_dao_update(mock_session):
     """测试：DAO update 更新字段"""
     dao = KnowledgePointDAO()
-    existing = MagicMock(id="kp-1", title="Old Title", confidence=0.5)
+    existing = MagicMock(id=str(uuid4()), title="Old Title", confidence=0.5)
     mock_session.execute = AsyncMock(return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing)))
 
     data = {"title": "New Title", "confidence": 0.95}
-    kp = await dao.update(mock_session, "kp-1", data)
+    kp = await dao.update(mock_session, str(uuid4()), data)
     assert kp.title == "New Title"
     assert kp.confidence == 0.95
 
@@ -159,12 +159,12 @@ async def test_dao_update(mock_session):
 async def test_dao_delete_success(mock_session):
     """测试：DAO delete 成功删除"""
     dao = KnowledgePointDAO()
-    existing = MagicMock(id="kp-1", title="To Delete")
+    existing = MagicMock(id=str(uuid4()), title="To Delete")
     mock_session.execute = AsyncMock(
         return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=existing))
     )
 
-    result = await dao.delete(mock_session, "kp-1")
+    result = await dao.delete(mock_session, str(uuid4()))
     assert result is True
     mock_session.delete.assert_called_once()
 
@@ -195,10 +195,10 @@ async def test_api_list_knowledge_points():
     # Mock 返回 dict，包含所有 Pydantic 嵌套模型的必需字段
     mock_kps = [
         {
-            "id": f"id-{i}", "title": f"Point {i}", "category": "DP-",
+            "id": str(uuid4()), "title": f"Point {i}", "category": "DP-",
             "category_name": "设计模式", "description": "desc", "confidence": 0.9,
             "tags": [], "code_snippets": [], "call_chain": [],
-            "expansion": {"principle": "test"}, "repository_id": "repo-1",
+            "expansion": {"principle": "test"}, "repository_id": str(uuid4()),
             "version": "v1", "created_at": "2026-07-09T00:00:00Z",
             "updated_at": "2026-07-09T00:00:00Z",
             "knowledge_metadata": {"agent": "test", "prompt_version": "v1", "model": "claude"},
@@ -208,7 +208,7 @@ async def test_api_list_knowledge_points():
     mock_dao.count = AsyncMock(return_value=5)
 
     result = await list_knowledge_points(
-        repository_id="repo-1", page=1, page_size=20,
+        repository_id=str(uuid4()), page=1, page_size=20,
         version=None, category=None, tag=None, sort_by="created_at", sort_order="desc",
         db=mock_db, dao=mock_dao,
     )
@@ -230,7 +230,7 @@ async def test_api_list_knowledge_points_with_category_filter():
     mock_dao.count = AsyncMock(return_value=0)
 
     result = await list_knowledge_points(
-        repository_id="repo-1", category="AD-", page=1, page_size=20,
+        repository_id=str(uuid4()), category="AD-", page=1, page_size=20,
         version=None, tag=None, sort_by="created_at", sort_order="desc",
         db=mock_db, dao=mock_dao,
     )
@@ -249,7 +249,7 @@ async def test_api_list_knowledge_points_pagination():
     mock_dao.count = AsyncMock(return_value=25)
 
     result = await list_knowledge_points(
-        repository_id="repo-1", page=2, page_size=10,
+        repository_id=str(uuid4()), page=2, page_size=10,
         version=None, category=None, tag=None, sort_by="created_at", sort_order="desc",
         db=mock_db, dao=mock_dao,
     )
@@ -265,13 +265,13 @@ async def test_api_get_knowledge_point_found():
     mock_db = AsyncMock()
     mock_dao = MagicMock()
     mock_kp = MagicMock(
-        id="kp-123", title="Factory Pattern", category="DP-",
-        confidence=0.92, version="v1", repository_id="repo-1",
+        id=str(uuid4()), title="Factory Pattern", category="DP-",
+        confidence=0.92, version="v1", repository_id=str(uuid4()),
         created_at="2026-07-09T00:00:00Z", updated_at="2026-07-09T00:00:00Z",
     )
     mock_dao.get_by_id = AsyncMock(return_value=mock_kp)
 
-    result = await get_knowledge_point("kp-123", mock_db, mock_dao)
+    result = await get_knowledge_point(str(uuid4()), mock_db, mock_dao)
     assert result.title == "Factory Pattern"
 
 
@@ -305,7 +305,7 @@ async def test_api_get_knowledge_stats():
     mock_db.execute = AsyncMock(return_value=mock_result)
 
     result = await get_knowledge_stats(
-        repository_id="repo-1", version=None, db=mock_db, dao=mock_dao,
+        repository_id=str(uuid4()), version=None, db=mock_db, dao=mock_dao,
     )
     assert result.total_points == 10
     assert result.by_category["DP-"] == 5

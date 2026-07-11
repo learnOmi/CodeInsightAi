@@ -4,7 +4,10 @@
 以 Pydantic 模型为单一事实来源，通过 FastAPI 的 OpenAPI 能力自动同步到前端 TypeScript 类型。
 """
 
-from pydantic import BaseModel, ConfigDict
+from datetime import datetime
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, field_serializer
 from pydantic.alias_generators import to_camel
 
 
@@ -17,16 +20,24 @@ class File(BaseModel):
         alias_generator=to_camel,
     )
 
-    id: str
-    repository_id: str
+    id: UUID
+    repository_id: UUID
     path: str
     absolute_path: str
     language: str
     line_count: int
     size_bytes: int
     content_hash: str
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("id", "repository_id")
+    def serialize_uuid(self, value: UUID, _info) -> str:
+        return str(value)
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_datetime(self, value: datetime, _info) -> str:
+        return value.isoformat()
 
 
 class FileCreate(BaseModel):
