@@ -6,7 +6,7 @@ File 数据访问对象
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.models import FileModel
@@ -177,12 +177,9 @@ class FileDAO:
         Returns:
             删除的记录数
         """
-        result = await db.execute(select(FileModel).where(FileModel.repository_id == repository_id))
-        files = result.scalars().all()
-        for file_obj in files:
-            await db.delete(file_obj)
+        result = await db.execute(delete(FileModel).where(FileModel.repository_id == repository_id))
         await db.flush()
-        return len(files)
+        return result.rowcount if hasattr(result, "rowcount") else 0  # type: ignore[attr-defined]
 
     async def get_by_repository(self, db: AsyncSession, repository_id: UUID) -> list[FileModel]:
         """

@@ -143,10 +143,12 @@ class ModuleDependencyBuilder:
         assert session is not None
 
         try:
+            # 增量构建：只加载需要文件的 import 节点和文件
+            file_paths_set = set(file_paths)
             import_nodes = await self.ast_dao.get_by_repository_and_types(session, repo_uuid, {"import"})
             files = await self.file_dao.get_by_repository(session, repo_uuid)
 
-            file_paths_set = set(file_paths)
+            # 过滤：只保留目标文件的 import 节点和文件
             import_nodes = [n for n in import_nodes if n.file_path in file_paths_set]
             files = [f for f in files if f.path in file_paths_set]
 

@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "v002_structure_tables"
+revision = "20260709_002_add_structure_tables"
 down_revision = "20260709_001_initial_schema"
 branch_labels = None
 depends_on = None
@@ -130,10 +130,12 @@ def upgrade() -> None:
     # file_analysis_snapshots 索引
     op.create_index("idx_snapshot_repo_version", "file_analysis_snapshots", ["repository_id", "analysis_version"])
     op.create_index("idx_snapshot_repo_file", "file_analysis_snapshots", ["repository_id", "file_id"])
+    op.create_index("idx_snapshot_content_hash", "file_analysis_snapshots", ["content_hash"])
 
 
 def downgrade() -> None:
     # 删除索引
+    op.drop_index("idx_snapshot_content_hash", table_name="file_analysis_snapshots")
     op.drop_index("idx_snapshot_repo_file", table_name="file_analysis_snapshots")
     op.drop_index("idx_snapshot_repo_version", table_name="file_analysis_snapshots")
     op.drop_index("idx_module_deps_importer_file_id", table_name="module_dependencies")

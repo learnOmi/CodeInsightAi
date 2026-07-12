@@ -575,6 +575,9 @@ async def _save_analysis_snapshot(
     bind=True,
     queue="analysis",
     acks_late=True,
+    max_retries=3,
+    default_retry_delay=60,
+    retry_backoff=True,
 )
 def run_analysis(
     self,
@@ -621,14 +624,19 @@ def run_analysis(
             _check_cancelled(self, task_id)
 
         # Phase 2: GitPython 文件扫描
-        repo_dao = RepositoryDAO()
-        repo = asyncio.run(repo_dao.get_by_id(async_session_factory(), repo_uuid))
+        async def _get_repo_path():
+            repo_dao = RepositoryDAO()
+            async with async_session_factory() as db:
+                repo = await repo_dao.get_by_id(db, repo_uuid)
+                return repo.path if repo is not None else None
+
+        repo_path = asyncio.run(_get_repo_path())
         scan_result: Any = None
-        if repo is not None:
-            scanner = GitScanner(repo.path)
+        if repo_path is not None:
+            scanner = GitScanner(repo_path)
             scan_result = scanner.scan()
             total_files = scan_result.total_count
-            logger.info("扫描完成: repo=%s, files=%d, lines=%d", repo.path, total_files, scan_result.total_lines)
+            logger.info("扫描完成: repo_path=%s, files=%d, lines=%d", repo_path, total_files, scan_result.total_lines)
             logger.info("语言分布: %s", scan_result.language_distribution)
 
             # 更新分析版本：同步扫描后的真实文件数和状态
@@ -677,8 +685,10 @@ def run_analysis(
         if not do_full_analysis:
             try:
                 incremental_diff = asyncio.run(_compute_incremental_diff(repo_uuid, version_tag))
-                assert incremental_diff is not None  # type narrowing for mypy
-                if incremental_diff.needs_full_analysis:
+                if incremental_diff is None:
+                    logger.warning("增量差异计算返回 None，回退为全量分析")
+                    do_full_analysis = True
+                elif incremental_diff.needs_full_analysis:
                     logger.info(
                         "增量分析触发降级: repo=%s, affected=%d/%d，切换为全量分析",
                         repo_uuid,

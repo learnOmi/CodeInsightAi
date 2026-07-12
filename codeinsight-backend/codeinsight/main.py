@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from codeinsight.api import analysis, knowledge, repositories, search, versions
+from codeinsight.api import analysis, files, knowledge, repositories, search, versions
 from codeinsight.config import settings
 from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
 
@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router, prefix="/api/v1", tags=["知识点"])
     app.include_router(search.router, prefix="/api/v1", tags=["搜索"])
     app.include_router(versions.router, prefix="/api/v1", tags=["版本管理"])
+    app.include_router(files.router, prefix="/api/v1/files", tags=["文件管理"])
 
     @app.get("/api/v1/health", tags=["健康检查"])
     async def health_check():

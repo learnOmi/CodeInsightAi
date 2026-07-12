@@ -7,7 +7,7 @@ FileAnalysisSnapshot ORM 模型
 import uuid
 from datetime import datetime
 
-from sqlalchemy import UUID, CheckConstraint, ForeignKey, Integer, String
+from sqlalchemy import UUID, CheckConstraint, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -37,6 +37,10 @@ class FileAnalysisSnapshotModel(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (
+        # 同一仓库+版本+文件的快照唯一
+        UniqueConstraint("repository_id", "analysis_version", "file_id", name="uq_snapshot_file_version"),
+        # 索引：按 content_hash 查找（增量检测用）
+        Index("idx_snapshot_content_hash", "content_hash"),
         CheckConstraint(
             "content_hash IS NOT NULL AND length(content_hash) > 0",
             name="chk_snapshot_content_hash",

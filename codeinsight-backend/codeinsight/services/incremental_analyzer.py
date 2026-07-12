@@ -8,6 +8,7 @@
 """
 
 import logging
+from collections import deque
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
@@ -307,8 +308,8 @@ class IncrementalAnalyzer:
         visited: set[str] = set()
         propagated: set[str] = set()
 
-        # 初始化队列
-        queue: list[tuple[str, int]] = []
+        # 初始化队列（使用 deque 实现 O(1) popleft）
+        queue: deque[tuple[str, int]] = deque()
         for change in modified_changes:
             visited.add(change.path)
             queue.append((change.path, 0))
@@ -319,21 +320,66 @@ class IncrementalAnalyzer:
             all_files = await file_dao.get_by_repository(db, repo_uuid)
             file_id_to_path: dict[UUID, str] = {f.id: f.path for f in all_files}
 
+            # 预加载所有 call_edges 和 module_deps（一次查询，避免在 BFS 循环中重复查询）
+            call_edge_dao = CallEdgeDAO()
+            module_dep_dao = ModuleDependencyDAO()
+            ast_dao = AstNodeDAO()
+
+            all_edges = await call_edge_dao.get_by_repository(db, repo_uuid)
+            all_deps = await module_dep_dao.get_by_repository(db, repo_uuid)
+            all_nodes = await ast_dao.get_by_repository(db, repo_uuid)
+
+            # 构建辅助索引
+            # file_id → node_ids 映射
+            file_id_to_node_ids: dict[UUID, set[UUID]] = {}
+            for node in all_nodes:
+                file_id_to_node_ids.setdefault(node.file_id, set()).add(node.id)
+
+            # node_id → file_path 映射
+            node_id_to_path: dict[UUID, str] = {}
+            for node in all_nodes:
+                node_id_to_path[node.id] = node.file_path
+
+            # file_path → file_id 映射（用于快速查找）
+            file_path_to_id: dict[str, UUID] = {f.path: f.id for f in all_files}
+
             while queue:
-                current_path, depth = queue.pop(0)
+                current_path, depth = queue.popleft()
 
                 if depth >= max_depth:
                     continue
 
-                # 查询 call_edges 中的关联文件
-                caller_paths, callee_paths = await self._get_call_related_files(
-                    db, repo_uuid, current_path, file_id_to_path
-                )
+                current_file_id = file_path_to_id.get(current_path)
+                if current_file_id is None:
+                    continue
 
-                # 查询 module_dependencies 中的关联文件
-                importer_paths, importee_paths = await self._get_dep_related_files(
-                    db, repo_uuid, current_path, file_id_to_path
-                )
+                current_node_ids = file_id_to_node_ids.get(current_file_id, set())
+
+                # ---- 查询调用相关 ----
+                caller_paths: set[str] = set()
+                callee_paths: set[str] = set()
+                for edge in all_edges:
+                    if edge.caller_node_id in current_node_ids and edge.callee_node_id:
+                        callee_path = node_id_to_path.get(edge.callee_node_id)
+                        if callee_path and callee_path != current_path:
+                            callee_paths.add(callee_path)
+                    if edge.callee_node_id in current_node_ids and edge.caller_node_id:
+                        caller_path = node_id_to_path.get(edge.caller_node_id)
+                        if caller_path and caller_path != current_path:
+                            caller_paths.add(caller_path)
+
+                # ---- 查询依赖相关 ----
+                importer_paths: set[str] = set()
+                importee_paths: set[str] = set()
+                for dep in all_deps:
+                    if dep.importer_file_id == current_file_id and dep.imported_file_id:
+                        importee_path = file_id_to_path.get(dep.imported_file_id)
+                        if importee_path and importee_path != current_path:
+                            importee_paths.add(importee_path)
+                    if dep.imported_file_id == current_file_id and dep.importer_file_id:
+                        importer_path = file_id_to_path.get(dep.importer_file_id)
+                        if importer_path and importer_path != current_path:
+                            importer_paths.add(importer_path)
 
                 # 收集新文件
                 for path in caller_paths | callee_paths | importer_paths | importee_paths:
@@ -348,105 +394,3 @@ class IncrementalAnalyzer:
         )
 
         return list(propagated)
-
-    async def _get_call_related_files(
-        self,
-        db: AsyncSession,
-        repo_uuid: UUID,
-        file_path: str,
-        file_id_to_path: dict[UUID, str],
-    ) -> tuple[set[str], set[str]]:
-        """
-        查询调用相关文件
-
-        Returns:
-            (caller_paths, callee_paths)
-        """
-        # 获取该文件的所有 AST 节点
-        ast_dao = AstNodeDAO()
-        file_dao = FileDAO()
-
-        # 查找该文件的 file_id
-        files = await file_dao.get_by_repository(db, repo_uuid)
-        file_id = next((f.id for f in files if f.path == file_path), None)
-        if file_id is None:
-            return set(), set()
-
-        # 获取该文件的所有节点
-        nodes = await ast_dao.get_by_file(db, file_id)
-        node_ids = {n.id for n in nodes}
-
-        call_edge_dao = CallEdgeDAO()
-        all_edges = await call_edge_dao.get_by_repository(db, repo_uuid)
-
-        caller_paths: set[str] = set()
-        callee_paths: set[str] = set()
-
-        # 收集需要查询的节点 ID（避免 N+1）
-        needed_node_ids: set[UUID] = set()
-        for edge in all_edges:
-            if edge.caller_node_id in node_ids and edge.callee_node_id:
-                needed_node_ids.add(edge.callee_node_id)
-            if edge.callee_node_id in node_ids and edge.caller_node_id:
-                needed_node_ids.add(edge.caller_node_id)
-
-        # 批量加载节点
-        node_path_map: dict[UUID, str] = {}
-        if needed_node_ids:
-            nodes = await ast_dao.get_by_ids(db, repo_uuid, list(needed_node_ids))
-            node_path_map = {n.id: n.file_path for n in nodes}
-
-        for edge in all_edges:
-            # 调用方属于当前文件，且存在被调用节点
-            if edge.caller_node_id in node_ids and edge.callee_node_id:
-                callee_path = node_path_map.get(edge.callee_node_id)
-                if callee_path and callee_path != file_path:
-                    callee_paths.add(callee_path)
-
-            # 被调用方属于当前文件，且存在调用方节点
-            if edge.callee_node_id in node_ids and edge.caller_node_id:
-                caller_path = node_path_map.get(edge.caller_node_id)
-                if caller_path and caller_path != file_path:
-                    caller_paths.add(caller_path)
-
-        return caller_paths, callee_paths
-
-    async def _get_dep_related_files(
-        self,
-        db: AsyncSession,
-        repo_uuid: UUID,
-        file_path: str,
-        file_id_to_path: dict[UUID, str],
-    ) -> tuple[set[str], set[str]]:
-        """
-        查询模块依赖相关文件
-
-        Returns:
-            (importer_paths, importee_paths)
-        """
-        file_dao = FileDAO()
-        files = await file_dao.get_by_repository(db, repo_uuid)
-        file_id = next((f.id for f in files if f.path == file_path), None)
-        if file_id is None:
-            return set(), set()
-
-        module_dep_dao = ModuleDependencyDAO()
-        all_deps = await module_dep_dao.get_by_repository(db, repo_uuid)
-
-        importer_paths: set[str] = set()
-        importee_paths: set[str] = set()
-
-        for dep in all_deps:
-            # 导入方属于当前文件，且存在被导入方
-            if dep.importer_file_id == file_id and dep.imported_file_id:
-                importee_path = file_id_to_path.get(dep.imported_file_id)
-                if importee_path and importee_path != file_path:
-                    importee_paths.add(importee_path)
-
-            # 被导入方属于当前文件，且存在导入方
-            if dep.imported_file_id == file_id and dep.importer_file_id:
-                importer_path = file_id_to_path.get(dep.importer_file_id)
-                if importer_path and importer_path != file_path:
-                    importer_paths.add(importer_path)
-
-        return importer_paths, importee_paths

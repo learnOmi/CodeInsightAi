@@ -13,4 +13,6 @@ engine: AsyncEngine = create_async_engine(
     echo=settings.debug,
     pool_size=settings.database_pool_size,
     max_overflow=settings.database_max_overflow,
+    pool_pre_ping=True,
+    pool_recycle=3600,
 )
