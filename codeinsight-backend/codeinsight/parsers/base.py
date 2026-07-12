@@ -131,6 +131,18 @@ class ASTNodeList:
         """获取所有导入"""
         return [node for node in self.nodes if node.node_type == "import"]
 
+    def get_interfaces(self) -> list[ASTNode]:
+        """获取所有接口"""
+        return [node for node in self.nodes if node.node_type == "interface"]
+
+    def get_protocols(self) -> list[ASTNode]:
+        """获取所有 Protocol"""
+        return [node for node in self.nodes if node.node_type == "protocol"]
+
+    def get_enums(self) -> list[ASTNode]:
+        """获取所有枚举"""
+        return [node for node in self.nodes if node.node_type == "enum"]
+
     def __iter__(self):
         return iter(self.nodes)
 
@@ -167,4 +179,17 @@ class LanguageParser(ABC):
 
         默认返回常用类型，子类可覆盖以添加特定类型。
         """
-        return {"function", "class", "method", "call", "import", "variable"}
+        return {
+            "function",
+            "class",
+            "method",
+            "call",
+            "import",
+            "variable",
+            "interface",
+            "protocol",
+            "enum",
+            "type",
+            "struct",
+            "constructor",
+        }

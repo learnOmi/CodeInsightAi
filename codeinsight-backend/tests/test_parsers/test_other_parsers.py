@@ -118,6 +118,50 @@ import * as path from "path";
             assert len(calls) >= 1
             # 应该有 console.log 和 g.sayHello 调用
 
+    @pytest.fixture
+    def sample_ts_interface_file(self, tmp_path: Path) -> Path:
+        """创建包含 interface 和 type 的 TypeScript 文件"""
+        content = """
+interface Person {
+    name: string;
+    age: number;
+    greet(): void;
+}
+
+type Point = {
+    x: number;
+    y: number;
+};
+
+class User implements Person {
+    name: string;
+    age: number;
+
+    greet() {
+        console.log("Hello");
+    }
+}
+"""
+        file_path = tmp_path / "interface.ts"
+        file_path.write_text(content)
+        return file_path
+
+    def test_parse_file_extracts_interface(self, typescript_parser, sample_ts_interface_file):
+        """测试提取接口"""
+        result = typescript_parser.parse_file(sample_ts_interface_file)
+        if len(result) > 0:
+            interfaces = result.get_interfaces()
+            assert len(interfaces) >= 1
+            assert any(i.name == "Person" for i in interfaces)
+
+    def test_parse_file_extracts_type_alias(self, typescript_parser, sample_ts_interface_file):
+        """测试提取类型别名"""
+        result = typescript_parser.parse_file(sample_ts_interface_file)
+        if len(result) > 0:
+            types = [n for n in result.nodes if n.node_type == "type"]
+            assert len(types) >= 1
+            assert any(t.name == "Point" for t in types)
+
 
 # --- JavaScript 测试 ---
 
@@ -260,6 +304,52 @@ public class Greeter {
         if len(result) > 0:
             calls = result.get_calls()
             assert len(calls) >= 2
+
+    @pytest.fixture
+    def sample_java_interface_file(self, tmp_path: Path) -> Path:
+        """创建包含 interface 的 Java 文件"""
+        content = """
+package com.example;
+
+public interface Greeter {
+    String sayHello(String name);
+    void sayGoodbye();
+}
+
+public class EnglishGreeter implements Greeter {
+    @Override
+    public String sayHello(String name) {
+        return "Hello, " + name;
+    }
+
+    @Override
+    public void sayGoodbye() {
+        System.out.println("Goodbye!");
+    }
+}
+"""
+        file_path = tmp_path / "Greeter.java"
+        file_path.write_text(content)
+        return file_path
+
+    def test_parse_file_extracts_interface(self, java_parser, sample_java_interface_file):
+        """测试提取接口"""
+        result = java_parser.parse_file(sample_java_interface_file)
+        if len(result) > 0:
+            interfaces = result.get_interfaces()
+            assert len(interfaces) >= 1
+            assert any(i.name == "Greeter" for i in interfaces)
+
+    def test_parse_file_extracts_class_and_interface(self, java_parser, sample_java_interface_file):
+        """测试同时提取类和接口（不混淆）"""
+        result = java_parser.parse_file(sample_java_interface_file)
+        if len(result) > 0:
+            classes = result.get_classes()
+            interfaces = result.get_interfaces()
+            assert len(classes) >= 1
+            assert any(c.name == "EnglishGreeter" for c in classes)
+            assert len(interfaces) >= 1
+            assert any(i.name == "Greeter" for i in interfaces)
 
 
 # --- Go 测试 ---

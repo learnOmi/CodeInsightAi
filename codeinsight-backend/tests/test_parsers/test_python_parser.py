@@ -214,3 +214,56 @@ class TestPythonParser:
         assert node_dict["node_type"] == "function"
         assert node_dict["name"] == "test"
         assert node_dict["children_count"] == 0
+
+    @pytest.fixture
+    def sample_python_protocol_file(self, tmp_path: Path) -> Path:
+        """创建包含 Protocol 和 Enum 的 Python 文件"""
+        content = """
+from typing import Protocol
+from enum import Enum
+
+
+class Human(Protocol):
+    def say_hello(self) -> str: ...
+    def say_goodbye(self) -> str: ...
+
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+
+
+class Robot:
+    pass
+"""
+        file_path = tmp_path / "protocol.py"
+        file_path.write_text(content)
+        return file_path
+
+    def test_parse_file_extracts_protocol(self, python_parser, sample_python_protocol_file):
+        """测试提取 Protocol"""
+        result = python_parser.parse_file(sample_python_protocol_file)
+        protocols = result.get_protocols()
+        assert len(protocols) >= 1
+        assert any(p.name == "Human" for p in protocols)
+
+    def test_parse_file_extracts_enum(self, python_parser, sample_python_protocol_file):
+        """测试提取 Enum"""
+        result = python_parser.parse_file(sample_python_protocol_file)
+        enums = result.get_enums()
+        assert len(enums) >= 1
+        assert any(e.name == "Color" for e in enums)
+
+    def test_parse_file_separates_protocol_class_enum(self, python_parser, sample_python_protocol_file):
+        """测试 Protocol、类、Enum 不混淆"""
+        result = python_parser.parse_file(sample_python_protocol_file)
+        protocols = result.get_protocols()
+        classes = result.get_classes()
+        enums = result.get_enums()
+        assert len(protocols) >= 1
+        assert any(p.name == "Human" for p in protocols)
+        assert len(classes) >= 1
+        assert any(c.name == "Robot" for c in classes)
+        assert len(enums) >= 1
+        assert any(e.name == "Color" for e in enums)

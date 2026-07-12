@@ -38,7 +38,9 @@ class TypeScriptParser(LanguageParser):
     提取的节点类型：
     - function: 函数声明
     - class: 类声明
-    - method: 类中的方法
+    - interface: 接口声明
+    - type: 类型别名
+    - method: 类/接口中的方法
     - call: 函数调用
     - import: import 语句
     """
@@ -114,6 +116,17 @@ class TypeScriptParser(LanguageParser):
             result.add(ast_node)
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
+        # 接口声明
+        elif node_type == "interface_declaration":
+            ast_node = self._create_interface_node(node, file_path, language, parent_node)
+            result.add(ast_node)
+            self._extract_nodes_from_node(node, result, file_path, language, ast_node)
+
+        # 类型别名
+        elif node_type == "type_alias_declaration":
+            ast_node = self._create_type_alias_node(node, file_path, language, parent_node)
+            result.add(ast_node)
+
         # 导入语句
         elif node_type in ("import_statement", "import_specifier", "named_imports"):
             # import_statement 可能包含多个 import_specifier
@@ -156,6 +169,18 @@ class TypeScriptParser(LanguageParser):
                             method_node = self._create_method_node(body_child, file_path, language, parent_node)
                             result.add(method_node)
                             self._extract_nodes_from_node(body_child, result, file_path, language, method_node)
+            # 在接口中查找方法（TypeScript interface body 中的 method_signature）
+            elif parent_node.node_type == "interface":
+                if child_type == "interface_body":
+                    for body_child in child.children:
+                        if body_child.type == "method_signature":
+                            method_node = self._create_interface_method_node(
+                                body_child, file_path, language, parent_node
+                            )
+                            result.add(method_node)
+                elif child_type == "method_signature":
+                    method_node = self._create_interface_method_node(child, file_path, language, parent_node)
+                    result.add(method_node)
             elif child_type == "call_expression":
                 call_node = self._create_call_node(child, file_path, language, parent_node)
                 result.add(call_node)
@@ -308,3 +333,69 @@ class TypeScriptParser(LanguageParser):
             return "unknown"
         except Exception:
             return "unknown"
+
+    def _create_interface_node(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> ASTNode:
+        """创建接口节点"""
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
+
+        return ASTNode(
+            node_type="interface",
+            name=name,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            start_column=node.start_point[1] + 1,
+            end_column=node.end_point[1] + 1,
+            language=language,
+            file_path=file_path,
+        )
+
+    def _create_type_alias_node(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> ASTNode:
+        """创建类型别名节点"""
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
+
+        return ASTNode(
+            node_type="type",
+            name=name,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            start_column=node.start_point[1] + 1,
+            end_column=node.end_point[1] + 1,
+            language=language,
+            file_path=file_path,
+        )
+
+    def _create_interface_method_node(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode,
+    ) -> ASTNode:
+        """创建接口方法节点"""
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
+
+        return ASTNode(
+            node_type="method",
+            name=name,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            start_column=node.start_point[1] + 1,
+            end_column=node.end_point[1] + 1,
+            language=language,
+            file_path=file_path,
+        )

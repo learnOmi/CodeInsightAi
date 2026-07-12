@@ -33,6 +33,8 @@ class PythonParser(LanguageParser):
     提取的节点类型：
     - function: 函数定义
     - class: 类定义
+    - protocol: Protocol 接口定义（继承自 typing.Protocol）
+    - enum: 枚举定义（继承自 enum.Enum）
     - method: 类中的方法
     - call: 函数调用
     - import: import 语句
@@ -99,10 +101,20 @@ class PythonParser(LanguageParser):
 
         # 类定义
         elif node_type == "class_definition":
-            ast_node = self._create_class_node(node, file_path, language, parent_node)
-            result.add(ast_node)
-            # 递归处理类体
-            self._extract_nodes_from_node(node, result, file_path, language, ast_node)
+            # 检查是否为 Protocol
+            if self._is_protocol(node):
+                ast_node = self._create_protocol_node(node, file_path, language, parent_node)
+                result.add(ast_node)
+                self._extract_nodes_from_node(node, result, file_path, language, ast_node)
+            # 检查是否为 Enum
+            elif self._is_enum(node):
+                ast_node = self._create_enum_node(node, file_path, language, parent_node)
+                result.add(ast_node)
+                self._extract_nodes_from_node(node, result, file_path, language, ast_node)
+            else:
+                ast_node = self._create_class_node(node, file_path, language, parent_node)
+                result.add(ast_node)
+                self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 导入语句
         elif node_type in ("import_statement", "import_from_statement"):
@@ -295,3 +307,89 @@ class PythonParser(LanguageParser):
             return "unknown"
         except Exception:
             return "unknown"
+
+    def _is_protocol(self, node) -> bool:
+        """检查类定义是否继承自 Protocol"""
+        try:
+            # 查找 superclasses 子节点
+            superclasses_node = node.child_by_field_name("superclasses")
+            if superclasses_node is None:
+                return False
+            # 遍历所有基类
+            for child in superclasses_node.children:
+                if child.type == "attribute":
+                    # typing.Protocol 形式：检查 attribute 字段
+                    attr_node = child.child_by_field_name("attribute")
+                    if attr_node and str(attr_node.text.decode("utf-8")).strip() == "Protocol":  # type: ignore[union-attr]
+                        return True
+                elif child.type == "identifier":
+                    # 简单形式：直接写 Protocol
+                    name = str(child.text.decode("utf-8")).strip()  # type: ignore[union-attr]
+                    if name == "Protocol":
+                        return True
+            return False
+        except Exception:
+            return False
+
+    def _is_enum(self, node) -> bool:
+        """检查类定义是否继承自 Enum"""
+        try:
+            superclasses_node = node.child_by_field_name("superclasses")
+            if superclasses_node is None:
+                return False
+            for child in superclasses_node.children:
+                if child.type == "attribute":
+                    attr_node = child.child_by_field_name("attribute")
+                    if attr_node and str(attr_node.text.decode("utf-8")).strip() == "Enum":  # type: ignore[union-attr]
+                        return True
+                elif child.type == "identifier":
+                    name = str(child.text.decode("utf-8")).strip()  # type: ignore[union-attr]
+                    if name == "Enum":
+                        return True
+            return False
+        except Exception:
+            return False
+
+    def _create_protocol_node(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> ASTNode:
+        """创建 Protocol 节点"""
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
+
+        return ASTNode(
+            node_type="protocol",
+            name=name,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            start_column=node.start_point[1] + 1,
+            end_column=node.end_point[1] + 1,
+            language=language,
+            file_path=file_path,
+        )
+
+    def _create_enum_node(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> ASTNode:
+        """创建 Enum 节点"""
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
+
+        return ASTNode(
+            node_type="enum",
+            name=name,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            start_column=node.start_point[1] + 1,
+            end_column=node.end_point[1] + 1,
+            language=language,
+            file_path=file_path,
+        )

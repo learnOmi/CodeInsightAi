@@ -37,7 +37,8 @@ class JavaParser(LanguageParser):
 
     提取的节点类型：
     - class: 类定义
-    - method: 类中的方法
+    - interface: 接口定义
+    - method: 类/接口中的方法
     - call: 方法调用
     - import: import 语句
     """
@@ -95,8 +96,14 @@ class JavaParser(LanguageParser):
         node_type = node.type
 
         # 类定义
-        if node_type in ("class_declaration", "interface_declaration"):
+        if node_type == "class_declaration":
             ast_node = self._create_class_node(node, file_path, language, parent_node)
+            result.add(ast_node)
+            self._extract_nodes_from_node(node, result, file_path, language, ast_node)
+
+        # 接口定义
+        elif node_type == "interface_declaration":
+            ast_node = self._create_interface_node(node, file_path, language, parent_node)
             result.add(ast_node)
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
@@ -144,10 +151,25 @@ class JavaParser(LanguageParser):
                 call_node = self._create_call_node(child, file_path, language, parent_node)
                 result.add(call_node)
             # 嵌套类
-            elif child_type in ("class_declaration", "interface_declaration"):
+            elif child_type == "class_declaration":
                 class_node = self._create_class_node(child, file_path, language, parent_node)
                 result.add(class_node)
                 self._extract_nodes_from_node(child, result, file_path, language, class_node)
+            # 嵌套接口
+            elif child_type == "interface_declaration":
+                interface_node = self._create_interface_node(child, file_path, language, parent_node)
+                result.add(interface_node)
+                self._extract_nodes_from_node(child, result, file_path, language, interface_node)
+            # 在接口中查找方法
+            elif parent_node.node_type == "interface":
+                if child_type == "method_declaration":
+                    method_node = self._create_method_node(child, file_path, language, parent_node)
+                    result.add(method_node)
+                elif child_type == "class_body":
+                    for body_child in child.children:
+                        if body_child.type == "method_declaration":
+                            method_node = self._create_method_node(body_child, file_path, language, parent_node)
+                            result.add(method_node)
             else:
                 self._extract_nodes(child, result, file_path, language, parent_node)
 
@@ -280,3 +302,25 @@ class JavaParser(LanguageParser):
             return "unknown"
         except Exception:
             return "unknown"
+
+    def _create_interface_node(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> ASTNode:
+        """创建接口节点"""
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
+
+        return ASTNode(
+            node_type="interface",
+            name=name,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            start_column=node.start_point[1] + 1,
+            end_column=node.end_point[1] + 1,
+            language=language,
+            file_path=file_path,
+        )
