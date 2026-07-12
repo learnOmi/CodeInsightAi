@@ -31,6 +31,7 @@ class TaskStatus(StrEnum):
     PENDING = "pending"
     SCANNING = "scanning"
     PARSING = "parsing"
+    ANALYZING_STRUCTURES = "analyzing_structures"
     ANALYZING_MODULES = "analyzing_modules"
     STORING = "storing"
     COMPLETED = "completed"

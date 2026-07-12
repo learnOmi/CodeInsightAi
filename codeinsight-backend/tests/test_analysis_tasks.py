@@ -623,5 +623,5 @@ def test_run_analysis_no_cancellation_completes_normally():
 
         assert result["status"] == "completed"
         assert "version_tag" in result
-        # 4 个阶段都应检查取消
-        assert mock_check.call_count == 4
+        # 5 个阶段都应检查取消（新增 Step 4: 结构分析）
+        assert mock_check.call_count == 5

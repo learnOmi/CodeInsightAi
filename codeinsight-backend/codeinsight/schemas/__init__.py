@@ -14,6 +14,7 @@ from .analysis import (
     TaskStatus,
 )
 from .ast_node import AstNode, AstNodeCreate
+from .call_edge import CallEdge, CallEdgeCreate
 from .file import File, FileCreate, FileUpdate
 from .knowledge import (
     CallChainNode,
@@ -27,6 +28,7 @@ from .knowledge import (
     LearningResource,
     PaginatedKnowledgePoints,
 )
+from .module_dependency import ModuleDependency, ModuleDependencyCreate
 from .repository import Repository, RepositoryCreate, RepositoryStatus, RepositoryUpdate
 from .search import (
     SearchMode,
@@ -46,6 +48,12 @@ __all__ = [
     # ast_node
     "AstNode",
     "AstNodeCreate",
+    # call_edge
+    "CallEdge",
+    "CallEdgeCreate",
+    # module_dependency
+    "ModuleDependency",
+    "ModuleDependencyCreate",
     # repository
     "Repository",
     "RepositoryCreate",

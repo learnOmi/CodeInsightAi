@@ -6,14 +6,18 @@ ORM 模型模块
 
 from .analysis_version import AnalysisVersionModel
 from .ast_node import AstNodeModel
+from .call_edge import CallEdgeModel
 from .file import FileModel
 from .knowledge_point import KnowledgePointModel
+from .module_dependency import ModuleDependencyModel
 from .repository import RepositoryModel
 
 __all__ = [
     "RepositoryModel",
     "FileModel",
     "AstNodeModel",
+    "CallEdgeModel",
+    "ModuleDependencyModel",
     "KnowledgePointModel",
     "AnalysisVersionModel",
 ]

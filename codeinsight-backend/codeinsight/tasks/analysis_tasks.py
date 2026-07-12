@@ -6,6 +6,9 @@
 P2-03 阶段接入：
 - Step 2: 存储扫描结果到 files 表
 - Step 3: AST 解析并存储到 ast_nodes 表
+
+P2-04 阶段接入：
+- Step 4: 构建调用图和模块依赖图
 """
 
 import asyncio
@@ -18,6 +21,7 @@ from uuid import UUID
 
 import redis
 
+from codeinsight.analyzers import CallGraphBuilder, ModuleDependencyBuilder
 from codeinsight.config import settings
 from codeinsight.db.session import async_session_factory
 from codeinsight.parsers import ParserFactory
@@ -328,6 +332,24 @@ async def _parse_and_store_ast(repo_uuid: UUID, scan_result: Any) -> None:
         await db.commit()
 
 
+async def _build_structures(repo_uuid: UUID, task_self: Any) -> None:
+    """
+    构建调用图和模块依赖图（共享 session，保证事务原子性）
+
+    Args:
+        repo_uuid: 仓库 UUID
+        task_self: Celery task 实例（用于取消检查）
+    """
+    async with async_session_factory() as db:
+        call_graph_builder = CallGraphBuilder()
+        call_edges_count = await call_graph_builder.build(repo_uuid, db=db)
+        logger.info("调用图构建完成: edges=%d", call_edges_count)
+
+        module_dep_builder = ModuleDependencyBuilder()
+        deps_count = await module_dep_builder.build(repo_uuid, db=db)
+        logger.info("模块依赖图构建完成: dependencies=%d", deps_count)
+
+
 # ================================================================
 # 主分析任务
 # ================================================================
@@ -352,9 +374,10 @@ def run_analysis(
     1. 创建分析版本记录 → pending
     2. 扫描文件列表 → scanning
     3. AST 解析 → parsing（Phase 2 接入）
-    4. AI 分析 → analyzing_modules（Phase 3 接入）
-    5. 存储结果 → storing（Phase 3 接入）
-    6. 标记完成 → completed
+    4. 结构分析 → analyzing_structures（调用图 + 模块依赖，P2-04 接入）
+    5. AI 分析 → analyzing_modules（Phase 3 接入）
+    6. 存储结果 → storing（Phase 3 接入）
+    7. 标记完成 → completed
 
     Args:
         self: Celery task 实例
@@ -447,8 +470,33 @@ def run_analysis(
         # Phase 2: AST 解析并存储到 ast_nodes 表
         asyncio.run(_parse_and_store_ast(repo_uuid, scan_result))
 
-        # ---- Step 4: AI 分析 ----
-        _update_progress(self, TaskStatus.ANALYZING_MODULES, 50.0, total_files, total_files)
+        # ---- Step 4: 结构分析（调用图 + 模块依赖）----
+        _update_progress(self, TaskStatus.ANALYZING_STRUCTURES, 50.0, total_files, total_files)
+        if task_id:
+            _check_cancelled(self, task_id)
+
+        # 更新分析版本状态
+        asyncio.run(
+            _update_analysis_version(
+                version_id,
+                TaskStatus.ANALYZING_STRUCTURES,
+                analyzed_files=total_files,
+            )
+        )
+
+        # 构建调用图 + 模块依赖图（共享 session，保证事务原子性）
+        try:
+            asyncio.run(
+                _build_structures(
+                    repo_uuid,
+                    self,
+                )
+            )
+        except Exception as exc:
+            logger.warning("结构分析失败: %s", exc)
+
+        # ---- Step 5: AI 分析 ----
+        _update_progress(self, TaskStatus.ANALYZING_MODULES, 60.0, total_files, total_files)
         if task_id:
             _check_cancelled(self, task_id)
 
@@ -465,7 +513,7 @@ def run_analysis(
         # knowledge_points = analyze_with_agents(structures, agents)
         knowledge_points_count = 0
 
-        # ---- Step 5: 存储结果 ----
+        # ---- Step 6: 存储结果 ----
         _update_progress(self, TaskStatus.STORING, 80.0, total_files, total_files, knowledge_points_count)
         if task_id:
             _check_cancelled(self, task_id)
