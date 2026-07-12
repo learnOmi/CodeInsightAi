@@ -9,6 +9,9 @@ P2-03 阶段接入：
 
 P2-04 阶段接入：
 - Step 4: 构建调用图和模块依赖图
+
+P2-05 阶段接入：
+- 使用 StructureDataPipeline 统一管理入库（校验 + 批量 + 进度回调）
 """
 
 import asyncio
@@ -28,6 +31,7 @@ from codeinsight.parsers import ParserFactory
 from codeinsight.repositories import AnalysisVersionDAO, AstNodeDAO, FileDAO, RepositoryDAO
 from codeinsight.scanners.git_scanner import GitScanner
 from codeinsight.schemas import AnalysisMode, TaskStatus
+from codeinsight.services import StructureDataPipeline
 
 from . import celery_app  # type: ignore[import-untyped]
 
@@ -269,13 +273,14 @@ async def _store_files_to_db(repo_uuid: UUID, files_data: list[dict]) -> None:
             await db.commit()
 
 
-async def _parse_and_store_ast(repo_uuid: UUID, scan_result: Any) -> None:
+async def _parse_and_store_ast(repo_uuid: UUID, scan_result: Any, progress_callback=None) -> None:
     """
-    AST 解析并存储到 ast_nodes 表
+    AST 解析并通过 StructureDataPipeline 入库 ast_nodes 表
 
     Args:
         repo_uuid: 仓库 UUID
         scan_result: 扫描结果
+        progress_callback: 进度回调函数 (current, total, stage) -> None
     """
     file_dao = FileDAO()
     ast_dao = AstNodeDAO()
@@ -287,6 +292,9 @@ async def _parse_and_store_ast(repo_uuid: UUID, scan_result: Any) -> None:
         # 构建 file_id 映射
         repo_files = await file_dao.get_by_repository(db, repo_uuid)
         file_id_map: dict[str, uuid.UUID] = {f.path: f.id for f in repo_files}
+
+        # 创建入库管道
+        pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
 
         parsed_count = 0
         for scanned_file in scan_result.files:
@@ -322,8 +330,8 @@ async def _parse_and_store_ast(repo_uuid: UUID, scan_result: Any) -> None:
                         }
                     )
                 if nodes_data:
-                    await ast_dao.create_many(db, nodes_data)
-                    parsed_count += len(nodes_data)
+                    result = await pipeline.ingest_ast_nodes(repo_uuid, nodes_data)
+                    parsed_count += result.inserted_count
             except Exception as exc:
                 logger.warning("AST 解析失败: file=%s, error=%s", scanned_file.absolute_path, exc)
                 continue
@@ -332,22 +340,36 @@ async def _parse_and_store_ast(repo_uuid: UUID, scan_result: Any) -> None:
         await db.commit()
 
 
-async def _build_structures(repo_uuid: UUID, task_self: Any) -> None:
+async def _build_structures(repo_uuid: UUID, task_self: Any, progress_callback=None) -> None:
     """
-    构建调用图和模块依赖图（共享 session，保证事务原子性）
+    构建调用图和模块依赖图（通过 StructureDataPipeline 统一管理入库）
 
     Args:
         repo_uuid: 仓库 UUID
         task_self: Celery task 实例（用于取消检查）
+        progress_callback: 进度回调函数
     """
     async with async_session_factory() as db:
-        call_graph_builder = CallGraphBuilder()
-        call_edges_count = await call_graph_builder.build(repo_uuid, db=db)
-        logger.info("调用图构建完成: edges=%d", call_edges_count)
+        # 创建入库管道
+        pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
 
+        # 构建调用图数据（由 builder 返回数据，由 pipeline 写入）
+        call_graph_builder = CallGraphBuilder()
+        call_edges = await call_graph_builder.build_data(repo_uuid, db=db)
+        if call_edges:
+            edge_result = await pipeline.ingest_call_edges(repo_uuid, call_edges)
+            logger.info("调用图构建完成: edges=%d", edge_result.inserted_count)
+        else:
+            logger.info("调用图构建完成: edges=0")
+
+        # 构建模块依赖数据
         module_dep_builder = ModuleDependencyBuilder()
-        deps_count = await module_dep_builder.build(repo_uuid, db=db)
-        logger.info("模块依赖图构建完成: dependencies=%d", deps_count)
+        deps = await module_dep_builder.build_data(repo_uuid, db=db)
+        if deps:
+            dep_result = await pipeline.ingest_module_deps(repo_uuid, deps)
+            logger.info("模块依赖图构建完成: dependencies=%d", dep_result.inserted_count)
+        else:
+            logger.info("模块依赖图构建完成: dependencies=0")
 
 
 # ================================================================
@@ -467,8 +489,16 @@ def run_analysis(
             )
         )
 
-        # Phase 2: AST 解析并存储到 ast_nodes 表
-        asyncio.run(_parse_and_store_ast(repo_uuid, scan_result))
+        # Phase 2: AST 解析并通过 StructureDataPipeline 入库 ast_nodes 表
+        if task_id:
+
+            def _parsing_progress(current: int, total: int, stage: str) -> None:
+                _update_progress(self, TaskStatus.PARSING, 25.0 + (current / max(total, 1)) * 10, current, total)
+
+            parsing_progress = _parsing_progress
+        else:
+            parsing_progress = None
+        asyncio.run(_parse_and_store_ast(repo_uuid, scan_result, progress_callback=parsing_progress))
 
         # ---- Step 4: 结构分析（调用图 + 模块依赖）----
         _update_progress(self, TaskStatus.ANALYZING_STRUCTURES, 50.0, total_files, total_files)
@@ -484,12 +514,23 @@ def run_analysis(
             )
         )
 
-        # 构建调用图 + 模块依赖图（共享 session，保证事务原子性）
+        # 构建调用图 + 模块依赖图（通过 StructureDataPipeline 统一管理入库）
+        if task_id:
+
+            def _structures_progress(current: int, total: int, stage: str) -> None:
+                _update_progress(
+                    self, TaskStatus.ANALYZING_STRUCTURES, 50.0 + (current / max(total, 1)) * 10, current, total
+                )
+
+            structures_progress = _structures_progress
+        else:
+            structures_progress = None
         try:
             asyncio.run(
                 _build_structures(
                     repo_uuid,
                     self,
+                    progress_callback=structures_progress,
                 )
             )
         except Exception as exc:

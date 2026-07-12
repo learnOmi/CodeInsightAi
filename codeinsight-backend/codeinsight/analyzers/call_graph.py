@@ -37,50 +37,83 @@ class CallGraphBuilder:
         self.ast_dao = AstNodeDAO()
         self.call_edge_dao = CallEdgeDAO()
 
-    async def build(self, repo_uuid: UUID, db: AsyncSession | None = None) -> int:
+    async def build(
+        self,
+        repo_uuid: UUID,
+        db: AsyncSession | None = None,
+        dry_run: bool = False,
+    ) -> int:
         """
         构建调用图
 
         Args:
             repo_uuid: 仓库 UUID
-            db: 可选的数据库会话。提供时不复用；否则创建独立会话。
+            db: 可选的数据库会话。提供时复用；否则创建独立会话。
+            dry_run: True 时不写入数据库，只返回调用边列表长度
 
         Returns:
-            创建的调用边数量
+            创建的调用边数量（dry_run 时返回计算出的边数量）
+        """
+        edges_data = await self.build_data(repo_uuid, db=db)
+
+        if dry_run:
+            logger.info("调用图构建 (dry_run): repo=%s, edges=%d", repo_uuid, len(edges_data))
+            return len(edges_data)
+
+        # 需要写入，使用独立 session
+        use_context = db is None
+        session = db
+        if use_context:
+            session = await async_session_factory().__aenter__()
+        assert session is not None  # type narrowing for mypy
+
+        try:
+            await self.call_edge_dao.delete_by_repository(session, repo_uuid)
+            if edges_data:
+                await self.call_edge_dao.create_many(session, edges_data)
+            await session.commit()
+            logger.info("调用图构建完成: repo=%s, edges=%d", repo_uuid, len(edges_data))
+            return len(edges_data)
+        finally:
+            if use_context:
+                await session.__aexit__(None, None, None)
+
+    async def build_data(self, repo_uuid: UUID, db: AsyncSession | None = None) -> list[dict]:
+        """
+        构建调用图数据（不写入数据库）
+
+        用于 StructureDataPipeline 接管写入。
+
+        Args:
+            repo_uuid: 仓库 UUID
+            db: 可选的数据库会话。提供时复用；否则创建独立会话。
+
+        Returns:
+            调用边数据列表
         """
         use_context = db is None
         session = db
         if use_context:
             session = await async_session_factory().__aenter__()
-
         assert session is not None  # type narrowing for mypy
 
         try:
-            # 1. 按需加载 call 节点和函数定义节点（避免全量加载所有 AST 节点）
+            # 1. 按需加载 call 节点和函数定义节点
             call_nodes = await self.ast_dao.get_by_repository_and_types(session, repo_uuid, {"call"})
             function_nodes = await self.ast_dao.get_by_repository_and_types(session, repo_uuid, _CALLABLE_NODE_TYPES)
 
             logger.info(
-                "调用图构建: repo=%s, calls=%d, functions=%d",
+                "调用图数据构建: repo=%s, calls=%d, functions=%d",
                 repo_uuid,
                 len(call_nodes),
                 len(function_nodes),
             )
 
-            # 2. 构建函数索引（name → [node]）
+            # 2. 构建函数索引
             function_index = self._build_function_index(function_nodes)
 
             # 3. 匹配调用边
-            edges_data = self._match_call_edges(call_nodes, function_index, repo_uuid)
-
-            # 4. 清理旧数据并批量写入
-            await self.call_edge_dao.delete_by_repository(session, repo_uuid)
-            if edges_data:
-                await self.call_edge_dao.create_many(session, edges_data)
-            await session.commit()
-
-            logger.info("调用图构建完成: repo=%s, edges=%d", repo_uuid, len(edges_data))
-            return len(edges_data)
+            return self._match_call_edges(call_nodes, function_index, repo_uuid)
         finally:
             if use_context:
                 await session.__aexit__(None, None, None)

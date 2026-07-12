@@ -34,50 +34,83 @@ class ModuleDependencyBuilder:
         self.file_dao = FileDAO()
         self.dep_dao = ModuleDependencyDAO()
 
-    async def build(self, repo_uuid: UUID, db: AsyncSession | None = None) -> int:
+    async def build(
+        self,
+        repo_uuid: UUID,
+        db: AsyncSession | None = None,
+        dry_run: bool = False,
+    ) -> int:
         """
         构建模块依赖图
 
         Args:
             repo_uuid: 仓库 UUID
-            db: 可选的数据库会话。提供时不复用；否则创建独立会话。
+            db: 可选的数据库会话。提供时复用；否则创建独立会话。
+            dry_run: True 时不写入数据库，只返回依赖边列表长度
 
         Returns:
-            创建的依赖边数量
+            创建的依赖边数量（dry_run 时返回计算出的边数量）
+        """
+        deps_data = await self.build_data(repo_uuid, db=db)
+
+        if dry_run:
+            logger.info("模块依赖构建 (dry_run): repo=%s, dependencies=%d", repo_uuid, len(deps_data))
+            return len(deps_data)
+
+        # 需要写入，使用独立 session
+        use_context = db is None
+        session = db
+        if use_context:
+            session = await async_session_factory().__aenter__()
+        assert session is not None  # type narrowing for mypy
+
+        try:
+            await self.dep_dao.delete_by_repository(session, repo_uuid)
+            if deps_data:
+                await self.dep_dao.create_many(session, deps_data)
+            await session.commit()
+            logger.info("模块依赖构建完成: repo=%s, dependencies=%d", repo_uuid, len(deps_data))
+            return len(deps_data)
+        finally:
+            if use_context:
+                await session.__aexit__(None, None, None)
+
+    async def build_data(self, repo_uuid: UUID, db: AsyncSession | None = None) -> list[dict]:
+        """
+        构建模块依赖数据（不写入数据库）
+
+        用于 StructureDataPipeline 接管写入。
+
+        Args:
+            repo_uuid: 仓库 UUID
+            db: 可选的数据库会话。提供时复用；否则创建独立会话。
+
+        Returns:
+            依赖边数据列表
         """
         use_context = db is None
         session = db
         if use_context:
             session = await async_session_factory().__aenter__()
-
         assert session is not None  # type narrowing for mypy
 
         try:
-            # 1. 按需加载 import 节点（避免全量加载所有 AST 节点）和文件
+            # 1. 按需加载 import 节点和文件
             import_nodes = await self.ast_dao.get_by_repository_and_types(session, repo_uuid, {"import"})
             files = await self.file_dao.get_by_repository(session, repo_uuid)
             logger.info(
-                "模块依赖构建: repo=%s, imports=%d, files=%d",
+                "模块依赖数据构建: repo=%s, imports=%d, files=%d",
                 repo_uuid,
                 len(import_nodes),
                 len(files),
             )
 
-            # 2. 构建文件索引（file_path → FileModel）
+            # 2. 构建文件索引
             file_index = {f.path: f for f in files}
             file_index_reverse = {f.id: f.path for f in files}
 
-            # 3. 构建 import_name → file_id 的映射
-            deps_data = self._match_dependencies(import_nodes, file_index, file_index_reverse, repo_uuid)
-
-            # 4. 清理旧数据并批量写入
-            await self.dep_dao.delete_by_repository(session, repo_uuid)
-            if deps_data:
-                await self.dep_dao.create_many(session, deps_data)
-            await session.commit()
-
-            logger.info("模块依赖构建完成: repo=%s, dependencies=%d", repo_uuid, len(deps_data))
-            return len(deps_data)
+            # 3. 构建依赖边
+            return self._match_dependencies(import_nodes, file_index, file_index_reverse, repo_uuid)
         finally:
             if use_context:
                 await session.__aexit__(None, None, None)
