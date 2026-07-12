@@ -13,6 +13,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+
 
 @dataclass
 class ASTNode:
@@ -244,13 +246,44 @@ class LanguageParser(ABC):
     # 抽象接口
     # ============================================================
 
-    @abstractmethod
     def parse_file(self, file_path: Path | str) -> ASTNodeList:
         """
         解析文件，返回 AST 节点列表
 
+        包含文件大小保护：超过 MAX_FILE_SIZE_BYTES 的文件直接返回空列表。
+
         Args:
             file_path: 文件路径
+
+        Returns:
+            ASTNodeList 包含所有提取的节点
+        """
+        path = Path(file_path)
+
+        try:
+            file_size = path.stat().st_size
+        except OSError as e:
+            logger.warning("无法获取文件大小: %s, error=%s", path, e)
+            return ASTNodeList()
+
+        if file_size > MAX_FILE_SIZE_BYTES:
+            logger.warning(
+                "文件超过大小限制，跳过解析: %s (size=%d bytes, limit=%d bytes)",
+                path,
+                file_size,
+                MAX_FILE_SIZE_BYTES,
+            )
+            return ASTNodeList()
+
+        return self._parse_file_impl(path)
+
+    @abstractmethod
+    def _parse_file_impl(self, file_path: Path) -> ASTNodeList:
+        """
+        具体解析实现（子类必须实现）
+
+        Args:
+            file_path: 文件路径（已通过大小检查）
 
         Returns:
             ASTNodeList 包含所有提取的节点

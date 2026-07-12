@@ -28,8 +28,7 @@ class CallEdgeDAO:
         edge_objects = [CallEdgeModel(**data) for data in edges_data]
         db.add_all(edge_objects)
         await db.flush()
-        for obj in edge_objects:
-            await db.refresh(obj)
+        # 无需逐行 refresh：所有边 UUID 由应用层生成，flush 后对象状态已完整
         return edge_objects
 
     async def get_by_id(self, db: AsyncSession, edge_id: UUID) -> CallEdgeModel | None:

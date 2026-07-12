@@ -50,7 +50,7 @@ class PythonParser(LanguageParser):
     def get_language_name(self) -> str:
         return self._language_name
 
-    def parse_file(self, file_path: Path | str) -> ASTNodeList:
+    def _parse_file_impl(self, file_path: Path) -> ASTNodeList:
         """
         解析 Python 文件
 
@@ -61,17 +61,16 @@ class PythonParser(LanguageParser):
             ASTNodeList 包含所有提取的节点
         """
         try:
-            path = Path(file_path)
-            if not path.exists():
-                logger.warning("文件不存在: %s", path)
+            if not file_path.exists():
+                logger.warning("文件不存在: %s", file_path)
                 return ASTNodeList()
 
-            content = path.read_bytes()
+            content = file_path.read_bytes()
             tree = self._parser.parse(content)
             root_node = tree.root_node
 
             nodes = ASTNodeList()
-            self._extract_nodes(root_node, nodes, str(path), self._language_name)
+            self._extract_nodes(root_node, nodes, str(file_path), self._language_name)
 
             return nodes
 

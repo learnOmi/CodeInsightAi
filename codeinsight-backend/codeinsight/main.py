@@ -61,6 +61,13 @@ def create_app() -> FastAPI:
             content={"detail": f"Repository not found: {exc.repository_id}"},
         )
 
+    @app.exception_handler(NotImplementedError)
+    async def not_implemented_handler(request: Request, exc: NotImplementedError):
+        return JSONResponse(
+            status_code=501,
+            content={"detail": "功能尚未实现: " + str(exc) if str(exc) else "功能尚未实现"},
+        )
+
     # 注册路由
     app.include_router(repositories.router, prefix="/api/v1/repositories", tags=["仓库管理"])
     app.include_router(analysis.router, prefix="/api/v1", tags=["分析任务"])

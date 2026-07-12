@@ -110,51 +110,65 @@ async def get_knowledge_stats(
     获取知识点统计
 
     返回指定仓库的知识点统计数据，包括按分类分布、置信度分布、热门标签等。
+    优化：9 次独立查询合并为 3 次（分类 GROUP BY + 总数 + 置信度 GROUP BY）。
     """
-    total_points = await dao.count(db=db, repository_id=repository_id, version=version)
-
     from codeinsight.schemas import KnowledgeCategory
 
-    # 按分类统计
+    # 构建 version 过滤条件（version=None 时不加过滤）
+    version_condition = (KnowledgePointModel.version == version) if version is not None else None
+
+    def _where_base() -> list:
+        conditions = [KnowledgePointModel.repository_id == repository_id]
+        if version_condition is not None:
+            conditions.append(version_condition)
+        return conditions
+
+    # 1 次查询：按分类分组计数
+    by_category_result = await db.execute(
+        select(
+            KnowledgePointModel.category,
+            func.count(KnowledgePointModel.id),
+        )
+        .where(*_where_base())
+        .group_by(KnowledgePointModel.category)
+    )
+
+    _category_enum_map = {
+        KnowledgeCategory.DESIGN_PATTERN.value: KnowledgeCategory.DESIGN_PATTERN,
+        KnowledgeCategory.ARCHITECTURE_DECISION.value: KnowledgeCategory.ARCHITECTURE_DECISION,
+        KnowledgeCategory.ALGORITHM.value: KnowledgeCategory.ALGORITHM,
+        KnowledgeCategory.ENGINEERING_TIP.value: KnowledgeCategory.ENGINEERING_TIP,
+        KnowledgeCategory.DOMAIN_KNOWLEDGE.value: KnowledgeCategory.DOMAIN_KNOWLEDGE,
+    }
+
     by_category: dict[KnowledgeCategory, int] = {}
-    for cat in [
-        KnowledgeCategory.DESIGN_PATTERN,
-        KnowledgeCategory.ARCHITECTURE_DECISION,
-        KnowledgeCategory.ALGORITHM,
-        KnowledgeCategory.ENGINEERING_TIP,
-        KnowledgeCategory.DOMAIN_KNOWLEDGE,
-    ]:
-        count = await dao.count(db=db, repository_id=repository_id, version=version, category=cat.value)
-        if count > 0:
-            by_category[cat] = count
+    for category, count in by_category_result.tuples():
+        if count > 0 and category in _category_enum_map:
+            by_category[_category_enum_map[category]] = count
 
-    # 按置信度区间统计
+    # 1 次查询：总记录数
+    total_result = await db.execute(select(func.count(KnowledgePointModel.id)).where(*_where_base()))
+    total_points = total_result.scalar() or 0
+
+    # 1 次查询：按置信度分组计数
+    confidence_result = await db.execute(
+        select(
+            KnowledgePointModel.confidence,
+            func.count(KnowledgePointModel.id),
+        )
+        .where(*_where_base())
+        .group_by(KnowledgePointModel.confidence)
+    )
+
     by_confidence: dict[str, int] = {"high": 0, "medium": 0, "low": 0}
-
-    high_result = await db.execute(
-        select(func.count(KnowledgePointModel.id)).where(
-            KnowledgePointModel.repository_id == repository_id,
-            KnowledgePointModel.confidence >= 0.8,
-        )
-    )
-    by_confidence["high"] = high_result.scalar() or 0
-
-    medium_result = await db.execute(
-        select(func.count(KnowledgePointModel.id)).where(
-            KnowledgePointModel.repository_id == repository_id,
-            KnowledgePointModel.confidence >= 0.5,
-            KnowledgePointModel.confidence < 0.8,
-        )
-    )
-    by_confidence["medium"] = medium_result.scalar() or 0
-
-    low_result = await db.execute(
-        select(func.count(KnowledgePointModel.id)).where(
-            KnowledgePointModel.repository_id == repository_id,
-            KnowledgePointModel.confidence < 0.5,
-        )
-    )
-    by_confidence["low"] = low_result.scalar() or 0
+    for confidence, count in confidence_result.tuples():
+        if confidence is not None:
+            if confidence >= 0.8:
+                by_confidence["high"] += count
+            elif confidence >= 0.5:
+                by_confidence["medium"] += count
+            else:
+                by_confidence["low"] += count
 
     return KnowledgeStats(
         total_points=total_points,

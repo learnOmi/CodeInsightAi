@@ -13,6 +13,10 @@ import git
 
 logger = logging.getLogger(__name__)
 
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+READ_BUFFER_SIZE = 64 * 1024
+DEFAULT_MAX_LINE_COUNT = 10000
+
 
 @dataclass
 class ScannedFile:
@@ -31,7 +35,7 @@ class ScannedFile:
         file_path: Path,
         repo_path: Path,
         language: str = "unknown",
-        max_line_count: int = 10000,
+        max_line_count: int = DEFAULT_MAX_LINE_COUNT,
     ) -> "ScannedFile | None":
         """
         从文件路径创建 ScannedFile 实例
@@ -52,19 +56,18 @@ class ScannedFile:
             size_bytes = file_path.stat().st_size
 
             # 跳过过大文件（>10MB）
-            if size_bytes > 10 * 1024 * 1024:
+            if size_bytes > MAX_FILE_SIZE_BYTES:
                 logger.debug("跳过过大文件: %s (%.1fMB)", file_path, size_bytes / (1024 * 1024))
                 return None
 
             # 分块读取，计算 hash + 统计行数
-            _buffer_size = 64 * 1024  # 64KB 分块，控制内存占用
             sha = hashlib.sha256()
             line_count = 0
             partial_line = 0  # 记录前一个 chunk 末尾不完整的行数
 
             with open(file_path, "rb") as f:
                 while True:
-                    chunk = f.read(_buffer_size)
+                    chunk = f.read(READ_BUFFER_SIZE)
                     if not chunk:
                         break
                     sha.update(chunk)
@@ -163,7 +166,7 @@ class GitScanner:
         self,
         repo_path: str,
         exclude_dirs: frozenset[str] | None = None,
-        max_line_count: int = 10000,
+        max_line_count: int = DEFAULT_MAX_LINE_COUNT,
     ) -> None:
         """
         Args:

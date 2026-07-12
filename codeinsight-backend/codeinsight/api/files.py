@@ -6,20 +6,12 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.db.session import get_db_session
 from codeinsight.repositories.file import FileDAO
 from codeinsight.schemas import File, FileCreate, FileUpdate
-
-
-class DeleteFileResponse(BaseModel):
-    """删除文件响应"""
-
-    message: str
-
 
 router = APIRouter()
 
@@ -95,7 +87,7 @@ async def update_file(
     return file_obj
 
 
-@router.delete("/{file_id}", response_model=DeleteFileResponse, status_code=200)
+@router.delete("/{file_id}", status_code=204)
 async def delete_file(
     file_id: UUID,
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
@@ -108,4 +100,4 @@ async def delete_file(
     if not deleted:
         raise HTTPException(status_code=404, detail=f"File {file_id} not found")
 
-    return DeleteFileResponse(message=f"File {file_id} deleted successfully")
+    return Response(status_code=204)

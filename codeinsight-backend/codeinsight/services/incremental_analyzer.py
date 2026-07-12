@@ -68,9 +68,43 @@ class IncrementalAnalyzer:
         self,
         fallback_threshold: float = settings.incremental_max_change_ratio,
         max_depth: int = settings.incremental_max_propagation_depth,
+        file_dao: FileDAO | None = None,
+        ast_node_dao: AstNodeDAO | None = None,
+        call_edge_dao: CallEdgeDAO | None = None,
+        module_dep_dao: ModuleDependencyDAO | None = None,
     ) -> None:
         self.fallback_threshold = fallback_threshold
         self.max_depth = max_depth
+
+        # DAO 实例（支持依赖注入，便于测试 mock；延迟初始化保持向后兼容）
+        self._file_dao = file_dao
+        self._ast_node_dao = ast_node_dao
+        self._call_edge_dao = call_edge_dao
+        self._module_dep_dao = module_dep_dao
+
+    @property
+    def file_dao(self) -> FileDAO:
+        if self._file_dao is None:
+            self._file_dao = FileDAO()
+        return self._file_dao
+
+    @property
+    def ast_node_dao(self) -> AstNodeDAO:
+        if self._ast_node_dao is None:
+            self._ast_node_dao = AstNodeDAO()
+        return self._ast_node_dao
+
+    @property
+    def call_edge_dao(self) -> CallEdgeDAO:
+        if self._call_edge_dao is None:
+            self._call_edge_dao = CallEdgeDAO()
+        return self._call_edge_dao
+
+    @property
+    def module_dep_dao(self) -> ModuleDependencyDAO:
+        if self._module_dep_dao is None:
+            self._module_dep_dao = ModuleDependencyDAO()
+        return self._module_dep_dao
 
     async def compute_diff(
         self,
@@ -179,14 +213,13 @@ class IncrementalAnalyzer:
         if version is None:
             return {}
 
-        file_dao = FileDAO()
         async with async_session_factory() as db:
             # 获取该版本对应的快照
             snapshots = await self._get_snapshots_by_version(db, repo_uuid, version)
             snapshot_by_file_id = {s.file_id: s for s in snapshots}
 
             # 获取当前文件列表（用于 path 映射）
-            files = await file_dao.get_by_repository(db, repo_uuid)
+            files = await self.file_dao.get_by_repository(db, repo_uuid)
             file_path_by_id = {f.id: f.path for f in files}
 
             # 构建 {path: hash} 映射
@@ -316,18 +349,13 @@ class IncrementalAnalyzer:
 
         async with async_session_factory() as db:
             # 加载所有文件（用于路径查找）
-            file_dao = FileDAO()
-            all_files = await file_dao.get_by_repository(db, repo_uuid)
+            all_files = await self.file_dao.get_by_repository(db, repo_uuid)
             file_id_to_path: dict[UUID, str] = {f.id: f.path for f in all_files}
 
             # 预加载所有 call_edges 和 module_deps（一次查询，避免在 BFS 循环中重复查询）
-            call_edge_dao = CallEdgeDAO()
-            module_dep_dao = ModuleDependencyDAO()
-            ast_dao = AstNodeDAO()
-
-            all_edges = await call_edge_dao.get_by_repository(db, repo_uuid)
-            all_deps = await module_dep_dao.get_by_repository(db, repo_uuid)
-            all_nodes = await ast_dao.get_by_repository(db, repo_uuid)
+            all_edges = await self.call_edge_dao.get_by_repository(db, repo_uuid)
+            all_deps = await self.module_dep_dao.get_by_repository(db, repo_uuid)
+            all_nodes = await self.ast_node_dao.get_by_repository(db, repo_uuid)
 
             # 构建辅助索引
             # file_id → node_ids 映射

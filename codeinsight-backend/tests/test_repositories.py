@@ -335,7 +335,7 @@ async def test_api_delete_repository():
     mock_dao.delete = AsyncMock(return_value=True)
 
     result = await delete_repository("repo-1", mock_db, mock_dao)
-    assert "deleted successfully" in result.message
+    assert result.status_code == 204
 
 
 @pytest.mark.asyncio

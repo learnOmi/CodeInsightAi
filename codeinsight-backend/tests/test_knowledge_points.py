@@ -317,17 +317,47 @@ async def test_api_get_knowledge_point_not_found():
 @pytest.mark.asyncio
 async def test_api_get_knowledge_stats():
     """测试：API get_knowledge_stats 返回统计数据"""
+
     from codeinsight.api.knowledge import get_knowledge_stats
 
     mock_db = AsyncMock()
     mock_dao = MagicMock()
-    # total + 5 categories = 6 calls
-    mock_dao.count = AsyncMock(side_effect=[10, 5, 2, 1, 1, 1])
 
-    # 模拟 db.execute 用于 confidence 统计（3 次调用）
-    mock_result = MagicMock()
-    mock_result.scalar.return_value = 7
-    mock_db.execute = AsyncMock(return_value=mock_result)
+    # 3 次查询：
+    # 1. by_category 分组查询
+    # 2. total 计数查询
+    # 3. by_confidence 分组查询
+
+    # 模拟第一次查询结果（by_category 分组）
+    mock_category_result = MagicMock()
+    mock_category_result.tuples.return_value = [
+        ("DP-", 5),
+        ("AD-", 2),
+        ("AL-", 1),
+        ("ET-", 1),
+        ("DK-", 1),
+    ]
+
+    # 模拟第二次查询结果（total 计数）
+    mock_total_result = MagicMock()
+    mock_total_result.scalar.return_value = 10
+
+    # 模拟第三次查询结果（by_confidence 分组）
+    mock_confidence_result = MagicMock()
+    mock_confidence_result.tuples.return_value = [
+        (0.9, 7),
+        (0.6, 2),
+        (0.3, 1),
+    ]
+
+    # 按调用顺序返回不同结果
+    mock_db.execute = AsyncMock(
+        side_effect=[
+            mock_category_result,
+            mock_total_result,
+            mock_confidence_result,
+        ]
+    )
 
     result = await get_knowledge_stats(
         repository_id=str(uuid4()),
@@ -338,3 +368,5 @@ async def test_api_get_knowledge_stats():
     assert result.total_points == 10
     assert result.by_category["DP-"] == 5
     assert result.by_confidence["high"] == 7
+    assert result.by_confidence["medium"] == 2
+    assert result.by_confidence["low"] == 1

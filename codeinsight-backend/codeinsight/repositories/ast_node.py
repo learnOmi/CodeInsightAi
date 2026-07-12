@@ -46,8 +46,8 @@ class AstNodeDAO:
         node_objects = [AstNodeModel(**data) for data in nodes_data]
         db.add_all(node_objects)
         await db.flush()
-        for obj in node_objects:
-            await db.refresh(obj)
+        # 无需逐行 refresh：所有节点 UUID 由应用层生成，flush 后对象状态已完整
+        # 旧实现逐行 await db.refresh(obj) 导致 N 次额外 SELECT 往返
         return node_objects
 
     async def get_by_id(self, db: AsyncSession, node_id: UUID) -> AstNodeModel | None:

@@ -12,8 +12,9 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TypeVar
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +24,13 @@ from codeinsight.repositories import AstNodeDAO, CallEdgeDAO, FileDAO, ModuleDep
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T")
+
 # 进度回调类型：progress_callback(inserted, total, stage)
 ProgressCallback = Callable[[int, int, str], None]
+
+# 批量创建函数类型：create_many_fn(db, data_list) -> model_list
+CreateManyFn = Callable[[AsyncSession, list[dict]], Awaitable[list]]
 
 
 @dataclass
@@ -53,16 +59,20 @@ class StructureDataPipeline:
         db: AsyncSession,
         batch_size: int = 500,
         progress_callback: ProgressCallback | None = None,
+        ast_node_dao: AstNodeDAO | None = None,
+        call_edge_dao: CallEdgeDAO | None = None,
+        module_dep_dao: ModuleDependencyDAO | None = None,
+        file_dao: FileDAO | None = None,
     ) -> None:
         self.db = db
         self.batch_size = batch_size
         self.progress_callback = progress_callback
 
-        # DAO 实例
-        self.ast_node_dao = AstNodeDAO()
-        self.call_edge_dao = CallEdgeDAO()
-        self.module_dep_dao = ModuleDependencyDAO()
-        self.file_dao = FileDAO()
+        # DAO 实例（支持依赖注入，便于测试 mock）
+        self.ast_node_dao = ast_node_dao or AstNodeDAO()
+        self.call_edge_dao = call_edge_dao or CallEdgeDAO()
+        self.module_dep_dao = module_dep_dao or ModuleDependencyDAO()
+        self.file_dao = file_dao or FileDAO()
 
         # 节点 UUID 映射（解析时的临时映射）
         self._node_uuid_map: dict[str, UUID] = {}
@@ -313,7 +323,7 @@ class StructureDataPipeline:
     async def _batch_insert(
         self,
         data: list[dict],
-        create_many_fn,
+        create_many_fn: CreateManyFn,
         stage: str,
         total: int,
     ) -> int:

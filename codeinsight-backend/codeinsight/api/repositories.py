@@ -6,8 +6,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.db.session import get_db_session
@@ -15,12 +14,6 @@ from codeinsight.repositories import RepositoryDAO
 from codeinsight.schemas import Repository, RepositoryCreate, RepositoryUpdate
 
 router = APIRouter()
-
-
-class DeleteResponse(BaseModel):
-    """删除响应"""
-
-    message: str
 
 
 def get_repository_dao() -> RepositoryDAO:
@@ -99,7 +92,7 @@ async def update_repository(
     return repo
 
 
-@router.delete("/{repository_id}", response_model=DeleteResponse, status_code=200)
+@router.delete("/{repository_id}", status_code=204)
 async def delete_repository(
     repository_id: UUID,
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
@@ -112,4 +105,4 @@ async def delete_repository(
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
 
-    return DeleteResponse(message=f"Repository {repository_id} deleted successfully")
+    return Response(status_code=204)
