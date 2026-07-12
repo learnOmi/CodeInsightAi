@@ -115,6 +115,56 @@ class ModuleDependencyBuilder:
             if use_context:
                 await session.__aexit__(None, None, None)
 
+    async def build_data_for_files(
+        self,
+        repo_uuid: UUID,
+        file_paths: list[str],
+        db: AsyncSession | None = None,
+    ) -> list[dict]:
+        """
+        为指定文件构建模块依赖数据（不写入数据库）
+
+        Args:
+            repo_uuid: 仓库 UUID
+            file_paths: 需要构建依赖的文件路径列表
+            db: 可选的数据库会话。提供时复用；否则创建独立会话。
+
+        Returns:
+            依赖边数据列表
+        """
+        if not file_paths:
+            logger.info("模块依赖增量构建: repo=%s, file_paths=0 (跳过)", repo_uuid)
+            return []
+
+        use_context = db is None
+        session = db
+        if use_context:
+            session = await async_session_factory().__aenter__()
+        assert session is not None
+
+        try:
+            import_nodes = await self.ast_dao.get_by_repository_and_types(session, repo_uuid, {"import"})
+            files = await self.file_dao.get_by_repository(session, repo_uuid)
+
+            file_paths_set = set(file_paths)
+            import_nodes = [n for n in import_nodes if n.file_path in file_paths_set]
+            files = [f for f in files if f.path in file_paths_set]
+
+            logger.info(
+                "模块依赖增量构建: repo=%s, imports=%d, files=%d",
+                repo_uuid,
+                len(import_nodes),
+                len(files),
+            )
+
+            file_index = {f.path: f for f in files}
+            file_index_reverse = {f.id: f.path for f in files}
+
+            return self._match_dependencies(import_nodes, file_index, file_index_reverse, repo_uuid)
+        finally:
+            if use_context:
+                await session.__aexit__(None, None, None)
+
     def _match_dependencies(
         self,
         import_nodes: list[AstNodeModel],

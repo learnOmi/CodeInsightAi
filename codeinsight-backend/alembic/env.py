@@ -9,6 +9,18 @@ from alembic import context
 from codeinsight.config import settings
 from codeinsight.db.base import Base
 
+# 导入所有模型以注册到 metadata（供 autogenerate 使用）
+from codeinsight.models import (  # noqa: F401
+    AnalysisVersionModel,
+    AstNodeModel,
+    CallEdgeModel,
+    FileAnalysisSnapshotModel,
+    FileModel,
+    KnowledgePointModel,
+    ModuleDependencyModel,
+    RepositoryModel,
+)
+
 config = context.config
 
 if config.config_file_name is not None:

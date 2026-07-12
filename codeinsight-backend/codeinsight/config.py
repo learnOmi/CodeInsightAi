@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # 文件上传
     max_repository_path_length: int = 500
 
+    # 增量分析
+    incremental_max_change_ratio: float = 0.3
+    incremental_max_propagation_depth: int = 3
+    incremental_max_snapshot_versions: int = 5
+
     # Celery（开发环境同步执行方便调试）
     celery_task_always_eager: bool = True
 

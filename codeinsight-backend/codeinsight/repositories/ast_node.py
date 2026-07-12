@@ -98,6 +98,28 @@ class AstNodeDAO:
         )
         return list(result.scalars().all())
 
+    async def get_by_ids(self, db: AsyncSession, repository_id: UUID, node_ids: list[UUID]) -> list[AstNodeModel]:
+        """
+        批量获取指定 ID 的 AST 节点（用于避免 N+1 查询）
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            node_ids: 节点 ID 列表
+
+        Returns:
+            AstNodeModel 列表
+        """
+        if not node_ids:
+            return []
+        result = await db.execute(
+            select(AstNodeModel).where(
+                AstNodeModel.repository_id == repository_id,
+                AstNodeModel.id.in_(node_ids),
+            )
+        )
+        return list(result.scalars().all())
+
     async def get_by_repository_and_types(
         self, db: AsyncSession, repository_id: UUID, node_types: set[str]
     ) -> list[AstNodeModel]:
@@ -148,6 +170,30 @@ class AstNodeDAO:
             删除的记录数
         """
         result = await db.execute(delete(AstNodeModel).where(AstNodeModel.file_id == file_id))
+        await db.flush()
+        return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
+
+    async def delete_by_file_ids(self, db: AsyncSession, repository_id: UUID, file_ids: list[UUID]) -> int:
+        """
+        删除指定文件的 AST 节点（增量分析用）
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            file_ids: 需要删除节点的文件 ID 列表
+
+        Returns:
+            删除的记录数
+        """
+        if not file_ids:
+            return 0
+
+        result = await db.execute(
+            delete(AstNodeModel).where(
+                AstNodeModel.repository_id == repository_id,
+                AstNodeModel.file_id.in_(file_ids),
+            )
+        )
         await db.flush()
         return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
 

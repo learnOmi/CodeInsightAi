@@ -2004,6 +2004,7 @@
           "pending",
           "scanning",
           "parsing",
+          "analyzing_structures",
           "analyzing_modules",
           "storing",
           "completed",

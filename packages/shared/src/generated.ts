@@ -834,7 +834,7 @@ export interface components {
          * @description 分析任务状态
          * @enum {string}
          */
-        TaskStatus: "pending" | "scanning" | "parsing" | "analyzing_modules" | "storing" | "completed" | "failed" | "cancelled";
+        TaskStatus: "pending" | "scanning" | "parsing" | "analyzing_structures" | "analyzing_modules" | "storing" | "completed" | "failed" | "cancelled";
         /** ValidationError */
         ValidationError: {
             /** Location */

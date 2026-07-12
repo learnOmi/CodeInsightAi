@@ -72,6 +72,42 @@ class ModuleDependencyDAO:
         await db.flush()
         return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
 
+    async def delete_by_file_ids(self, db: AsyncSession, repository_id: UUID, file_ids: list[UUID]) -> int:
+        """
+        删除与指定文件相关的模块依赖（增量分析用）
+
+        删除条件：importer_file_id 或 imported_file_id 属于指定文件。
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            file_ids: 需要删除相关依赖的文件 ID 列表
+
+        Returns:
+            删除的记录数
+        """
+        if not file_ids:
+            return 0
+
+        result = await db.execute(
+            delete(ModuleDependencyModel).where(
+                ModuleDependencyModel.repository_id == repository_id,
+                ModuleDependencyModel.importer_file_id.in_(file_ids),
+            )
+        )
+        deleted_importer = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0
+
+        result = await db.execute(
+            delete(ModuleDependencyModel).where(
+                ModuleDependencyModel.repository_id == repository_id,
+                ModuleDependencyModel.imported_file_id.in_(file_ids),
+            )
+        )
+        deleted_imported = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0
+
+        await db.flush()
+        return deleted_importer + deleted_imported
+
     async def count_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:
         """统计指定仓库的模块依赖数量"""
         from sqlalchemy import func

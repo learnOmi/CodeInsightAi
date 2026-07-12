@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeinsight.models import CallEdgeModel
+from codeinsight.models import AstNodeModel, CallEdgeModel
 
 
 class CallEdgeDAO:
@@ -67,6 +67,56 @@ class CallEdgeDAO:
         result = await db.execute(delete(CallEdgeModel).where(CallEdgeModel.repository_id == repository_id))
         await db.flush()
         return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
+
+    async def delete_by_file_ids(self, db: AsyncSession, repository_id: UUID, file_ids: list[UUID]) -> int:
+        """
+        删除与指定文件相关的调用边（增量分析用）
+
+        删除条件：caller_node 或 callee_node 属于指定文件。
+        通过 AST 节点表的 file_id 关联查找。
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            file_ids: 需要删除相关边的文件 ID 列表
+
+        Returns:
+            删除的记录数
+        """
+        if not file_ids:
+            return 0
+
+        # 获取这些文件的所有节点 ID
+        result = await db.execute(
+            select(AstNodeModel.id).where(
+                AstNodeModel.repository_id == repository_id,
+                AstNodeModel.file_id.in_(file_ids),
+            )
+        )
+        node_ids = {row.id for row in result.mappings().all()}
+
+        if not node_ids:
+            return 0
+
+        # 删除 caller_node_id 或 callee_node_id 在这些节点中的调用边
+        result = await db.execute(
+            delete(CallEdgeModel).where(
+                CallEdgeModel.repository_id == repository_id,
+                CallEdgeModel.caller_node_id.in_(node_ids),
+            )
+        )
+        deleted_caller = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0
+
+        result = await db.execute(
+            delete(CallEdgeModel).where(
+                CallEdgeModel.repository_id == repository_id,
+                CallEdgeModel.callee_node_id.in_(node_ids),
+            )
+        )
+        deleted_callee = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0
+
+        await db.flush()
+        return deleted_caller + deleted_callee
 
     async def count_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:
         """统计指定仓库的调用边数量"""

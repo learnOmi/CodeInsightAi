@@ -14,6 +14,7 @@
 import logging
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.db.session import async_session_factory
@@ -23,7 +24,7 @@ from codeinsight.repositories import AstNodeDAO, CallEdgeDAO
 logger = logging.getLogger(__name__)
 
 # 函数类型：可作为被调用目标
-_CALLABLE_NODE_TYPES = frozenset({"function", "method", "constructor"})
+_CALLABLE_NODE_TYPES: set[str] = {"function", "method", "constructor"}
 
 
 class CallGraphBuilder:
@@ -117,6 +118,79 @@ class CallGraphBuilder:
         finally:
             if use_context:
                 await session.__aexit__(None, None, None)
+
+    async def build_data_for_files(
+        self,
+        repo_uuid: UUID,
+        db: AsyncSession | None = None,
+        file_ids: list[UUID] | None = None,
+    ) -> list[dict]:
+        """
+        为指定文件构建调用图数据（增量分析用）
+
+        只处理指定文件的 call 节点和函数定义节点。
+
+        Args:
+            repo_uuid: 仓库 UUID
+            db: 可选的数据库会话
+            file_ids: 需要构建调用图的文件 ID 列表（None 时等同于全量 build_data）
+
+        Returns:
+            调用边数据列表
+        """
+        if file_ids is None:
+            return await self.build_data(repo_uuid, db=db)
+
+        if not file_ids:
+            logger.info("调用图增量构建: repo=%s, file_ids=0 (跳过)", repo_uuid)
+            return []
+
+        use_context = db is None
+        session = db
+        if use_context:
+            session = await async_session_factory().__aenter__()
+        assert session is not None  # type narrowing for mypy
+
+        try:
+            # 1. 只加载指定文件的 call 节点和函数定义节点
+            call_nodes = await self._get_nodes_by_files_and_types(session, repo_uuid, file_ids, {"call"})
+            function_nodes = await self._get_nodes_by_files_and_types(
+                session, repo_uuid, file_ids, _CALLABLE_NODE_TYPES
+            )
+
+            logger.info(
+                "调用图增量构建: repo=%s, files=%d, calls=%d, functions=%d",
+                repo_uuid,
+                len(file_ids),
+                len(call_nodes),
+                len(function_nodes),
+            )
+
+            # 2. 构建函数索引
+            function_index = self._build_function_index(function_nodes)
+
+            # 3. 匹配调用边
+            return self._match_call_edges(call_nodes, function_index, repo_uuid)
+        finally:
+            if use_context:
+                await session.__aexit__(None, None, None)
+
+    async def _get_nodes_by_files_and_types(
+        self,
+        db: AsyncSession,
+        repo_uuid: UUID,
+        file_ids: list[UUID],
+        node_types: set[str],
+    ) -> list[AstNodeModel]:
+        """获取指定文件中的指定类型节点"""
+        result = await db.execute(
+            select(AstNodeModel).where(
+                AstNodeModel.repository_id == repo_uuid,
+                AstNodeModel.file_id.in_(file_ids),
+                AstNodeModel.node_type.in_(node_types),
+            )
+        )
+        return list(result.scalars().all())
 
     @staticmethod
     def _build_function_index(function_nodes: list[AstNodeModel]) -> dict[str, list[AstNodeModel]]:

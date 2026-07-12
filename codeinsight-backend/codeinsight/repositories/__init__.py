@@ -8,6 +8,7 @@ from codeinsight.repositories.analysis_version import AnalysisVersionDAO
 from codeinsight.repositories.ast_node import AstNodeDAO
 from codeinsight.repositories.call_edge import CallEdgeDAO
 from codeinsight.repositories.file import FileDAO
+from codeinsight.repositories.file_analysis_snapshot import FileAnalysisSnapshotDAO
 from codeinsight.repositories.knowledge_point import KnowledgePointDAO
 from codeinsight.repositories.module_dependency import ModuleDependencyDAO
 from codeinsight.repositories.repository import RepositoryDAO
@@ -15,6 +16,7 @@ from codeinsight.repositories.repository import RepositoryDAO
 __all__ = [
     "RepositoryDAO",
     "FileDAO",
+    "FileAnalysisSnapshotDAO",
     "AstNodeDAO",
     "CallEdgeDAO",
     "ModuleDependencyDAO",

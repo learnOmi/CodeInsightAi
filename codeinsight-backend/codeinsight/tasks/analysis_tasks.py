@@ -12,6 +12,9 @@ P2-04 阶段接入：
 
 P2-05 阶段接入：
 - 使用 StructureDataPipeline 统一管理入库（校验 + 批量 + 进度回调）
+
+P2-06 阶段接入：
+- 增量分析模式（基于 content_hash 的变更检测 + 依赖传播）
 """
 
 import asyncio
@@ -27,11 +30,24 @@ import redis
 from codeinsight.analyzers import CallGraphBuilder, ModuleDependencyBuilder
 from codeinsight.config import settings
 from codeinsight.db.session import async_session_factory
+from codeinsight.models import FileModel
 from codeinsight.parsers import ParserFactory
-from codeinsight.repositories import AnalysisVersionDAO, AstNodeDAO, FileDAO, RepositoryDAO
+from codeinsight.repositories import (
+    AnalysisVersionDAO,
+    AstNodeDAO,
+    CallEdgeDAO,
+    FileDAO,
+    ModuleDependencyDAO,
+    RepositoryDAO,
+)
 from codeinsight.scanners.git_scanner import GitScanner
 from codeinsight.schemas import AnalysisMode, TaskStatus
-from codeinsight.services import StructureDataPipeline
+from codeinsight.services import (
+    IncrementalAnalyzer,
+    IncrementalDiff,
+    SnapshotManager,
+    StructureDataPipeline,
+)
 
 from . import celery_app  # type: ignore[import-untyped]
 
@@ -373,6 +389,183 @@ async def _build_structures(repo_uuid: UUID, task_self: Any, progress_callback=N
 
 
 # ================================================================
+# 增量分析辅助（P2-06）
+# ================================================================
+
+
+async def _compute_incremental_diff(
+    repo_uuid: UUID,
+    version_tag: str,
+) -> IncrementalDiff | None:
+    """
+    计算增量分析差异（仅在 INCREMENTAL 模式下调用）
+
+    Args:
+        repo_uuid: 仓库 UUID
+        version_tag: 当前版本标签
+
+    Returns:
+        IncrementalDiff 或 None（全量模式时）
+    """
+    analyzer = IncrementalAnalyzer()
+
+    # 获取最新快照版本
+    async with async_session_factory() as db:
+        snapshot_manager = SnapshotManager(db)
+        latest_version = await snapshot_manager.get_latest_version(repo_uuid)
+
+        # 获取当前文件列表
+        file_dao = FileDAO()
+        current_files = await file_dao.get_by_repository(db, repo_uuid)
+
+        # 计算差异
+        diff = await analyzer.compute_diff(repo_uuid, current_files, latest_version)
+        return diff
+
+
+async def _parse_and_store_ast_incremental(
+    repo_uuid: UUID,
+    files_to_parse: list[FileModel],
+    progress_callback=None,
+) -> None:
+    """
+    增量 AST 解析：只解析变更文件
+
+    Args:
+        repo_uuid: 仓库 UUID
+        files_to_parse: 需要分析的文件列表
+        progress_callback: 进度回调函数 (current, total, stage) -> None
+    """
+    if not files_to_parse:
+        logger.info("增量 AST 解析: 无需解析的文件")
+        return
+
+    ast_dao = AstNodeDAO()
+
+    async with async_session_factory() as db:
+        # 获取需要分析的文件 ID
+        file_ids = [f.id for f in files_to_parse]
+
+        # 只删除这些文件的旧节点
+        deleted = await ast_dao.delete_by_file_ids(db, repo_uuid, file_ids)
+        logger.info("增量 AST 解析: 删除旧节点 %d 条", deleted)
+
+        # 创建入库管道
+        pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
+
+        parsed_count = 0
+        for file_obj in files_to_parse:
+            try:
+                parser = ParserFactory.get_parser(file_obj.language)
+                if parser is None:
+                    logger.warning("不支持的语言: %s", file_obj.language)
+                    continue
+
+                ast_nodes = parser.parse_file(file_obj.absolute_path)
+
+                nodes_data = []
+                for node in ast_nodes:
+                    parent_id = getattr(node, "parent_id", None)
+                    nodes_data.append(
+                        {
+                            "repository_id": repo_uuid,
+                            "file_id": file_obj.id,
+                            "node_type": node.node_type,
+                            "name": node.name,
+                            "start_line": node.start_line,
+                            "end_line": node.end_line,
+                            "start_column": node.start_column,
+                            "end_column": node.end_column,
+                            "parent_node_id": parent_id,
+                            "file_path": node.file_path,
+                            "language": node.language,
+                        }
+                    )
+                if nodes_data:
+                    result = await pipeline.ingest_ast_nodes(repo_uuid, nodes_data)
+                    parsed_count += result.inserted_count
+            except Exception as exc:
+                logger.warning("增量解析失败: file=%s, error=%s", file_obj.path, exc)
+                continue
+
+        logger.info("增量 AST 解析完成: %d 个节点", parsed_count)
+        await db.commit()
+
+
+async def _build_structures_incremental(
+    repo_uuid: UUID,
+    files_to_parse: list[FileModel],
+    progress_callback=None,
+) -> None:
+    """
+    增量结构分析：只重建变更文件相关的调用边和依赖边
+
+    Args:
+        repo_uuid: 仓库 UUID
+        files_to_parse: 需要分析的文件列表
+        progress_callback: 进度回调函数
+    """
+    if not files_to_parse:
+        logger.info("增量结构分析: 无需分析的文件")
+        return
+
+    file_ids = [f.id for f in files_to_parse]
+    file_paths = [f.path for f in files_to_parse]
+
+    async with async_session_factory() as db:
+        # 创建入库管道
+        pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
+
+        # 删除变更文件相关的旧边
+        call_edge_dao = CallEdgeDAO()
+        module_dep_dao = ModuleDependencyDAO()
+        deleted_edges = await call_edge_dao.delete_by_file_ids(db, repo_uuid, file_ids)
+        deleted_deps = await module_dep_dao.delete_by_file_ids(db, repo_uuid, file_ids)
+        logger.info(
+            "增量结构分析: 删除旧边 edges=%d, deps=%d",
+            deleted_edges,
+            deleted_deps,
+        )
+
+        # 重建调用图数据
+        call_graph_builder = CallGraphBuilder()
+        call_edges = await call_graph_builder.build_data_for_files(repo_uuid, db=db, file_ids=file_ids)
+        if call_edges:
+            edge_result = await pipeline.ingest_call_edges(repo_uuid, call_edges)
+            logger.info("增量调用图构建完成: edges=%d", edge_result.inserted_count)
+
+        # 重建模块依赖数据
+        module_dep_builder = ModuleDependencyBuilder()
+        deps = await module_dep_builder.build_data_for_files(repo_uuid, file_paths=file_paths, db=db)
+        if deps:
+            dep_result = await pipeline.ingest_module_deps(repo_uuid, deps)
+            logger.info("增量模块依赖图构建完成: dependencies=%d", dep_result.inserted_count)
+
+
+async def _save_analysis_snapshot(
+    repo_uuid: UUID,
+    version_tag: str,
+) -> int:
+    """
+    保存分析快照（增量模式下调用）
+
+    Args:
+        repo_uuid: 仓库 UUID
+        version_tag: 版本标签
+
+    Returns:
+        保存的快照记录数
+    """
+    async with async_session_factory() as db:
+        file_dao = FileDAO()
+        files = await file_dao.get_by_repository(db, repo_uuid)
+
+        snapshot_manager = SnapshotManager(db)
+        count = await snapshot_manager.save_snapshot(repo_uuid, version_tag, files)
+        return count
+
+
+# ================================================================
 # 主分析任务
 # ================================================================
 
@@ -476,6 +669,48 @@ def run_analysis(
             )
         asyncio.run(_store_files_to_db(repo_uuid, files_data))
 
+        # ---- 增量判断（P2-06） ----
+        do_full_analysis = mode == AnalysisMode.FULL.value
+        incremental_diff: IncrementalDiff | None = None
+        files_to_parse: list[FileModel] = []
+
+        if not do_full_analysis:
+            try:
+                incremental_diff = asyncio.run(_compute_incremental_diff(repo_uuid, version_tag))
+                assert incremental_diff is not None  # type narrowing for mypy
+                if incremental_diff.needs_full_analysis:
+                    logger.info(
+                        "增量分析触发降级: repo=%s, affected=%d/%d，切换为全量分析",
+                        repo_uuid,
+                        incremental_diff.total_files_to_analyze,
+                        total_files,
+                    )
+                    do_full_analysis = True
+                    incremental_diff = None
+                else:
+                    # 直接获取受影响的路径集合
+                    affected_paths: set[str] = {c.path for c in incremental_diff.changed_files}
+                    affected_paths.update(incremental_diff.propagated_files)
+
+                    async def _get_incremental_files():
+                        file_dao = FileDAO()
+                        async with async_session_factory() as db:
+                            current_files = await file_dao.get_by_repository(db, repo_uuid)
+                            return [f for f in current_files if f.path in affected_paths]
+
+                    files_to_parse = asyncio.run(_get_incremental_files())
+
+                    logger.info(
+                        "增量分析: 变更 %d 文件，传播 %d 文件，共 %d 文件需分析，跳过 %d 文件",
+                        len(incremental_diff.changed_files),
+                        len(incremental_diff.propagated_files),
+                        incremental_diff.total_files_to_analyze,
+                        incremental_diff.skipped_files,
+                    )
+            except Exception as exc:
+                logger.warning("增量分析失败，回退为全量分析: %s", exc)
+                incremental_diff = None
+
         # ---- Step 3: AST 解析 ----
         _update_progress(self, TaskStatus.PARSING, 25.0, 0, total_files)
         if task_id:
@@ -489,7 +724,6 @@ def run_analysis(
             )
         )
 
-        # Phase 2: AST 解析并通过 StructureDataPipeline 入库 ast_nodes 表
         if task_id:
 
             def _parsing_progress(current: int, total: int, stage: str) -> None:
@@ -498,7 +732,13 @@ def run_analysis(
             parsing_progress = _parsing_progress
         else:
             parsing_progress = None
-        asyncio.run(_parse_and_store_ast(repo_uuid, scan_result, progress_callback=parsing_progress))
+
+        if do_full_analysis:
+            # 全量模式：解析所有文件
+            asyncio.run(_parse_and_store_ast(repo_uuid, scan_result, progress_callback=parsing_progress))
+        elif files_to_parse:
+            # 增量模式：只解析变更文件
+            asyncio.run(_parse_and_store_ast_incremental(repo_uuid, files_to_parse, progress_callback=parsing_progress))
 
         # ---- Step 4: 结构分析（调用图 + 模块依赖）----
         _update_progress(self, TaskStatus.ANALYZING_STRUCTURES, 50.0, total_files, total_files)
@@ -514,7 +754,6 @@ def run_analysis(
             )
         )
 
-        # 构建调用图 + 模块依赖图（通过 StructureDataPipeline 统一管理入库）
         if task_id:
 
             def _structures_progress(current: int, total: int, stage: str) -> None:
@@ -525,14 +764,24 @@ def run_analysis(
             structures_progress = _structures_progress
         else:
             structures_progress = None
+
         try:
-            asyncio.run(
-                _build_structures(
-                    repo_uuid,
-                    self,
-                    progress_callback=structures_progress,
+            if do_full_analysis:
+                asyncio.run(
+                    _build_structures(
+                        repo_uuid,
+                        self,
+                        progress_callback=structures_progress,
+                    )
                 )
-            )
+            elif files_to_parse:
+                asyncio.run(
+                    _build_structures_incremental(
+                        repo_uuid,
+                        files_to_parse,
+                        progress_callback=structures_progress,
+                    )
+                )
         except Exception as exc:
             logger.warning("结构分析失败: %s", exc)
 
@@ -569,7 +818,15 @@ def run_analysis(
             )
         )
 
-        # ---- Step 6: 完成 ----
+        # ---- 保存快照（增量模式下） ----
+        if incremental_diff is not None:
+            try:
+                saved_count = asyncio.run(_save_analysis_snapshot(repo_uuid, version_tag))
+                logger.info("快照保存完成: repo=%s, version=%s, files=%d", repo_uuid, version_tag, saved_count)
+            except Exception as exc:
+                logger.warning("快照保存失败: %s", exc)
+
+        # ---- Step 7: 完成 ----
         completed_at = _utcnow()
         _update_progress(self, TaskStatus.COMPLETED, 100.0, total_files, total_files, knowledge_points_count)
 
@@ -586,7 +843,7 @@ def run_analysis(
         )
         asyncio.run(_set_repo_status(repo_uuid, TaskStatus.COMPLETED.value))
 
-        logger.info("分析任务完成: version=%s", version_tag)
+        logger.info("分析任务完成: version=%s, mode=%s", version_tag, mode)
 
         return {
             "version_id": str(version_id),
