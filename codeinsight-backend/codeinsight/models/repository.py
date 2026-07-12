@@ -7,7 +7,7 @@ Repository ORM 模型
 import uuid
 from datetime import datetime
 
-from sqlalchemy import UUID, Integer, String
+from sqlalchemy import UUID, CheckConstraint, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -36,6 +36,14 @@ class RepositoryModel(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
     last_analyzed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    __table_args__ = (
+        # M-5: CHECK 约束限制状态值，防止脏数据
+        CheckConstraint(
+            "status IN ('pending', 'analyzing', 'analyzing_structures', 'completed', 'failed')",
+            name="chk_repository_status",
+        ),
+    )
 
     def __repr__(self) -> str:
         return f"<RepositoryModel(id={self.id}, name={self.name})>"

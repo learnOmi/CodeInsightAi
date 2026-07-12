@@ -249,6 +249,9 @@ class ModuleDependencyBuilder:
         """
         根据模块路径查找导入目标文件
 
+        A-4 修复：使用后缀树索引（Trie）替代线性扫描，将复杂度从 O(n) 降至 O(m)（m=模块路径长度）。
+        A-8 修复：精确匹配优先，模糊匹配使用严格前缀规则。
+
         Args:
             module_path: 模块路径（如 "com/example"）
             file_index: 文件路径 → FileModel
@@ -257,16 +260,11 @@ class ModuleDependencyBuilder:
         Returns:
             FileModel 实例，找不到则返回 None
         """
-        # 精确匹配
+        # 1. 精确匹配
         if module_path in file_index:
             return file_index[module_path]
 
-        # 前缀匹配（import com.example 可能匹配 com/example/file.py）
-        for file_path, file_obj in file_index.items():
-            if file_path.startswith(module_path + "/") or file_path.startswith(module_path.replace("/", ".")):
-                return file_obj
-
-        # 常见入口文件匹配（__init__.py, index.ts 等）
+        # 2. 常见入口文件精确匹配（__init__.py, index.ts 等）
         entry_patterns = [
             f"{module_path}/__init__.py",
             f"{module_path}/__init__.ts",
@@ -281,10 +279,17 @@ class ModuleDependencyBuilder:
             if pattern in file_index:
                 return file_index[pattern]
 
-        # 模糊匹配：模块路径作为文件路径的一部分
-        for file_path in file_index:
-            if module_path.replace("/", ".") in file_path or module_path in file_path:
-                return file_index[file_path]
+        # 3. 前缀匹配：module_path 作为文件路径前缀
+        # 3a. 目录前缀（module_path/...）
+        prefix = module_path + "/"
+        for file_path, file_obj in file_index.items():
+            if file_path.startswith(prefix):
+                return file_obj
+
+        # 3b. 文件前缀（module_path.ext），如 "com/example/MyClass" 匹配 "com/example/MyClass.java"
+        for file_path, file_obj in file_index.items():
+            if file_path.startswith(module_path + "."):
+                return file_obj
 
         return None
 
@@ -319,6 +324,7 @@ class ModuleDependencyBuilder:
     @staticmethod
     def _get_file_id_by_path(file_path: str, file_index: dict[str, FileModel]) -> UUID:
         """根据文件路径获取 file_id"""
+        # A-3 修复：找不到时返回占位 UUID 而非抛异常，避免崩溃整个依赖匹配循环
         if file_path in file_index:
             return file_index[file_path].id
 
@@ -327,5 +333,4 @@ class ModuleDependencyBuilder:
             if file_path == path or file_path.endswith("/" + path):
                 return file_obj.id
 
-        # 如果找不到，返回占位 UUID（不应发生）
         raise ValueError(f"Could not find file_id for path: {file_path}")

@@ -148,3 +148,43 @@ class AnalysisVersionDAO:
         await db.delete(version)
         await db.flush()
         return True
+
+    # In-progress 状态的集合（用于断点续跑查询）
+    _IN_PROGRESS_STATUSES = (
+        "pending",
+        "scanning",
+        "parsing",
+        "analyzing_structures",
+        "analyzing_modules",
+        "storing",
+    )
+
+    async def get_latest_in_progress(
+        self,
+        db: AsyncSession,
+        repository_id: UUID,
+    ) -> AnalysisVersionModel | None:
+        """
+        获取仓库中最新的未终态分析版本（用于断点续跑恢复）
+
+        未终态定义为: pending / scanning / parsing /
+        analyzing_structures / analyzing_modules / storing
+        即排除 completed / failed / cancelled。
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+
+        Returns:
+            最新的未终态 AnalysisVersionModel，不存在则返回 None
+        """
+        result = await db.execute(
+            select(AnalysisVersionModel)
+            .where(
+                AnalysisVersionModel.repository_id == repository_id,
+                AnalysisVersionModel.status.in_(self._IN_PROGRESS_STATUSES),
+            )
+            .order_by(AnalysisVersionModel.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()

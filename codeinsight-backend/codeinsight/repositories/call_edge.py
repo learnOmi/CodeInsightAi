@@ -74,6 +74,7 @@ class CallEdgeDAO:
 
         删除条件：caller_node 或 callee_node 属于指定文件。
         通过 AST 节点表的 file_id 关联查找。
+        R-3 修复：合并为单次 DELETE，消除重复查询。
 
         Args:
             db: 异步数据库会话
@@ -98,25 +99,16 @@ class CallEdgeDAO:
         if not node_ids:
             return 0
 
-        # 删除 caller_node_id 或 callee_node_id 在这些节点中的调用边
+        # R-3: 单次 DELETE，caller_node_id 或 callee_node_id 匹配
         result = await db.execute(
             delete(CallEdgeModel).where(
                 CallEdgeModel.repository_id == repository_id,
-                CallEdgeModel.caller_node_id.in_(node_ids),
+                (CallEdgeModel.caller_node_id.in_(node_ids)) | (CallEdgeModel.callee_node_id.in_(node_ids)),
             )
         )
-        deleted_caller = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0
-
-        result = await db.execute(
-            delete(CallEdgeModel).where(
-                CallEdgeModel.repository_id == repository_id,
-                CallEdgeModel.callee_node_id.in_(node_ids),
-            )
-        )
-        deleted_callee = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0
-
+        deleted = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
         await db.flush()
-        return deleted_caller + deleted_callee
+        return deleted
 
     async def count_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:
         """统计指定仓库的调用边数量"""

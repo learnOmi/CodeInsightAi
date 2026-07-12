@@ -92,23 +92,33 @@ class FileAnalysisSnapshotDAO:
         )
         return result.scalar()
 
-    async def get_all_versions(self, db: AsyncSession, repository_id: UUID) -> list[str]:
+    async def get_all_versions(
+        self,
+        db: AsyncSession,
+        repository_id: UUID,
+        order_by_created: bool = False,
+    ) -> list[str]:
         """
         获取指定仓库的所有分析版本标签（按创建时间降序）
 
         Args:
             db: 异步数据库会话
             repository_id: 仓库 ID
+            order_by_created: True 时按 created_at 排序（更准确）
 
         Returns:
             版本标签列表（降序）
         """
-        result = await db.execute(
-            select(FileAnalysisSnapshotModel.analysis_version)
-            .where(FileAnalysisSnapshotModel.repository_id == repository_id)
-            .distinct()
-            .order_by(FileAnalysisSnapshotModel.analysis_version.desc())
+        query = select(FileAnalysisSnapshotModel.analysis_version).where(
+            FileAnalysisSnapshotModel.repository_id == repository_id
         )
+
+        if order_by_created:
+            query = query.order_by(FileAnalysisSnapshotModel.created_at.desc())
+        else:
+            query = query.order_by(FileAnalysisSnapshotModel.analysis_version.desc())
+
+        result = await db.execute(query.distinct())
         return list(result.scalars().all())
 
     async def get_by_repository(
@@ -126,10 +136,11 @@ class FileAnalysisSnapshotDAO:
             analysis_version: 分析版本标签
 
         Returns:
-            {file_id: FileAnalysisSnapshotModel} 字典
+            {file_id: FileAnalysisSnapshotModel} 字典（仅含非空 file_id）
         """
         snapshots = await self.get_by_version(db, repository_id, analysis_version)
-        return {s.file_id: s for s in snapshots}
+        # file_id 可为 NULL，过滤掉后再构建字典
+        return {s.file_id: s for s in snapshots if s.file_id is not None}
 
     async def delete_by_version(self, db: AsyncSession, repository_id: UUID, analysis_version: str) -> int:
         """

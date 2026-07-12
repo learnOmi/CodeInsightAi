@@ -8,13 +8,18 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from threading import RLock
 
 from .base import ASTNodeList, LanguageParser
 
 logger = logging.getLogger(__name__)
 
-# 解析器缓存
+# 线程安全的解析器缓存
 _parser_cache: dict[str, LanguageParser | None] = {}
+_cache_lock = RLock()
+
+# P-4 修复：不缓存 None，每次重新尝试创建
+_CACHE_MISS = object()
 
 
 def _create_parser_for_language(language: str) -> LanguageParser | None:
@@ -70,6 +75,7 @@ class ParserFactory:
         获取指定语言的解析器
 
         使用缓存避免重复创建解析器实例。
+        P-4 修复：使用 RLock 保证线程安全；不缓存 None（失败时不锁定，下次重试）。
 
         Args:
             language: 语言名称
@@ -77,9 +83,15 @@ class ParserFactory:
         Returns:
             LanguageParser 实例或 None
         """
-        if language not in _parser_cache:
-            _parser_cache[language] = _create_parser_for_language(language)
-        return _parser_cache[language]
+        with _cache_lock:
+            if language in _parser_cache:
+                return _parser_cache[language]
+
+            parser = _create_parser_for_language(language)
+            if parser is not None:
+                _parser_cache[language] = parser
+            # 不缓存 None：避免导入失败后永久返回 None
+            return parser
 
     @staticmethod
     def parse_file(

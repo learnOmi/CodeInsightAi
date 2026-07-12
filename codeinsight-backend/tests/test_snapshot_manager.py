@@ -62,7 +62,6 @@ class TestSaveSnapshot:
     async def test_save_new_snapshot_with_valid_data(self):
         """测试保存新快照（有效数据）"""
         mock_db = MagicMock()
-        mock_db.commit = AsyncMock()
 
         with patch("codeinsight.services.snapshot_manager.FileAnalysisSnapshotDAO") as mock_dao_cls, _patch_settings():
             mock_dao = mock_dao_cls.return_value
@@ -82,7 +81,8 @@ class TestSaveSnapshot:
             assert len(call_args) == 2
             assert call_args[0]["content_hash"] == "h1"
             assert call_args[1]["content_hash"] == "h2"
-            mock_db.commit.assert_called_once()
+            # SV-6: save_snapshot 不再调用 commit，由调用者统一管理
+            mock_db.commit.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_save_snapshot_with_zero_files_returns_zero(self):
@@ -102,8 +102,8 @@ class TestSaveSnapshot:
             mock_dao.create_many.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_save_snapshot_commits_successfully(self):
-        """测试保存快照后正确提交事务"""
+    async def test_save_snapshot_does_not_commit(self):
+        """测试 save_snapshot 不调用 commit（SV-6：由调用者统一管理事务）"""
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
 
@@ -118,7 +118,7 @@ class TestSaveSnapshot:
 
             await manager.save_snapshot(REPO_UUID, VERSION_TAG, files)
 
-            mock_db.commit.assert_called_once()
+            mock_db.commit.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_save_snapshot_with_empty_content_hash(self):
@@ -194,7 +194,8 @@ class TestCleanupOldSnapshots:
             mock_dao.delete_old_versions.assert_called_once()
             keep_versions = mock_dao.delete_old_versions.call_args[0][2]
             assert keep_versions == ["v5", "v4", "v3"]
-            mock_db.commit.assert_called_once()
+            # SV-7: _cleanup_old_snapshots 不调用 commit，由调用者统一管理事务
+            mock_db.commit.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cleanup_removes_oldest_first(self):
@@ -220,7 +221,7 @@ class TestCleanupOldSnapshots:
 
     @pytest.mark.asyncio
     async def test_cleanup_fewer_versions_than_max_no_cleanup(self):
-        """测试版本数少于 max 时不清理（delete_old_versions 仍被调用，但保持所有版本）"""
+        """测试版本数少于 max 时不清理（delete_old_versions 不被调用）"""
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
 
@@ -236,9 +237,8 @@ class TestCleanupOldSnapshots:
             manager = SnapshotManager(mock_db)
             await manager._cleanup_old_snapshots(REPO_UUID, "v2")
 
-            mock_dao.delete_old_versions.assert_called_once()
-            keep_versions = mock_dao.delete_old_versions.call_args[0][2]
-            assert keep_versions == ["v2", "v1"]  # 全部保留
+            # 版本数少于 max，无需清理
+            mock_dao.delete_old_versions.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cleanup_no_snapshots_noop(self):

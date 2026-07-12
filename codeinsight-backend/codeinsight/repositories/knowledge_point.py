@@ -46,6 +46,9 @@ class KnowledgePointDAO:
         result = await db.execute(select(KnowledgePointModel).where(KnowledgePointModel.id == point_id))
         return result.scalar_one_or_none()
 
+    # 允许的排序字段白名单（R-6 修复：防止任意属性注入）
+    _ALLOWED_SORT_FIELDS: frozenset[str] = frozenset({"created_at", "updated_at", "confidence", "category", "title"})
+
     async def list(
         self,
         db: AsyncSession,
@@ -69,7 +72,7 @@ class KnowledgePointDAO:
             tag: 标签筛选
             skip: 跳过的记录数
             limit: 返回的记录数上限
-            sort_by: 排序字段
+            sort_by: 排序字段（受白名单限制）
             sort_order: 排序方向
 
         Returns:
@@ -86,7 +89,9 @@ class KnowledgePointDAO:
         if tag is not None:
             query = query.where(KnowledgePointModel.tags.contains([tag]))
 
-        # 排序
+        # R-6: 排序字段白名单验证，防止任意属性注入
+        if sort_by not in self._ALLOWED_SORT_FIELDS:
+            sort_by = "created_at"
         order_column = getattr(KnowledgePointModel, sort_by, KnowledgePointModel.created_at)
         if sort_order.lower() == "asc":
             query = query.order_by(order_column.asc())

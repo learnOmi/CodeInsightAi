@@ -6,7 +6,6 @@
 核心功能：
 - 数据校验：入库前校验完整性、外键、去重
 - 批量写入：batch_size 分片 + 事务隔离
-- 增量更新：基于 content_hash 跳过未变更文件
 - 进度回调：实时进度通知
 """
 
@@ -24,7 +23,7 @@ from codeinsight.repositories import AstNodeDAO, CallEdgeDAO, FileDAO, ModuleDep
 
 logger = logging.getLogger(__name__)
 
-# 进度回调类型
+# 进度回调类型：progress_callback(inserted, total, stage)
 ProgressCallback = Callable[[int, int, str], None]
 
 
@@ -46,8 +45,7 @@ class StructureDataPipeline:
     统一管理 AST 节点、调用边、模块依赖的入库，提供：
     1. 数据校验（完整性、外键、去重）
     2. 批量写入（batch_size 分片 + 事务隔离）
-    3. 增量更新（基于 content_hash 跳过未变更文件）
-    4. 进度回调（实时进度通知）
+    3. 进度回调（实时进度通知）
     """
 
     def __init__(

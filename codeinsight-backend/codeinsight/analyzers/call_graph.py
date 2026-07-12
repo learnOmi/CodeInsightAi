@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # 函数类型：可作为被调用目标
 _CALLABLE_NODE_TYPES: set[str] = {"function", "method", "constructor"}
 
+# 动态调用模式（精确匹配，不匹配 obj.getattr(x)）
+_DYNAMIC_CALL_NAMES = frozenset({"getattr", "setattr", "delattr", "hasattr", "__getattr__"})
+
 
 class CallGraphBuilder:
     """
@@ -34,14 +37,18 @@ class CallGraphBuilder:
     从 ast_nodes 表中的 call 节点和函数定义节点出发，构建调用边（caller → callee）。
     """
 
-    def __init__(self):
-        self.ast_dao = AstNodeDAO()
-        self.call_edge_dao = CallEdgeDAO()
+    def __init__(
+        self,
+        ast_dao: AstNodeDAO | None = None,
+        call_edge_dao: CallEdgeDAO | None = None,
+    ):
+        self.ast_dao = ast_dao or AstNodeDAO()
+        self.call_edge_dao = call_edge_dao or CallEdgeDAO()
 
     async def build(
         self,
         repo_uuid: UUID,
-        db: AsyncSession | None = None,
+        db: AsyncSession,
         dry_run: bool = False,
     ) -> int:
         """
@@ -49,7 +56,7 @@ class CallGraphBuilder:
 
         Args:
             repo_uuid: 仓库 UUID
-            db: 可选的数据库会话。提供时复用；否则创建独立会话。
+            db: 数据库会话（由调用者管理生命周期）
             dry_run: True 时不写入数据库，只返回调用边列表长度
 
         Returns:
@@ -61,78 +68,48 @@ class CallGraphBuilder:
             logger.info("调用图构建 (dry_run): repo=%s, edges=%d", repo_uuid, len(edges_data))
             return len(edges_data)
 
-        # 需要写入，使用独立 session
-        use_context = db is None
-        session = db
-        if use_context:
-            session = await async_session_factory().__aenter__()
-        assert session is not None  # type narrowing for mypy
+        await self.call_edge_dao.delete_by_repository(db, repo_uuid)
+        if edges_data:
+            await self.call_edge_dao.create_many(db, edges_data)
+        logger.info("调用图构建完成: repo=%s, edges=%d", repo_uuid, len(edges_data))
+        return len(edges_data)
 
-        try:
-            await self.call_edge_dao.delete_by_repository(session, repo_uuid)
-            if edges_data:
-                await self.call_edge_dao.create_many(session, edges_data)
-            await session.commit()
-            logger.info("调用图构建完成: repo=%s, edges=%d", repo_uuid, len(edges_data))
-            return len(edges_data)
-        finally:
-            if use_context:
-                await session.__aexit__(None, None, None)
-
-    async def build_data(self, repo_uuid: UUID, db: AsyncSession | None = None) -> list[dict]:
+    async def build_data(self, repo_uuid: UUID, db: AsyncSession) -> list[dict]:
         """
         构建调用图数据（不写入数据库）
 
-        用于 StructureDataPipeline 接管写入。
-
         Args:
             repo_uuid: 仓库 UUID
-            db: 可选的数据库会话。提供时复用；否则创建独立会话。
+            db: 数据库会话
 
         Returns:
             调用边数据列表
         """
-        use_context = db is None
-        session = db
-        if use_context:
-            session = await async_session_factory().__aenter__()
-        assert session is not None  # type narrowing for mypy
+        call_nodes = await self.ast_dao.get_by_repository_and_types(db, repo_uuid, {"call"})
+        function_nodes = await self.ast_dao.get_by_repository_and_types(db, repo_uuid, _CALLABLE_NODE_TYPES)
 
-        try:
-            # 1. 按需加载 call 节点和函数定义节点
-            call_nodes = await self.ast_dao.get_by_repository_and_types(session, repo_uuid, {"call"})
-            function_nodes = await self.ast_dao.get_by_repository_and_types(session, repo_uuid, _CALLABLE_NODE_TYPES)
+        logger.info(
+            "调用图数据构建: repo=%s, calls=%d, functions=%d",
+            repo_uuid,
+            len(call_nodes),
+            len(function_nodes),
+        )
 
-            logger.info(
-                "调用图数据构建: repo=%s, calls=%d, functions=%d",
-                repo_uuid,
-                len(call_nodes),
-                len(function_nodes),
-            )
-
-            # 2. 构建函数索引
-            function_index = self._build_function_index(function_nodes)
-
-            # 3. 匹配调用边
-            return self._match_call_edges(call_nodes, function_index, repo_uuid)
-        finally:
-            if use_context:
-                await session.__aexit__(None, None, None)
+        function_index = self._build_function_index(function_nodes)
+        return self._match_call_edges(call_nodes, function_index, repo_uuid)
 
     async def build_data_for_files(
         self,
         repo_uuid: UUID,
-        db: AsyncSession | None = None,
+        db: AsyncSession,
         file_ids: list[UUID] | None = None,
     ) -> list[dict]:
         """
         为指定文件构建调用图数据（增量分析用）
 
-        只处理指定文件的 call 节点和函数定义节点。
-
         Args:
             repo_uuid: 仓库 UUID
-            db: 可选的数据库会话
+            db: 数据库会话
             file_ids: 需要构建调用图的文件 ID 列表（None 时等同于全量 build_data）
 
         Returns:
@@ -145,35 +122,19 @@ class CallGraphBuilder:
             logger.info("调用图增量构建: repo=%s, file_ids=0 (跳过)", repo_uuid)
             return []
 
-        use_context = db is None
-        session = db
-        if use_context:
-            session = await async_session_factory().__aenter__()
-        assert session is not None  # type narrowing for mypy
+        call_nodes = await self._get_nodes_by_files_and_types(db, repo_uuid, file_ids, {"call"})
+        function_nodes = await self._get_nodes_by_files_and_types(db, repo_uuid, file_ids, _CALLABLE_NODE_TYPES)
 
-        try:
-            # 1. 只加载指定文件的 call 节点和函数定义节点
-            call_nodes = await self._get_nodes_by_files_and_types(session, repo_uuid, file_ids, {"call"})
-            function_nodes = await self._get_nodes_by_files_and_types(
-                session, repo_uuid, file_ids, _CALLABLE_NODE_TYPES
-            )
+        logger.info(
+            "调用图增量构建: repo=%s, files=%d, calls=%d, functions=%d",
+            repo_uuid,
+            len(file_ids),
+            len(call_nodes),
+            len(function_nodes),
+        )
 
-            logger.info(
-                "调用图增量构建: repo=%s, files=%d, calls=%d, functions=%d",
-                repo_uuid,
-                len(file_ids),
-                len(call_nodes),
-                len(function_nodes),
-            )
-
-            # 2. 构建函数索引
-            function_index = self._build_function_index(function_nodes)
-
-            # 3. 匹配调用边
-            return self._match_call_edges(call_nodes, function_index, repo_uuid)
-        finally:
-            if use_context:
-                await session.__aexit__(None, None, None)
+        function_index = self._build_function_index(function_nodes)
+        return self._match_call_edges(call_nodes, function_index, repo_uuid)
 
     async def _get_nodes_by_files_and_types(
         self,
@@ -226,8 +187,12 @@ class CallGraphBuilder:
         for call_node in call_nodes:
             call_name = call_node.name.strip()
 
-            # 动态调用：包含 getattr/setattr 等反射模式
-            if CallGraphBuilder._is_dynamic_call(call_name):
+            # A-6: 防御空/None 名称
+            if not call_name:
+                continue
+
+            # 动态调用：精确匹配动态模式名，不匹配 getattr.x 等对象方法
+            if call_name in _DYNAMIC_CALL_NAMES:
                 edges_data.append(
                     {
                         "repository_id": repo_uuid,
@@ -283,20 +248,6 @@ class CallGraphBuilder:
 
         return edges_data
 
-    @staticmethod
-    def _is_dynamic_call(call_name: str) -> bool:
-        """
-        判断是否为动态调用（反射/getattr 等无法静态分析的模式）
-
-        Args:
-            call_name: 调用名称
-
-        Returns:
-            是否为动态调用
-        """
-        dynamic_patterns = frozenset({"getattr", "setattr", "delattr", "hasattr", "__getattr__"})
-        return any(call_name == pattern or call_name.startswith(pattern + ".") for pattern in dynamic_patterns)
-
 
 class CallGraphQuery:
     """
@@ -305,27 +256,49 @@ class CallGraphQuery:
     提供正向/反向查询和调用链遍历。
     """
 
-    def __init__(self):
-        self.call_edge_dao = CallEdgeDAO()
-        self.ast_dao = AstNodeDAO()
+    def __init__(
+        self,
+        call_edge_dao: CallEdgeDAO | None = None,
+        ast_dao: AstNodeDAO | None = None,
+    ):
+        self.call_edge_dao = call_edge_dao or CallEdgeDAO()
+        self.ast_dao = ast_dao or AstNodeDAO()
 
-    async def get_callees(self, caller_node_id: UUID) -> list[dict]:
+    async def get_callees(
+        self,
+        caller_node_id: UUID,
+        db: AsyncSession | None = None,
+    ) -> list[dict]:
         """
         获取该节点调用的所有目标（正向调用图）
+
+        Args:
+            caller_node_id: 调用节点 ID
+            db: 可选的数据库会话；为 None 时创建独立会话（兼容旧调用）
 
         Returns:
             调用边列表（含 caller 和 callee 节点信息）
         """
-        async with async_session_factory() as db:
+        use_context = db is None
+        if use_context:
+            db = await async_session_factory().__aenter__()
+        assert db is not None  # type: ignore[assertion]
+
+        try:
             edges = await self.call_edge_dao.get_callees(db, caller_node_id)
 
-            result = []
-            for edge in edges:
-                callee = None
-                if edge.callee_node_id:
-                    callee = await self.ast_dao.get_by_id(db, edge.callee_node_id)
+            # A-2: 批量预加载所有 callee 节点，消除 N+1
+            callee_ids = [e.callee_node_id for e in edges if e.callee_node_id]
+            callee_map: dict[UUID, AstNodeModel | None] = {}
+            if callee_ids:
+                nodes_result = await db.execute(select(AstNodeModel).where(AstNodeModel.id.in_(callee_ids)))
+                for node in nodes_result.scalars().all():
+                    callee_map[node.id] = node
 
-                result.append(
+            callees_result = []
+            for edge in edges:
+                callee = callee_map.get(edge.callee_node_id) if edge.callee_node_id else None
+                callees_result.append(
                     {
                         "edge_id": edge.id,
                         "call_name": edge.call_name,
@@ -343,23 +316,47 @@ class CallGraphQuery:
                         ),
                     }
                 )
-            return result
+            return callees_result
+        finally:
+            if use_context:
+                assert db is not None  # type: ignore[assertion]
+                await db.__aexit__(None, None, None)
 
-    async def get_callers(self, callee_node_id: UUID) -> list[dict]:
+    async def get_callers(
+        self,
+        callee_node_id: UUID,
+        db: AsyncSession | None = None,
+    ) -> list[dict]:
         """
         获取调用该节点的所有调用者（反向调用图）
+
+        Args:
+            callee_node_id: 被调用节点 ID
+            db: 可选的数据库会话；为 None 时创建独立会话（兼容旧调用）
 
         Returns:
             调用边列表（含 caller 节点信息）
         """
-        async with async_session_factory() as db:
+        use_context = db is None
+        if use_context:
+            db = await async_session_factory().__aenter__()
+        assert db is not None  # type: ignore[assertion]
+
+        try:
             edges = await self.call_edge_dao.get_callers(db, callee_node_id)
 
-            result = []
-            for edge in edges:
-                caller = await self.ast_dao.get_by_id(db, edge.caller_node_id)
+            # A-2: 批量预加载所有 caller 节点，消除 N+1
+            caller_ids = [e.caller_node_id for e in edges if e.caller_node_id]
+            caller_map: dict[UUID, AstNodeModel | None] = {}
+            if caller_ids:
+                nodes_result = await db.execute(select(AstNodeModel).where(AstNodeModel.id.in_(caller_ids)))
+                for node in nodes_result.scalars().all():
+                    caller_map[node.id] = node
 
-                result.append(
+            callers_result = []
+            for edge in edges:
+                caller = caller_map.get(edge.caller_node_id) if edge.caller_node_id else None
+                callers_result.append(
                     {
                         "edge_id": edge.id,
                         "call_name": edge.call_name,
@@ -378,46 +375,76 @@ class CallGraphQuery:
                         ),
                     }
                 )
-            return result
+            return callers_result
+        finally:
+            if use_context:
+                assert db is not None  # type: ignore[assertion]
+                await db.__aexit__(None, None, None)
 
-    async def get_call_chain(self, caller_node_id: UUID, max_depth: int = 10) -> list[dict]:
+    async def get_call_chain(
+        self,
+        caller_node_id: UUID,
+        max_depth: int = 10,
+        db: AsyncSession | None = None,
+    ) -> list[dict]:
         """
         获取从该节点开始的完整调用链（DFS 遍历）
+
+        A-2 修复：使用共享 session 而非每层新建，消除 session 爆炸。
 
         Args:
             caller_node_id: 起始节点 ID
             max_depth: 最大遍历深度
+            db: 可选的数据库会话；为 None 时创建独立会话
 
         Returns:
             调用链节点列表（按深度排序）
         """
-        visited: set[UUID] = set()
+        use_context = db is None
+        if use_context:
+            db = await async_session_factory().__aenter__()
+        assert db is not None  # type: ignore[assertion]
+
+        try:
+            return await self._dfs_chain(db, caller_node_id, max_depth, 0, [], set())
+        finally:
+            if use_context:
+                assert db is not None  # type: ignore[assertion]
+                await db.__aexit__(None, None, None)
+
+    async def _dfs_chain(
+        self,
+        db: AsyncSession,
+        node_id: UUID,
+        max_depth: int,
+        depth: int,
+        path: list[str],
+        visited: set[UUID],
+    ) -> list[dict]:
+        """DFS 调用链递归实现"""
         chain: list[dict] = []
+        if depth > max_depth or node_id in visited:
+            return chain
 
-        async def dfs(node_id: UUID, depth: int, path: list[str]) -> None:
-            if depth > max_depth or node_id in visited:
-                return
+        visited.add(node_id)
 
-            visited.add(node_id)
+        # 使用共享 session 获取 callees
+        callees = await self.get_callees(node_id, db=db)
+        for callee_info in callees:
+            if callee_info["callee"]:
+                callee_id = UUID(callee_info["callee"]["id"])
+                new_path = path + [callee_info["call_name"]]
+                chain.append(
+                    {
+                        "depth": depth + 1,
+                        "node_id": callee_info["callee"]["id"],
+                        "node_name": callee_info["callee"]["name"],
+                        "node_type": callee_info["callee"]["node_type"],
+                        "call_name": callee_info["call_name"],
+                        "call_type": callee_info["call_type"],
+                        "path": new_path,
+                    }
+                )
+                chain.extend(await self._dfs_chain(db, callee_id, max_depth, depth + 1, new_path, visited))
 
-            # 获取该节点的所有 callee
-            callees = await self.get_callees(node_id)
-            for callee_info in callees:
-                if callee_info["callee"]:
-                    callee_id = callee_info["callee"]["id"]
-                    new_path = path + [callee_info["call_name"]]
-                    chain.append(
-                        {
-                            "depth": depth + 1,
-                            "node_id": callee_id,
-                            "node_name": callee_info["callee"]["name"],
-                            "node_type": callee_info["callee"]["node_type"],
-                            "call_name": callee_info["call_name"],
-                            "call_type": callee_info["call_type"],
-                            "path": new_path,
-                        }
-                    )
-                    await dfs(UUID(callee_id), depth + 1, new_path)
-
-        await dfs(caller_node_id, 0, [])
         return chain

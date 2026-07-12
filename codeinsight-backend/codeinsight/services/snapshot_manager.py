@@ -40,6 +40,9 @@ class SnapshotManager:
         """
         保存本次分析的文件快照
 
+        SV-6 修复：先保存快照再清理，由调用者统一管理 commit，保证事务原子性。
+        调用者应在外部统一 commit/rollback，本方法不执行 commit。
+
         Args:
             repo_uuid: 仓库 UUID
             version: 分析版本标签（如 v20260712-abc1234）
@@ -68,7 +71,6 @@ class SnapshotManager:
             return 0
 
         await self.snapshot_dao.create_many(self.db, snapshots_data)
-        await self.db.commit()
 
         logger.info(
             "快照保存完成: repo=%s, version=%s, files=%d",
@@ -77,7 +79,7 @@ class SnapshotManager:
             len(snapshots_data),
         )
 
-        # 清理旧快照
+        # SV-6: 清理在事务内执行，由调用者统一 commit
         await self._cleanup_old_snapshots(repo_uuid, version)
 
         return len(snapshots_data)
@@ -104,7 +106,8 @@ class SnapshotManager:
 
         # 获取该版本的所有快照
         snapshots = await self.snapshot_dao.get_by_version(self.db, repo_uuid, latest_version)
-        hash_map = {s.file_id: s.content_hash for s in snapshots}
+        # file_id 可为 NULL，过滤掉后再构建字典
+        hash_map = {s.file_id: s.content_hash for s in snapshots if s.file_id is not None}
 
         logger.info(
             "加载最新快照: repo=%s, version=%s, files=%d",
@@ -135,7 +138,7 @@ class SnapshotManager:
             logger.warning("指定版本无快照: repo=%s, version=%s", repo_uuid, version)
             return None
 
-        return {s.file_id: s.content_hash for s in snapshots}
+        return {s.file_id: s.content_hash for s in snapshots if s.file_id is not None}
 
     async def get_latest_version(self, repo_uuid: UUID) -> str | None:
         """
@@ -153,22 +156,31 @@ class SnapshotManager:
         """
         清理旧快照，保留最近 _MAX_SNAPSHOT_VERSIONS 个版本
 
+        SV-7 修复：使用 DAO 的排序保证按 created_at 降序，确保保留最新的 N 个版本。
+        删除操作不 commit，由调用者统一管理事务。
+
         Args:
             repo_uuid: 仓库 UUID
             current_version: 当前版本（保留）
         """
-        # 直接查询所有版本标签
-        all_versions = await self.snapshot_dao.get_all_versions(self.db, repo_uuid)
+        all_versions = await self.snapshot_dao.get_all_versions(self.db, repo_uuid, order_by_created=True)
         if not all_versions:
             return
 
-        # 保留最近 N 个版本
+        # 按 created_at 降序排序，保留最近的 N 个
         keep_versions = all_versions[: settings.incremental_max_snapshot_versions]
-        logger.debug("快照清理: 保留 %d 个版本: %s", len(keep_versions), keep_versions)
+        keep_set = set(keep_versions)
+        versions_to_delete = [v for v in all_versions if v not in keep_set]
 
-        deleted = await self.snapshot_dao.delete_old_versions(self.db, repo_uuid, keep_versions)
-        if deleted:
-            await self.db.commit()
+        logger.debug(
+            "快照清理: 保留 %d 个版本, 删除 %d 个",
+            len(keep_versions),
+            len(versions_to_delete),
+        )
+
+        if versions_to_delete:
+            # 保持有序列表传递给 DAO（不使用 set 转换）
+            deleted = await self.snapshot_dao.delete_old_versions(self.db, repo_uuid, keep_versions)
             logger.info("快照清理完成: 删除 %d 条旧记录", deleted)
 
     async def delete_by_repository(self, repo_uuid: UUID) -> int:

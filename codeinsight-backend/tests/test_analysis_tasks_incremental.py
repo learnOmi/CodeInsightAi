@@ -243,6 +243,7 @@ def _make_mock_asyncio_run(diff_result=None, repo_path="/tmp/test-repo"):
     构造 asyncio.run 的 mock，按协程名称分发返回值。
 
     run_analysis 中 asyncio.run 调用：
+    0. _get_in_progress_version → 返回 (None, None) [新增]
     1. _do_analysis_setup → 返回 {"version_id": UUID, "total_files": int}
     2. _get_repo_path → 返回 repo_path (repo.path)
     3. _compute_incremental_diff → 返回 diff_result
@@ -251,13 +252,13 @@ def _make_mock_asyncio_run(diff_result=None, repo_path="/tmp/test-repo"):
        _parse_and_store_ast_incremental, _save_analysis_snapshot 等）→ None
     """
     mock = MagicMock()
-    call_idx = [0]
 
     def smart_side_effect(coro):
-        call_idx[0] += 1
-        _ = call_idx[0]
-
         coro_name = getattr(coro, "__name__", str(coro))
+
+        # _get_in_progress_version → (None, None)
+        if "_get_in_progress_version" in coro_name:
+            return (None, None)
 
         # _do_analysis_setup → 版本记录
         if "_do_analysis_setup" in coro_name:
