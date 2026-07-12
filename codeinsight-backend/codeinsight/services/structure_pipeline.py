@@ -322,13 +322,27 @@ class StructureDataPipeline:
         """
         批量分片写入
 
-        每 batch_size 条为一个事务，支持进度回调。
+        每 batch_size 条为一个 flush，不直接 commit。
+        由调用者统一管理事务（commit/rollback）。
+
+        Args:
+            data: 待插入数据列表
+            create_many_fn: DAO 的批量创建方法
+            stage: 进度阶段名称
+            total: 总条数
+
+        Returns:
+            成功插入的条数
+
+        Raises:
+            Exception: 批量写入失败时，已 flush 的数据可通过外层事务 rollback
         """
         inserted = 0
         for i in range(0, len(data), self.batch_size):
             batch = data[i : i + self.batch_size]
             await create_many_fn(self.db, batch)
-            await self.db.commit()
+            # 仅 flush，不 commit —— 由调用者管理事务边界
+            await self.db.flush()
             inserted += len(batch)
 
             # 进度回调

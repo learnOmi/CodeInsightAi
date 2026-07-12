@@ -120,20 +120,18 @@ async def test_file_dao_get_by_repository(mock_session):
 
 @pytest.mark.asyncio
 async def test_file_dao_delete_by_repository(mock_session):
-    """测试：FileDAO delete_by_repository 删除仓库文件"""
+    """测试：FileDAO delete_by_repository 使用 SQL DELETE 删除仓库文件"""
     dao = FileDAO()
     repo_id = str(uuid4())
-    mock_files = [FakeFile(id=str(uuid4()), repository_id=repo_id) for _ in range(5)]
 
     mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = mock_files
+    mock_result.rowcount = 5
     mock_session.execute = AsyncMock(return_value=mock_result)
-    mock_session.delete = AsyncMock()
 
     count = await dao.delete_by_repository(mock_session, repo_id)
 
     assert count == 5
-    assert mock_session.delete.call_count == 5
+    mock_session.execute.assert_called_once()
     mock_session.flush.assert_called_once()
 
 

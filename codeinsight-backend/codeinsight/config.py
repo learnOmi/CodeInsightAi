@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_db: str = "codeinsight"
     postgres_user: str = "codeinsight"
-    postgres_password: str = "codeinsight"
+    postgres_password: str = ""  # ⚠️ 必须通过 .env 配置，生产环境禁止使用默认值
     database_pool_size: int = 20
     database_max_overflow: int = 10
 
@@ -38,7 +38,11 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         """构建数据库连接字符串"""
-        return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        from urllib.parse import quote
+
+        password = quote(self.postgres_password, safe="")
+        user = quote(self.postgres_user, safe="")
+        return f"postgresql+asyncpg://{user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
     @property
     def redis_url(self) -> str:
@@ -57,11 +61,16 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.1:8b"
 
     # JWT
-    secret_key: str = "change-me-to-a-random-secret-key"
+    secret_key: str = ""  # ⚠️ 必须通过 .env 配置 32+ 字符随机值
     access_token_expire_minutes: int = 60
+
+    # 认证
+    api_key: str = ""  # ⚠️ 必须通过 .env 配置；留空时跳过认证（仅开发环境）
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
+    cors_allowed_methods: list[str] = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+    cors_allowed_headers: list[str] = ["Authorization", "Content-Type", "X-API-Key"]
 
     # 文件上传
     max_repository_path_length: int = 500
