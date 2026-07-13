@@ -35,7 +35,10 @@ CreateManyFn = Callable[[AsyncSession, list[dict]], Awaitable[list]]
 
 @dataclass
 class IngestResult:
-    """入库结果"""
+    """入库结果
+
+    PL-6 修复：重新定义 skipped_count 语义，仅表示实际跳过的记录数。
+    """
 
     total_count: int = 0
     inserted_count: int = 0
@@ -150,7 +153,7 @@ class StructureDataPipeline:
             key = (repo_uuid, node["file_id"], node["start_line"], node["node_type"], node["name"])
             self._node_uuid_map[key] = node["node_id"]
 
-        result.skipped_count = len(nodes) - result.inserted_count
+        result.skipped_count = len(db_nodes) - result.inserted_count
         return result
 
     async def ingest_call_edges(
@@ -263,7 +266,7 @@ class StructureDataPipeline:
             total=len(valid_items),
         )
 
-        result.skipped_count = len(items) - result.inserted_count
+        result.skipped_count = len(valid_items) - result.inserted_count
         return result
 
     # ================================================================

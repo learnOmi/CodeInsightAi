@@ -7,11 +7,13 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.auth import get_api_key_dependency
 from codeinsight.config import settings
 from codeinsight.db.session import get_db_session
+from codeinsight.models import FileModel
 from codeinsight.repositories.file import FileDAO
 from codeinsight.schemas import File, FileCreate, FileUpdate
 
@@ -23,6 +25,28 @@ router = APIRouter(
 def get_file_dao() -> FileDAO:
     """获取 FileDAO 实例（依赖注入）"""
     return FileDAO()
+
+
+@router.get("")
+async def list_files(
+    repository_id: UUID = Query(..., description="仓库 ID"),  # noqa: B008
+    page: int = Query(default=1, ge=1, description="页码"),
+    page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    dao: FileDAO = Depends(get_file_dao),  # noqa: B008
+):
+    """
+    获取文件列表（分页）
+    """
+    skip = (page - 1) * page_size
+    files = await dao.list_by_repository(db, repository_id, skip=skip, limit=page_size)
+
+    total_files = await db.execute(select(func.count()).where(FileModel.repository_id == repository_id))
+    total = total_files.scalar() or 0
+    total_pages = max(1, (total + page_size - 1) // page_size)
+
+    items = [File.model_validate(f) for f in files]
+    return {"items": items, "total": total, "page": page, "page_size": page_size, "total_pages": total_pages}
 
 
 @router.post("", response_model=File, status_code=201)

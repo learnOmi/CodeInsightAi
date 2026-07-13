@@ -59,6 +59,19 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
     ".rst": "rst",
 }
 
+# 非源代码文件类型（S-8 修复：提取为常量）
+NON_SOURCE_LANGUAGES: frozenset[str] = frozenset(
+    {
+        "markdown",
+        "text",
+        "rst",
+        "json",
+        "yaml",
+        "toml",
+        "ini",
+    }
+)
+
 
 class LanguageDetector:
     """
@@ -115,9 +128,33 @@ class LanguageDetector:
 
         Returns:
             语言名称（如 "python", "javascript"），未识别返回 "unknown"
+
+        S-7 修复：处理双后缀文件（如 .pyc, .js.map）
         """
         ext = file_path.suffix.lower()
-        return self.extensions.get(ext, "unknown")
+
+        if ext in self.extensions:
+            return self.extensions[ext]
+
+        if ext == ".h":
+            stem = file_path.stem
+            if stem.endswith(".inl") or stem.endswith(".ipp"):
+                return "cpp"
+            return "cpp"
+
+        if ext == ".hpp":
+            return "cpp"
+
+        double_ext = file_path.suffixes
+        if len(double_ext) >= 2:
+            combined = "".join(double_ext[-2:]).lower()
+            if combined in self.extensions:
+                return self.extensions[combined]
+            primary = double_ext[-2].lower()
+            if primary in self.extensions:
+                return self.extensions[primary]
+
+        return "unknown"
 
     def is_supported(self, file_path: Path) -> bool:
         """
@@ -143,4 +180,4 @@ class LanguageDetector:
             True 如果文件是源代码文件
         """
         language = self.detect(file_path)
-        return language != "unknown" and language not in ("markdown", "text", "rst", "json", "yaml", "toml", "ini")
+        return language != "unknown" and language not in NON_SOURCE_LANGUAGES

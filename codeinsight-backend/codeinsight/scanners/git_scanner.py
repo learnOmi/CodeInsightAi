@@ -38,6 +38,7 @@ class ScannedFile:
         repo_path: Path,
         language: str = "unknown",
         max_line_count: int = DEFAULT_MAX_LINE_COUNT,
+        relative_path: Path | None = None,
     ) -> "ScannedFile | None":
         """
         从文件路径创建 ScannedFile 实例
@@ -49,6 +50,7 @@ class ScannedFile:
             repo_path: 仓库根路径
             language: 语言类型
             max_line_count: 最大行数限制，超过则返回 None
+            relative_path: 预先计算的相对路径，避免重复计算
 
         Returns:
             ScannedFile 实例或 None（文件过大、行数过多或无法读取）
@@ -88,14 +90,15 @@ class ScannedFile:
                 logger.debug("跳过行数过多文件: %s (%d lines)", file_path, line_count)
                 return None
 
-            # 计算相对路径
-            try:
-                relative = file_path.relative_to(repo_path)
-            except ValueError:
-                relative = file_path
+            # 使用预先计算的相对路径，避免重复计算 (S-5 修复)
+            if relative_path is None:
+                try:
+                    relative_path = file_path.relative_to(repo_path)
+                except ValueError:
+                    relative_path = file_path
 
             return cls(
-                path=str(relative),
+                path=str(relative_path),
                 absolute_path=str(file_path),
                 language=language,
                 line_count=line_count,
@@ -118,6 +121,7 @@ class ScanResult:
     language_distribution: dict[str, int]
     skipped_count: int
     errors: list[str]
+    commit_hash: str | None = None
 
     def to_dict(self) -> dict:
         """转为字典格式"""
@@ -239,6 +243,7 @@ class GitScanner:
                         skipped_count += 1
                         continue
 
+                    relative: Path | None = None
                     if git_repo is not None:
                         try:
                             relative = file_path.relative_to(self.repo_path)
@@ -260,6 +265,7 @@ class GitScanner:
                         repo_path=self.repo_path,
                         language=language,
                         max_line_count=self.max_line_count,
+                        relative_path=relative,
                     )
 
                     if scanned is None:
@@ -299,6 +305,10 @@ class GitScanner:
 
         total_lines = sum(f.line_count for f in files)
 
+        commit_hash: str | None = None
+        if git_repo is not None and git_repo.head.is_valid():
+            commit_hash = git_repo.head.commit.hexsha
+
         if errors:
             logger.warning("扫描完成但存在错误: files=%d, errors=%d", len(files), len(errors))
 
@@ -309,4 +319,5 @@ class GitScanner:
             language_distribution=language_distribution,
             skipped_count=skipped_count,
             errors=errors,
+            commit_hash=commit_hash,
         )

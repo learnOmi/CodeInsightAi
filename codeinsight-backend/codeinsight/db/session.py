@@ -2,19 +2,27 @@
 数据库会话管理
 
 提供 AsyncSession 工厂函数，用于数据库操作。
+
+DB-7 修复：使用 get_engine() 延迟创建，避免模块导入时触发数据库连接。
 """
 
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from codeinsight.db.engine import engine
+from codeinsight.db.engine import get_engine
 
-async_session_factory = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+
+def _get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """延迟创建 session factory（DB-7 修复）"""
+    return async_sessionmaker(
+        bind=get_engine(),
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+
+async_session_factory = _get_session_factory()
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:

@@ -51,6 +51,7 @@ class FakeScanResult:
     total_count: int
     total_lines: int
     language_distribution: dict
+    commit_hash: str | None = None
 
 
 # ======================== _compute_incremental_diff 测试 ========================

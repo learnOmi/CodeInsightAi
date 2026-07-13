@@ -65,6 +65,55 @@ async def list_versions(
     return result
 
 
+async def _update_current_version(
+    db: AsyncSession,
+    repository_id: UUID,
+    version: str,
+    dao: AnalysisVersionDAO,
+) -> tuple[str | None, str]:
+    """
+    更新仓库当前版本（共享逻辑，API-13 修复）
+
+    Args:
+        db: 数据库会话
+        repository_id: 仓库 ID
+        version: 目标版本号
+        dao: AnalysisVersionDAO 实例
+
+    Returns:
+        (previous_version, current_version)
+
+    Raises:
+        HTTPException: 仓库不存在、版本不存在或版本未完成
+    """
+    repo_result = await db.execute(select(RepositoryModel).where(RepositoryModel.id == repository_id))
+    repo = repo_result.scalar_one_or_none()
+    if repo is None:
+        raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
+
+    target_version = await dao.get_by_version_tag(db, repository_id, version)
+    if target_version is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Version {version} not found for repository {repository_id}",
+        )
+
+    if target_version.status != TaskStatus.COMPLETED.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Version {version} is not completed (status={target_version.status}). "
+            "Only completed versions can be switched to.",
+        )
+
+    previous_version = repo.current_version
+    repo.current_version = version
+
+    await db.flush()
+    await db.refresh(repo)
+
+    return previous_version, version
+
+
 @router.post("/repositories/{repository_id}/switch-version")
 async def switch_version(
     repository_id: UUID,
@@ -79,39 +128,13 @@ async def switch_version(
 
     API-9 修复：只允许切换到已完成的版本，禁止切换到分析中或已失败的版本。
     """
-    # 验证仓库存在
-    repo_result = await db.execute(select(RepositoryModel).where(RepositoryModel.id == repository_id))
-    repo = repo_result.scalar_one_or_none()
-    if repo is None:
-        raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
-
-    # 验证目标版本存在
-    target_version = await dao.get_by_version_tag(db, repository_id, version)
-    if target_version is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Version {version} not found for repository {repository_id}",
-        )
-
-    # API-9：验证版本已完成
-    if target_version.status != TaskStatus.COMPLETED.value:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Version {version} is not completed (status={target_version.status}). "
-            "Only completed versions can be switched to.",
-        )
-
-    previous_version = repo.current_version
-    repo.current_version = version
-
-    await db.flush()
-    await db.refresh(repo)
+    previous_version, current_version = await _update_current_version(db, repository_id, version, dao)
 
     return {
-        "message": f"已切换到版本 {version}",
+        "message": f"已切换到版本 {current_version}",
         "repository_id": str(repository_id),
         "previous_version": previous_version,
-        "current_version": version,
+        "current_version": current_version,
     }
 
 
@@ -125,32 +148,16 @@ async def rollback_version(
     """
     回滚到指定版本
 
-    将仓库状态恢复到指定历史版本，并标记此次变更为"回滚"操作。
+    将仓库状态恢复到指定历史版本（语义上表示从当前版本撤回）。
+
+    API-13 修复：复用 _update_current_version 共享逻辑，消除重复代码。
+    API-14 修复：移除伪造的 rollback_record_id。
     """
-    # 验证仓库存在
-    repo_result = await db.execute(select(RepositoryModel).where(RepositoryModel.id == repository_id))
-    repo = repo_result.scalar_one_or_none()
-    if repo is None:
-        raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
-
-    # 验证目标版本存在
-    target_version = await dao.get_by_version_tag(db, repository_id, version)
-    if target_version is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Version {version} not found for repository {repository_id}",
-        )
-
-    rolled_back_from = repo.current_version
-    repo.current_version = version
-
-    await db.flush()
-    await db.refresh(repo)
+    rolled_back_from, rolled_back_to = await _update_current_version(db, repository_id, version, dao)
 
     return {
-        "message": f"已回滚到版本 {version}",
+        "message": f"已回滚到版本 {rolled_back_to}",
         "repository_id": str(repository_id),
         "rolled_back_from": rolled_back_from,
-        "rolled_back_to": version,
-        "rollback_record_id": f"rb-{version}",
+        "rolled_back_to": rolled_back_to,
     }

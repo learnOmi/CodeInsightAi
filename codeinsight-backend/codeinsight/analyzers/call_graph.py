@@ -248,6 +248,29 @@ class CallGraphQuery:
         self.call_edge_dao = call_edge_dao or CallEdgeDAO()
         self.ast_dao = ast_dao or AstNodeDAO()
 
+    async def _get_session(self, db: AsyncSession | None = None, method_name: str = "") -> tuple[AsyncSession, bool]:
+        """
+        获取数据库会话（A-11 修复：提取重复的 session 管理模板）
+
+        Args:
+            db: 可选的数据库会话
+            method_name: 调用方法名，用于日志警告
+
+        Returns:
+            (session, use_context) 元组，use_context 表示是否需要手动关闭
+        """
+        if db is None:
+            db = await async_session_factory().__aenter__()
+            use_context = True
+            if method_name:
+                logger.warning(
+                    "%s: 未传入 db session，已创建新 session。建议调用方传入共享 session 以优化资源管理",
+                    method_name,
+                )
+        else:
+            use_context = False
+        return db, use_context
+
     async def get_callees(
         self,
         caller_node_id: UUID,
@@ -263,14 +286,7 @@ class CallGraphQuery:
         Returns:
             调用边列表（含 caller 和 callee 节点信息）
         """
-        if db is None:
-            db = await async_session_factory().__aenter__()
-            use_context = True
-            logger.warning(
-                "get_callees: 未传入 db session，已创建新 session。建议调用方传入共享 session 以优化资源管理"
-            )
-        else:
-            use_context = False
+        db, use_context = await self._get_session(db, "get_callees")
 
         try:
             edges = await self.call_edge_dao.get_callees(db, caller_node_id)
@@ -324,14 +340,7 @@ class CallGraphQuery:
         Returns:
             调用边列表（含 caller 节点信息）
         """
-        if db is None:
-            db = await async_session_factory().__aenter__()
-            use_context = True
-            logger.warning(
-                "get_callers: 未传入 db session，已创建新 session。建议调用方传入共享 session 以优化资源管理"
-            )
-        else:
-            use_context = False
+        db, use_context = await self._get_session(db, "get_callers")
 
         try:
             edges = await self.call_edge_dao.get_callers(db, callee_node_id)
@@ -390,11 +399,7 @@ class CallGraphQuery:
         Returns:
             调用链节点列表（按深度排序）
         """
-        if db is None:
-            db = await async_session_factory().__aenter__()
-            use_context = True
-        else:
-            use_context = False
+        db, use_context = await self._get_session(db)
 
         try:
             return await self._dfs_chain(db, caller_node_id, max_depth, 0, [], set())

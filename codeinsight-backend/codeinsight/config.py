@@ -76,6 +76,7 @@ class Settings(BaseSettings):
 
     # 文件上传
     max_repository_path_length: int = 500
+    max_request_size: int = 10 * 1024 * 1024
 
     # 增量分析
     incremental_max_change_ratio: float = 0.3

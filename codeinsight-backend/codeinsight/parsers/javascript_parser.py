@@ -111,9 +111,10 @@ class JavaScriptParser(LanguageParser):
 
         # 函数表达式: const name = function() { }
         elif node_type == "function_expression":
-            # 提取匿名函数
+            # 提取匿名函数，递归处理子节点 (P-5 修复)
             ast_node = self._create_function_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 类声明
         elif node_type == "class_declaration":

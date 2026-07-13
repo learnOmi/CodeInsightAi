@@ -347,10 +347,8 @@ async def test_api_rollback_version_success():
         ]
     )
 
-    # 模拟目标版本存在
-    mock_target_result = MagicMock()
-    mock_target_result.scalar_one_or_none.return_value = FakeAV(version="v1")
-    mock_dao.get_by_version_tag = AsyncMock(return_value=mock_target_result)
+    # 模拟目标版本存在且已完成
+    mock_dao.get_by_version_tag = AsyncMock(return_value=FakeAV(version="v1", status="completed"))
 
     result = await rollback_version(
         "repo-1",
@@ -360,7 +358,6 @@ async def test_api_rollback_version_success():
     )
     assert result["rolled_back_from"] == "v3"
     assert result["rolled_back_to"] == "v1"
-    assert "rollback_record_id" in result
     assert "已回滚到版本" in result["message"]
 
 

@@ -108,15 +108,10 @@ class TypeScriptParser(LanguageParser):
         node_type = node.type
 
         # 函数声明: function name() { }
-        if node_type == "function_declaration":
+        if node_type == "function_declaration" or node_type == "arrow_function":
             ast_node = self._create_function_node(node, file_path, language, parent_node)
             result.add(ast_node)
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
-
-        # 箭头函数
-        elif node_type == "arrow_function":
-            # 箭头函数通常是表达式，不提取为顶级函数
-            pass
 
         # 类声明
         elif node_type == "class_declaration":

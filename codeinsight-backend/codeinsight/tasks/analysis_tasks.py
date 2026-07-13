@@ -153,10 +153,8 @@ async def _do_analysis_setup(
         if repo is None:
             raise ValueError(f"Repository {repository_id} not found")
 
-        # 扫描文件列表（骨架阶段 placeholder）
-        total_files = 0  # Phase 2: GitPython 扫描
-
-        # 创建分析版本记录
+        # 创建分析版本记录（total_files 将在扫描步骤更新）
+        total_files = 0
         version = await version_dao.create(
             db,
             {
@@ -842,6 +840,10 @@ def run_analysis(
                 )
                 logger.info("语言分布: %s", scan_result.language_distribution)
 
+                # T-7: 使用 commit hash 作为版本标签（如有），提高可追溯性
+                if scan_result.commit_hash:
+                    version_tag = f"v{datetime.now(UTC).strftime('%Y%m%d')}-{scan_result.commit_hash[:7]}"
+
                 # 更新分析版本：同步扫描后的真实文件数和状态
                 asyncio.run(
                     _update_analysis_version(
@@ -1045,13 +1047,12 @@ def run_analysis(
             )
         )
 
-        # ---- 保存快照（增量模式下） ----
-        if incremental_diff is not None:
-            try:
-                saved_count = asyncio.run(_save_analysis_snapshot(repo_uuid, version_tag))
-                logger.info("快照保存完成: repo=%s, version=%s, files=%d", repo_uuid, version_tag, saved_count)
-            except Exception as exc:
-                logger.warning("快照保存失败: %s", exc)
+        # ---- 保存快照（全量/增量模式都保存，作为下次增量分析的基础） ----
+        try:
+            saved_count = asyncio.run(_save_analysis_snapshot(repo_uuid, version_tag))
+            logger.info("快照保存完成: repo=%s, version=%s, files=%d", repo_uuid, version_tag, saved_count)
+        except Exception as exc:
+            logger.warning("快照保存失败: %s", exc)
 
         # ---- Step 7: 完成 ----
         completed_at = _utcnow()

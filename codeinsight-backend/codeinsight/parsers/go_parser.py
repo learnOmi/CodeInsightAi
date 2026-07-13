@@ -128,10 +128,14 @@ class GoParser(LanguageParser):
             ast_node = self._create_call_node(node, file_path, language, parent_node)
             result.add(ast_node)
 
-        # 导入语句
-        elif node_type == "import_spec":
-            ast_node = self._create_import_node(node, file_path, language, parent_node)
-            result.add(ast_node)
+        # 导入语句 (P-7 修复：处理 import_declaration，避免重复计数)
+        elif node_type == "import_declaration":
+            # Go 的 import 语句可能是单个 import 或分组 import
+            # 只处理 import_spec，跳过 import_spec_list 以避免重复
+            for child in node.children:
+                if child.type == "import_spec":
+                    ast_node = self._create_import_node(child, file_path, language, parent_node)
+                    result.add(ast_node)
 
         # 递归处理子节点
         for child in node.children:
@@ -290,13 +294,10 @@ class GoParser(LanguageParser):
     def _extract_import_name(self, node) -> str:
         """从导入节点中提取包名"""
         try:
-            # import_spec: import "package"
             name_node = node.child_by_field_name("name")
             if name_node:
-                # 可能是包名（带别名）或字符串字面量
                 text = _node_text_to_str(name_node)
-                # 如果是字符串，去除引号
-                return text.strip('"')
+                return text.strip('"').strip("'")
             return "unknown"
         except Exception:
             return "unknown"

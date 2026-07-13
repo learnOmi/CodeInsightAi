@@ -15,9 +15,9 @@ import uuid
 class ValidationResult:
     """
     单条数据校验结果
-    """
 
-    __slots__ = ("valid", "errors")
+    PL-4 修复：移除 __slots__，避免 slots 中存储可变 list。
+    """
 
     def __init__(self, valid: bool = True, errors: list[str] | None = None) -> None:
         self.valid = valid

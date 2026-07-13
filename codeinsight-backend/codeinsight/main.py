@@ -45,6 +45,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         docs_url="/docs" if settings.debug else None,
         redoc_url="/redoc" if settings.debug else None,
+        max_body_size=settings.max_request_size,
     )
 
     # CORS 中间件
@@ -88,8 +89,41 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/health", tags=["健康检查"])
     async def health_check():
-        """健康检查端点"""
-        return {"status": "ok", "version": settings.app_version}
+        """
+        健康检查端点
+
+        API-19 修复：检测下游依赖（数据库、Redis）的可用性。
+        """
+        checks = {
+            "service": {"status": "ok", "version": settings.app_version},
+            "database": {"status": "unknown"},
+            "redis": {"status": "unknown"},
+        }
+
+        # 检测数据库连接
+        try:
+            from codeinsight.db.session import get_db_session
+
+            async for db in get_db_session():
+                await db.execute("SELECT 1")
+                checks["database"] = {"status": "ok"}
+                break
+        except Exception as e:
+            checks["database"] = {"status": "error", "error": str(e)}
+
+        # 检测 Redis 连接
+        try:
+            from codeinsight.db.redis_client import get_redis_client
+
+            redis_client = get_redis_client()
+            redis_client.ping()
+            checks["redis"] = {"status": "ok"}
+        except Exception as e:
+            checks["redis"] = {"status": "error", "error": str(e)}
+
+        # 综合状态
+        all_ok = all(check["status"] == "ok" for check in checks.values())
+        return {"status": "ok" if all_ok else "degraded", "checks": checks}
 
     return app
 

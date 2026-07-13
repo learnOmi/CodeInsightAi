@@ -170,12 +170,12 @@ class JavaParser(LanguageParser):
                 interface_node = self._create_interface_node(child, file_path, language, parent_node)
                 result.add(interface_node)
                 self._extract_nodes_from_node(child, result, file_path, language, interface_node)
-            # 在接口中查找方法
+            # 在接口中查找方法 (P-9 修复：添加 interface_body 支持)
             elif parent_node.node_type == "interface":
                 if child_type == "method_declaration":
                     method_node = self._create_method_node(child, file_path, language, parent_node)
                     result.add(method_node)
-                elif child_type == "class_body":
+                elif child_type == "interface_body":
                     for body_child in child.children:
                         if body_child.type == "method_declaration":
                             method_node = self._create_method_node(body_child, file_path, language, parent_node)
@@ -234,9 +234,9 @@ class JavaParser(LanguageParser):
         language: str,
         parent_node: ASTNode | None = None,
     ) -> ASTNode:
-        """创建构造器节点"""
+        """创建构造器节点 (P-8 修复：使用类名作为构造函数名称)"""
         name_node = node.child_by_field_name("name")
-        name = f"{name_node.text.decode('utf-8')}.<init>" if name_node else "unknown.<init>"
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
 
         return ASTNode(
             node_type="constructor",

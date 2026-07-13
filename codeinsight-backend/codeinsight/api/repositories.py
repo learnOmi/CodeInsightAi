@@ -6,12 +6,13 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.auth import get_api_key_dependency
 from codeinsight.config import settings
 from codeinsight.db.session import get_db_session
+from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
 from codeinsight.repositories import RepositoryDAO
 from codeinsight.schemas import Repository, RepositoryCreate, RepositoryUpdate
 
@@ -38,7 +39,7 @@ async def create_repository(
     """
     # 检查路径是否已存在
     if await dao.exists_by_path(db, request.path):
-        raise HTTPException(status_code=409, detail=f"Repository path already exists: {request.path}")
+        raise RepositoryPathExistsError(request.path)
 
     repo = await dao.create(db, request)
     return repo
@@ -72,7 +73,7 @@ async def get_repository(
     repo = await dao.get_by_id(db, repository_id)
 
     if repo is None:
-        raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
+        raise RepositoryNotFoundError(str(repository_id))
 
     return repo
 
@@ -90,7 +91,7 @@ async def update_repository(
     # 检查仓库是否存在
     existing = await dao.get_by_id(db, repository_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
+        raise RepositoryNotFoundError(str(repository_id))
 
     repo = await dao.update(db, repository_id, request)
     return repo
@@ -107,6 +108,6 @@ async def delete_repository(
     """
     deleted = await dao.delete(db, repository_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
+        raise RepositoryNotFoundError(str(repository_id))
 
     return Response(status_code=204)

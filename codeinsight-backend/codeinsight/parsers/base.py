@@ -88,9 +88,16 @@ class ASTNode:
             result.extend(child.get_imports())
         return result
 
-    def to_dict(self) -> dict:
-        """转为字典格式"""
-        return {
+    def to_dict(self, include_children: bool = True) -> dict:
+        """
+        转为字典格式
+
+        P-11 修复：支持递归序列化子节点。
+
+        Args:
+            include_children: 是否包含子节点，默认为 True
+        """
+        result = {
             "node_type": self.node_type,
             "name": self.name,
             "start_line": self.start_line,
@@ -101,6 +108,9 @@ class ASTNode:
             "file_path": self.file_path,
             "children_count": len(self.children),
         }
+        if include_children and self.children:
+            result["children"] = [child.to_dict(include_children=True) for child in self.children]
+        return result
 
 
 class ASTNodeList:
