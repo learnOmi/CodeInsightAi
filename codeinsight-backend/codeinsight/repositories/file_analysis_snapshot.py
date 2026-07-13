@@ -46,8 +46,7 @@ class FileAnalysisSnapshotDAO:
         snapshot_objects = [FileAnalysisSnapshotModel(**data) for data in snapshots_data]
         db.add_all(snapshot_objects)
         await db.flush()
-        for obj in snapshot_objects:
-            await db.refresh(obj)
+        # R-1 修复：UUID 由应用层生成，flush 后对象状态已完整，无需逐行 refresh
         return snapshot_objects
 
     async def get_by_version(

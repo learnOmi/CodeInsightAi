@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # Redis
     redis_host: str = "localhost"
     redis_port: int = 6379
+    redis_pool_max_connections: int = 50
+    redis_pool_socket_timeout: int = 2
 
     # Meilisearch
     meilisearch_host: str = "http://localhost:7700"

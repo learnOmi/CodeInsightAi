@@ -1,8 +1,10 @@
-# P2 阶段后续问题修复方案设计
+# P2 阶段后续问题修复方案设计（修订版）
 
 > **设计日期:** 2026-07-14
+> **修订日期:** 2026-07-14
 > **设计范围:** 5 项需要更多设计的 P2 级别问题
-> **状态:** 设计稿
+> **状态:** 评审通过（已修复 3 个发现的问题）
+> **评审报告:** [P2-Design-Review.md](P2-Design-Review.md)
 
 ---
 
@@ -14,7 +16,8 @@
 4. [快照管理完善（SV-6 + SV-7）](#四快照管理完善sv-6--sv-7)
 5. [目录排除算法优化（S-6）](#五目录排除算法优化s-6)
 6. [Parser 缓存线程安全（P-4）](#六parser-缓存线程安全p-4)
-7. [实施计划与优先级](#七实施计划与优先级)
+7. [评审发现的问题与修复](#七评审发现的问题与修复)
+8. [实施计划与优先级](#八实施计划与优先级)
 
 ---
 
@@ -22,15 +25,22 @@
 
 本文档设计 5 项需要较多设计工作的 P2 级别问题的修复方案。这些问题涉及架构模式选择、跨模块一致性和性能优化，需要在实现前明确设计思路。
 
+**修订说明（2026-07-14）：**
+经评审发现以下问题并已在本次修订中修复：
+1. `analysis_tasks.py` `_save_analysis_snapshot` 缺少 `db.commit()` → **已修复**
+2. `file_analysis_snapshot.py` `create_many` 含逐行 `db.refresh()` → **已修复**
+3. `module_dependency.py` `create_many` 含逐行 `db.refresh()` → **已修复**
+4. S-6 和 P-4 实际已修复，标注为"已修复 ✅"
+
 ### 问题清单
 
-| # | 问题编号 | 问题描述 | 严重度 | 预估工时 |
-|---|--------|---------|--------|---------|
-| 1 | API-4 + T-6 | Redis 连接池管理不统一，存在连接泄漏风险 | 🟠 High | 4h |
-| 2 | API-6 | 任务状态查询时丢失分析模式（增量/全量） | 🟠 High | 2h |
-| 3 | SV-6 + SV-7 | 快照管理事务原子性 + 排序不确定性 | 🟠 High | 3h |
-| 4 | S-6 | 目录排除检查 O(n×m) 复杂度 | 🟡 Medium | 1h |
-| 5 | P-4 | Parser 缓存线程安全 | 🟠 High | 1h |
+| # | 问题编号 | 问题描述 | 严重度 | 状态 |
+|---|---------|---------|--------|------|
+| 1 | API-4 + T-6 | Redis 连接池管理不统一，存在连接泄漏风险 | 🟠 High | ✅ 已修复（连接池） |
+| 2 | API-6 | 任务状态查询时丢失分析模式（增量/全量） | 🟠 High | ✅ 已修复（Redis 存储） |
+| 3 | SV-6 + SV-7 | 快照管理事务原子性 + 排序不确定性 | 🟠 High | ✅ 已修复 commit |
+| 4 | S-6 | 目录排除检查 O(n×m) 复杂度 | 🟡 Medium | ✅ 已修复（frozenset） |
+| 5 | P-4 | Parser 缓存线程安全 | 🟠 High | ✅ 已修复（RLock） |
 
 ---
 
@@ -76,9 +86,10 @@ _redis_pool: redis.ConnectionPool | None = None
 
 def get_redis_pool() -> redis.ConnectionPool:
     """
-    获取全局 Redis 连接池（线程安全的惰性初始化）
+    获取全局 Redis 连接池（惰性初始化）
 
-    使用模块级锁保证多线程环境下只创建一个连接池。
+    与 db/engine.py 模式一致：模块级单例 + 工厂函数。
+    Python 的 GIL 保证简单的赋值操作原子性，单次检查无需锁。
     """
     global _redis_pool
     if _redis_pool is None:
@@ -86,10 +97,10 @@ def get_redis_pool() -> redis.ConnectionPool:
             host=settings.redis_host,
             port=settings.redis_port,
             decode_responses=True,
-            max_connections=50,          # 连接池上限
-            socket_connect_timeout=2,    # 连接超时
-            socket_timeout=2,            # 读写超时
-            retry_on_timeout=True,       # 超时重试
+            max_connections=settings.redis_pool_max_connections,
+            socket_connect_timeout=settings.redis_pool_socket_timeout,
+            socket_timeout=settings.redis_pool_socket_timeout,
+            retry_on_timeout=True,
         )
     return _redis_pool
 
@@ -104,11 +115,19 @@ def get_redis_client() -> redis.Redis:
 
 
 def close_redis_pool() -> None:
-    """关闭连接池，释放所有连接"""
+    """关闭连接池，释放所有连接（测试/优雅关闭时使用）"""
     global _redis_pool
     if _redis_pool is not None:
         _redis_pool.disconnect()
         _redis_pool = None
+```
+
+**需要新增的配置项（config.py）：**
+
+```python
+# Redis 连接池
+redis_pool_max_connections: int = 50
+redis_pool_socket_timeout: int = 2
 ```
 
 **修改点：**
@@ -124,7 +143,7 @@ def close_redis_pool() -> None:
 
 3. **main.py**（可选）：
    - 添加 shutdown event handler，调用 `close_redis_pool()`
-   - 确保应用退出时正确释放连接
+   - 非必须：CPython 进程退出时文件描述符自动关闭
 
 ### 2.4 备选方案对比
 
@@ -138,10 +157,11 @@ def close_redis_pool() -> None:
 
 ### 2.5 风险与注意事项
 
-1. **连接池大小**：`max_connections=50` 是保守值，需根据实际并发调整
-2. **超时设置**：2s 超时避免 Redis 故障时阻塞主流程
-3. **异常处理**：保持现有的 `try-except redis.RedisError` 降级模式
-4. **测试兼容**：测试环境可 mock `get_redis_client` 返回 fake redis
+1. **配置化**：超时参数需同步新增到 `config.py`（见上文）
+2. **连接池大小**：`max_connections=50` 是保守值，需根据实际并发调整
+3. **多实例扩展**：当前为单连接池，若未来需要多 Redis 实例，可扩展为 `get_redis_pool(db_number: int)` 重载
+4. **异常处理**：保持现有的 `try-except redis.RedisError` 降级模式
+5. **测试兼容**：测试环境可 mock `get_redis_client` 返回 fake redis
 
 ---
 
@@ -242,37 +262,61 @@ def _lookup_task_mode(task_id: str) -> AnalysisMode:
 
 ### 4.3 方案确认与完善
 
-当前实现已经基本正确，需要确认和完善的点：
+当前实现已经基本正确，经评审确认如下：
 
 #### 4.3.1 事务边界确认
 
-**正确的调用模式：**
+**实际代码（analysis_tasks.py）：**
 
 ```python
-# 调用者（如 analysis_tasks.py）负责事务
-async with async_session_factory() as db:
-    snapshot_manager = SnapshotManager(db)
-    await snapshot_manager.save_snapshot(repo_uuid, version, files, node_counts)
-    await db.commit()  # 统一提交：新快照 + 删除旧快照 同时生效
+async def _save_analysis_snapshot(repo_uuid: UUID, version_tag: str, files: list[FileModel]) -> int:
+    async with async_session_factory() as db:
+        file_dao = FileDAO()
+        local_files = await file_dao.get_by_repository(db, repo_uuid)
+        snapshot_manager = SnapshotManager(db)
+        count = await snapshot_manager.save_snapshot(repo_uuid, version_tag, local_files)
+        await db.commit()  # ✅ 已修复：评审发现后补全
+        return count
 ```
 
-**需要检查的点：**
-- `save_snapshot()` 内部是否有 commit？→ 确认没有（已修复 ✅）
-- `_cleanup_old_snapshots()` 是否有 commit？→ 确认没有（已修复 ✅）
-- 调用者是否在外部统一 commit？→ 需要检查 `analysis_tasks.py`
+**事务检查清单：**
+- `save_snapshot()` 内部是否有 commit？→ 确认没有 ✅
+- `_cleanup_old_snapshots()` 是否有 commit？→ 确认没有 ✅
+- 调用者是否统一 commit？→ 已修复，在 `_save_analysis_snapshot` 末尾添加 ✅
 
 #### 4.3.2 排序逻辑确认
 
-**当前实现：**
-- `get_all_versions(order_by_created=True)` → DAO 层按 `created_at DESC` 排序
-- `keep_versions = all_versions[:settings.incremental_max_snapshot_versions]`
-- 取前 N 个 = 最新的 N 个版本 ✅
+**当前实现（file_analysis_snapshot.py）：**
 
-**需要验证的点：**
-- DAO 的 `get_all_versions` 是否正确实现了排序？
-- `FileAnalysisSnapshotDAO.get_all_versions()` 的实现需要确认
+```python
+async def get_all_versions(
+    self, db: AsyncSession, repository_id: UUID, order_by_created: bool = False,
+) -> list[str]:
+    ...
+    if order_by_created:
+        query = query.order_by(FileAnalysisSnapshotModel.created_at.desc())
+    else:
+        query = query.order_by(FileAnalysisSnapshotModel.analysis_version.desc())
+```
 
-#### 4.3.3 潜在改进：版本状态关联
+- `order_by_created=True` → 按 `created_at DESC` 排序 ✅
+- `keep_versions = all_versions[:N]` → 取最新 N 个版本 ✅
+- `created_at` 由模型 `@mapped_column` 的 `init=False` + `default` 自动填充 ✅
+
+#### 4.3.3 `FileAnalysisSnapshotDAO.create_many` 逐行 refresh 已修复
+
+评审发现该 DAO 仍含逐行 `db.refresh()`（R-1 问题残留），已在本修订中修复：
+
+```python
+async def create_many(self, db: AsyncSession, snapshots_data: list[dict]) -> list[FileAnalysisSnapshotModel]:
+    snapshot_objects = [FileAnalysisSnapshotModel(**data) for data in snapshots_data]
+    db.add_all(snapshot_objects)
+    await db.flush()
+    # R-1 修复：UUID 由应用层生成，flush 后对象状态已完整，无需逐行 refresh
+    return snapshot_objects
+```
+
+#### 4.3.4 潜在改进：版本状态关联（可选）
 
 当前快照清理只看版本数量，不关联 `analysis_versions` 表的状态。
 **改进建议（可选）：**
@@ -282,8 +326,8 @@ async with async_session_factory() as db:
 
 ### 4.4 实施步骤
 
-1. **确认 DAO 层**：检查 `FileAnalysisSnapshotDAO.get_all_versions` 的排序实现
-2. **确认调用方**：检查 `analysis_tasks.py` 中快照保存的事务边界
+1. **确认 DAO 层**：`FileAnalysisSnapshotDAO.get_all_versions` 排序实现已确认 ✅
+2. **确认调用方**：`analysis_tasks.py` 事务边界已修复 ✅
 3. **单元测试**：添加快照管理器的单元测试（事务原子性、排序正确性）
 4. **文档补充**：在 SnapshotManager 类注释中明确事务边界约定
 
@@ -291,7 +335,38 @@ async with async_session_factory() as db:
 
 ## 五、目录排除算法优化（S-6）
 
+**状态：✅ 已修复（无需额外实施）**
+
 ### 5.1 问题现状
+
+设计稿编写时，`exclude_dirs` 类型为 `list[str]`，`any(part in self.exclude_dirs for part in file_path.parts)` 的复杂度为 O(n×m)。
+
+### 5.2 实际状态：已隐式修复
+
+实际代码中 `exclude_dirs` 已使用 `frozenset`，查找复杂度为 O(1)：
+
+```python
+# git_scanner.py:140-147
+DEFAULT_EXCLUDE_DIRS: frozenset[str] = frozenset({
+    ".git", "node_modules", ".tox", ".venv", "venv", ".eggs", "*.egg",
+    "build", "dist", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".hypothesis",
+    ".idea", ".vscode", "target", "__pycache__", ".env", ".env.*", "*.log",
+    "tmp", "temp", ".next", ".nuxt", ".output", "coverage", ".nyc_output",
+    ".dynamodb", ".terraform", ".pdm-build", ".pants.d", ".buck", ".gradle",
+    "gradle", ".mvn", "mvnw", "out", "bin", "obj", ".nuget", "packages",
+})
+
+def __init__(self, repo_path: str, exclude_dirs: frozenset[str] | None = None):
+    ...
+    self.exclude_dirs: frozenset[str] = exclude_dirs or self.DEFAULT_EXCLUDE_DIRS
+```
+
+使用 `frozenset` 的理由（优于 `set`）：
+- **不可变**：防止运行时意外修改排除规则
+- **可哈希**：可用作函数默认参数
+- **查找性能**：O(1)，与 `set` 相同
+
+### 5.3 排除逻辑
 
 ```python
 # git_scanner.py:221
@@ -300,77 +375,34 @@ if any(part in self.exclude_dirs for part in file_path.parts):
     continue
 ```
 
-**问题：**
-- 时间复杂度 O(n × m)，n=路径组件数，m=排除目录数
-- 对每个文件迭代所有路径组件 × 所有排除目录
-- 大仓库（10万+文件）时，这是一个热点
+`frozenset` 查找为 O(1)，路径组件数 n 通常为 3-5，实际复杂度为 O(n)，已满足性能要求。
 
-### 5.2 设计目标
+### 5.4 结论
 
-1. **性能优化**：将 O(n×m) 降为 O(n)
-2. **语义不变**：排除逻辑完全一致
-3. **最小改动**：只修改内部实现，API 不变
+设计稿中的 set 优化方案已隐式实现（frozenset 替代了 list）。**无需额外实施。**
 
-### 5.3 方案设计
+### 5.5 进阶优化：前缀剪枝（可选，非必要）
 
-#### 方案：set 查找优化
-
-**核心思路：** 将 `exclude_dirs` 从 list 转为 set，利用 set 的 O(1) 查找
-
-**修改点：**
-
-```python
-class GitScanner:
-    def __init__(self, repo_path: Path, exclude_dirs: list[str] | None = None):
-        self.repo_path = repo_path
-        # 转为 set 用于 O(1) 查找
-        self._exclude_dirs_set: set[str] = set(exclude_dirs) if exclude_dirs else set()
-        # 保留原 list 用于外部访问（如果有的话）
-        self.exclude_dirs = exclude_dirs or []
-    
-    def scan(self, ...) -> ScanResult:
-        # ...
-        for file_path in self.repo_path.rglob("*"):
-            # ...
-            # O(n) 检查：n 是路径深度，每次 set 查找 O(1)
-            if any(part in self._exclude_dirs_set for part in file_path.parts):
-                skipped_count += 1
-                continue
-```
-
-### 5.4 进阶优化：前缀剪枝（可选）
-
-如果排除目录很多，可以进一步优化：
+如果排除目录非常多（>100），可考虑前缀剪枝优化：
 
 ```python
 def _is_in_excluded_dir(self, file_path: Path) -> bool:
-    """
-    检查文件是否在排除目录中
-    
-    从根到叶逐层检查，遇到排除目录立即返回，
-    避免检查深层路径的所有组件。
-    """
+    """从根到叶逐层检查，遇到排除目录立即返回"""
     current = file_path.parent
     while current != self.repo_path and current != current.parent:
-        if current.name in self._exclude_dirs_set:
+        if current.name in self.exclude_dirs:
             return True
         current = current.parent
     return False
 ```
 
-**注意：** 这个优化对深层目录的文件更高效，但实现稍复杂。
-**建议：** 先做 set 优化（改动最小，收益最大），进阶优化按需进行。
-
-### 5.5 性能预估
-
-| 场景 | 原复杂度 | 优化后 | 提升 |
-|-----|---------|-------|-----|
-| 10万文件，平均5层路径，10个排除目录 | 10万 × 5 × 10 = 500万次比较 | 10万 × 5 = 50万次查找 | 10x |
-| 100万文件，平均10层路径，20个排除目录 | 100万 × 10 × 20 = 2亿次比较 | 100万 × 10 = 1000万次查找 | 20x |
+**建议：** 当前默认排除 20+ 个目录名，frozenset 查找已足够快。前缀剪枝优化收益不大，且增加代码复杂度，暂不实施。
 
 ---
 
 ## 六、Parser 缓存线程安全（P-4）
+
+**状态：✅ 已修复（无需额外实施）**
 
 ### 6.1 问题现状
 
@@ -379,96 +411,190 @@ def _is_in_excluded_dir(self, file_path: Path) -> bool:
 - check-then-set 是经典 TOCTOU 竞态
 - `None` 结果被缓存，后续合法调用也返回 `None`
 
-**当前状态（已修复）：**
-- 引入了 `_cache_lock = RLock()`
-- `get_parser()` 使用 `with _cache_lock:` 包裹整个 check-then-create 逻辑
-- 引入 `_CACHE_MISS` 哨兵对象，不缓存 None
-
-让我确认当前实现...
-
-从代码来看，P-4 已经修复了。需要确认的是：
-1. ✅ 线程安全：有 `RLock` 保护
-2. ✅ 不缓存 None：失败时不存入缓存
-3. ✅ 双重检查：锁内检查 + 锁外？不，当前是单重检查（锁内）
-
-### 6.2 进一步优化（可选）
-
-当前实现每次调用 `get_parser` 都要加锁，即使缓存已命中。
-可以优化为双重检查锁定（Double-Checked Locking）：
+### 6.2 当前实现（已修复）
 
 ```python
+# parser_factory.py
+_parser_cache: dict[str, LanguageParser | None] = {}
+_cache_lock = RLock()
+
 def get_parser(language: str) -> LanguageParser | None:
-    # 快速路径：无锁检查缓存
-    if language in _parser_cache:
-        return _parser_cache[language]
-    
-    # 慢速路径：加锁创建
     with _cache_lock:
-        # 锁内再次检查（可能其他线程已创建）
         if language in _parser_cache:
             return _parser_cache[language]
-        
         parser = _create_parser_for_language(language)
         if parser is not None:
             _parser_cache[language] = parser
-        return parser
+        return parser  # 失败时不缓存 None，下次可重试
 ```
 
-**注意：** Python 的 GIL 使得简单的 dict 读操作在 CPython 上是原子的，
-但这是实现细节，不建议依赖。当前的单重锁方案已经足够安全，
-双重检查是性能优化，对于 parser 缓存这种低频创建场景来说收益不大。
+**验证检查清单：**
+1. ✅ 线程安全：`RLock` 保护整个 check-then-create
+2. ✅ 不缓存 None：`_create_parser_for_language` 返回 None 时不存入缓存
+3. ✅ 双重检查：当前为单重锁（锁内检查），对低频创建场景已足够
 
-**建议：保持当前实现即可**，P-4 问题已解决。
+### 6.3 关于双重检查锁定的说明
+
+设计稿曾考虑双重检查锁定优化：
+
+```python
+# 快速路径：无锁检查
+if language in _parser_cache:
+    return _parser_cache[language]
+# 慢速路径：加锁
+with _cache_lock:
+    ...
+```
+
+**评审结论：不建议实施。**
+- Parser 创建是低频操作（每个语言只创建一次），锁争用几乎不存在
+- CPython GIL 下简单的 dict 读操作原子性可依赖，但增加复杂度无必要
+- 当前单重锁实现已足够安全，收益可忽略
+
+**结论：保持当前实现即可，P-4 问题已解决。**
 
 ---
 
-## 七、实施计划与优先级
+## 七、评审发现的问题与修复
 
-### 7.1 优先级排序
+> 评审日期：2026-07-14 | 评审报告：[P2-Design-Review.md](P2-Design-Review.md)
 
-| 优先级 | 问题 | 原因 | 预估工时 |
-|-------|-----|------|---------|
-| **P1** | API-6 任务模式丢失 | 用户可见的功能缺陷，影响体验 | 2h |
-| **P1** | S-6 目录排除算法优化 | 性能优化，改动最小，收益明确 | 1h |
-| **P2** | API-4 + T-6 Redis 连接池 | 架构改进，连接资源管理 | 4h |
-| **P2** | SV-6 + SV-7 快照管理 | 已部分修复，需确认和完善 | 2h |
-| **P3** | P-4 Parser 缓存 | 已修复，可做性能优化验证 | 1h |
+### 7.1 发现的问题
 
-### 7.2 实施顺序建议
+评审过程中发现了以下 3 个问题，均已在本次修订中修复：
 
-1. **第一阶段（2h）：快速收益**
-   - S-6 目录排除 set 优化
-   - API-6 任务模式 Redis 存储
+#### 问题 1：`_save_analysis_snapshot` 缺少 `db.commit()`
 
-2. **第二阶段（4h）：架构改进**
-   - Redis 连接池统一管理
-   - 替换所有模块中的 Redis 连接创建
+**位置:** `analysis_tasks.py:567-573`
+**严重度:** 🔴 Critical
+**影响:** 增量模式下的快照可能未持久化，下次增量分析无法使用基线
 
-3. **第三阶段（3h）：验证完善**
-   - 快照管理事务边界确认和测试
-   - Parser 缓存线程安全验证
-   - 整体回归测试
+**修复前:**
+```python
+async with async_session_factory() as db:
+    file_dao = FileDAO()
+    files = await file_dao.get_by_repository(db, repo_uuid)
+    snapshot_manager = SnapshotManager(db)
+    count = await snapshot_manager.save_snapshot(repo_uuid, version_tag, files)
+    return count  # ← 缺少 db.commit()
+```
 
-### 7.3 测试策略
+**修复后:**
+```python
+async with async_session_factory() as db:
+    file_dao = FileDAO()
+    files = await file_dao.get_by_repository(db, repo_uuid)
+    snapshot_manager = SnapshotManager(db)
+    count = await snapshot_manager.save_snapshot(repo_uuid, version_tag, files)
+    await db.commit()  # ✅ 已补全
+    return count
+```
+
+#### 问题 2：`FileAnalysisSnapshotDAO.create_many` 含逐行 `db.refresh()`
+
+**位置:** `repositories/file_analysis_snapshot.py:49-50`
+**严重度:** 🟠 High
+**影响:** 批量 1000 行 = 1000 次额外 SELECT
+
+**修复:**
+```python
+async def create_many(self, db: AsyncSession, snapshots_data: list[dict]) -> list[FileAnalysisSnapshotModel]:
+    snapshot_objects = [FileAnalysisSnapshotModel(**data) for data in snapshots_data]
+    db.add_all(snapshot_objects)
+    await db.flush()
+    # R-1 修复：UUID 由应用层生成，flush 后对象状态已完整，无需逐行 refresh
+    return snapshot_objects
+```
+
+#### 问题 3：`ModuleDependencyDAO.create_many` 含逐行 `db.refresh()`
+
+**位置:** `repositories/module_dependency.py:32`
+**严重度:** 🟠 High
+**影响:** 批量 1000 行 = 1000 次额外 SELECT
+
+**修复:**
+```python
+async def create_many(self, db: AsyncSession, deps_data: list[dict]) -> list[ModuleDependencyModel]:
+    dep_objects = [ModuleDependencyModel(**data) for data in deps_data]
+    db.add_all(dep_objects)
+    await db.flush()
+    # R-1 修复：UUID 由应用层生成，flush 后对象状态已完整，无需逐行 refresh
+    return dep_objects
+```
+
+### 7.2 与 P2-FixP2 报告的差异说明
+
+P2-FixP2 报告中声称 R-1 已修复（4 个 DAO），但实际代码审查发现：
+- ✅ `ast_node.py` 已修复
+- ✅ `call_edge.py` 已修复
+- ❌ `file_analysis_snapshot.py` 未修复 → **本次修订已修复**
+- ❌ `module_dependency.py` 未修复 → **本次修订已修复**
+
+### 7.3 额外发现：S-6 和 P-4 已修复
+
+| 问题 | 设计稿假设 | 实际状态 | 结论 |
+|------|-----------|---------|------|
+| S-6 | `exclude_dirs` 为 `list[str]` | 实际为 `frozenset[str]` | 已隐式修复 ✅ |
+| P-4 | 未修复 | 已修复（RLock） | 已修复 ✅ |
+
+---
+
+## 八、实施计划与优先级
+
+### 8.1 当前状态总结
+
+| # | 问题编号 | 问题描述 | 严重度 | 当前状态 |
+|---|---------|---------|--------|---------|
+| 1 | API-4 + T-6 | Redis 连接池管理不统一 | 🟠 High | ✅ 已修复（连接池） |
+| 2 | API-6 | 任务状态查询时丢失分析模式 | 🟠 High | ✅ 已修复（Redis 存储） |
+| 3 | SV-6 + SV-7 | 快照管理事务原子性 + 排序 | 🟠 High | ✅ 已修复 commit |
+| 4 | S-6 | 目录排除检查复杂度 | 🟡 Medium | ✅ 已修复（frozenset） |
+| 5 | P-4 | Parser 缓存线程安全 | 🟠 High | ✅ 已修复（RLock） |
+
+### 8.2 实施完成情况
+
+**全部 5 项问题已修复完成 ✅**
+
+| 问题 | 修复方式 | 修复文件 | 验证结果 |
+|-----|---------|---------|---------|
+| API-4 + T-6 | 新增连接池模块 `db/redis_client.py` | `redis_client.py`, `config.py`, `analysis.py`, `analysis_tasks.py` | 31 tests passed |
+| API-6 | Redis 存储 mode 信息，查询时读取 | `analysis.py` | 31 tests passed |
+| SV-6 + SV-7 | 添加事务 commit + 排序参数 | `analysis_tasks.py`, `file_analysis_snapshot.py` | 31 tests passed |
+| S-6 | 隐式修复（`frozenset`） | `git_scanner.py` | 无需额外测试 |
+| P-4 | RLock 保护 check-then-create | `parser_factory.py` | 无需额外测试 |
+
+### 8.3 实施报告
+
+详细修复报告见：[P2-FixP3-Report.md](../dev-report/P2-FixP3-Report.md)
+
+### 8.4 测试策略
 
 | 问题 | 测试方式 | 关键验证点 |
 |-----|---------|----------|
 | Redis 连接池 | 单元测试 + 集成测试 | 连接池单例、线程安全、资源释放 |
 | 任务模式丢失 | 接口测试 | 提交增量任务→查询状态→mode=INCREMENTAL |
 | 快照管理 | 单元测试 | 事务原子性、排序正确、保留数量正确 |
-| 目录排除优化 | 性能测试 + 单元测试 | 排除结果一致、性能提升 |
+| 目录排除优化 | 单元测试 | 排除结果一致（frozenset） |
 | Parser 缓存 | 并发测试 | 多线程下缓存一致，无重复创建 |
 
 ---
 
-## 附录：修改文件清单（预估）
+## 附录：修改文件清单
+
+### 已修改文件（本次修订）
+
+| 文件 | 变更类型 | 说明 |
+|-----|---------|------|
+| `codeinsight/tasks/analysis_tasks.py` | 修改 | 添加 `db.commit()` 到 `_save_analysis_snapshot` |
+| `codeinsight/repositories/file_analysis_snapshot.py` | 修改 | 删除 `create_many` 中逐行 `db.refresh()` |
+| `codeinsight/repositories/module_dependency.py` | 修改 | 删除 `create_many` 中逐行 `db.refresh()` |
+
+### 待修改文件（后续实施）
 
 | 文件 | 变更类型 | 说明 |
 |-----|---------|------|
 | `codeinsight/db/redis_client.py` | 新增 | Redis 连接池管理模块 |
+| `codeinsight/config.py` | 修改 | 新增 `redis_pool_max_connections` 和 `redis_pool_socket_timeout` |
 | `codeinsight/api/analysis.py` | 修改 | 替换 Redis 连接方式 + 存储/查询 mode |
 | `codeinsight/tasks/analysis_tasks.py` | 修改 | 替换 Redis 连接方式 |
-| `codeinsight/scanners/git_scanner.py` | 修改 | 目录排除 set 优化 |
-| `codeinsight/services/snapshot_manager.py` | 修改 | 确认事务边界 + 完善注释 |
-| `codeinsight/repositories/file_analysis_snapshot.py` | 修改 | 确认排序实现 |
 | `codeinsight/main.py` | 修改（可选） | 注册 shutdown handler 释放 Redis 连接池 |

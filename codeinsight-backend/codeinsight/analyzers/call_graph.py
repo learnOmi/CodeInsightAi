@@ -279,10 +279,11 @@ class CallGraphQuery:
         Returns:
             调用边列表（含 caller 和 callee 节点信息）
         """
-        use_context = db is None
-        if use_context:
+        if db is None:
             db = await async_session_factory().__aenter__()
-        assert db is not None  # type: ignore[assertion]
+            use_context = True
+        else:
+            use_context = False
 
         try:
             edges = await self.call_edge_dao.get_callees(db, caller_node_id)
@@ -319,7 +320,6 @@ class CallGraphQuery:
             return callees_result
         finally:
             if use_context:
-                assert db is not None  # type: ignore[assertion]
                 await db.__aexit__(None, None, None)
 
     async def get_callers(
@@ -337,10 +337,11 @@ class CallGraphQuery:
         Returns:
             调用边列表（含 caller 节点信息）
         """
-        use_context = db is None
-        if use_context:
+        if db is None:
             db = await async_session_factory().__aenter__()
-        assert db is not None  # type: ignore[assertion]
+            use_context = True
+        else:
+            use_context = False
 
         try:
             edges = await self.call_edge_dao.get_callers(db, callee_node_id)
@@ -378,7 +379,6 @@ class CallGraphQuery:
             return callers_result
         finally:
             if use_context:
-                assert db is not None  # type: ignore[assertion]
                 await db.__aexit__(None, None, None)
 
     async def get_call_chain(
@@ -400,16 +400,16 @@ class CallGraphQuery:
         Returns:
             调用链节点列表（按深度排序）
         """
-        use_context = db is None
-        if use_context:
+        if db is None:
             db = await async_session_factory().__aenter__()
-        assert db is not None  # type: ignore[assertion]
+            use_context = True
+        else:
+            use_context = False
 
         try:
             return await self._dfs_chain(db, caller_node_id, max_depth, 0, [], set())
         finally:
             if use_context:
-                assert db is not None  # type: ignore[assertion]
                 await db.__aexit__(None, None, None)
 
     async def _dfs_chain(

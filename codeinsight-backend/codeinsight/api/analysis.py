@@ -8,15 +8,14 @@
 
 import logging
 from datetime import UTC, datetime
-from typing import Any, cast
 from uuid import UUID
 
 import redis
-from celery.result import AsyncResult  # type: ignore[import-untyped]
+from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeinsight.config import settings
+from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import get_db_session
 from codeinsight.repositories import RepositoryDAO
 from codeinsight.schemas import (
@@ -34,26 +33,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _MAPPING_TTL = 86400 * 7  # 映射保留 7 天
-
-
-_redis_client: redis.Redis | None = None
-
-
-def _get_redis_client() -> redis.Redis:
-    """
-    惰性创建并缓存 Redis 客户端（避免每次请求新建连接）
-
-    Returns:
-        Redis 客户端实例
-    """
-    global _redis_client
-    if _redis_client is None:
-        _redis_client = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            decode_responses=True,
-        )
-    return cast(redis.Redis, _redis_client)
 
 
 def _utcnow() -> datetime:
@@ -74,13 +53,35 @@ def _lookup_repository(task_id: str) -> UUID:
         repository UUID，未找到则返回占位值
     """
     try:
-        client = _get_redis_client()
-        raw: Any = client.get(f"task:{task_id}:repo")
-        if raw:
-            return UUID(raw)
+        client = get_redis_client()
+        raw = client.get(f"task:{task_id}:repo")
+        if raw is not None:
+            return UUID(str(raw))
     except redis.RedisError:
         logger.warning("Redis 查询失败，使用占位 repository_id: task_id=%s", task_id)
     return UUID("00000000-0000-0000-0000-000000000000")
+
+
+def _lookup_task_mode(task_id: str) -> AnalysisMode:
+    """
+    根据 task_id 查找分析模式
+
+    从 Redis 中读取 task_id → mode 映射。
+
+    Args:
+        task_id: Celery 任务 ID
+
+    Returns:
+        AnalysisMode，读取失败时降级为 FULL
+    """
+    try:
+        client = get_redis_client()
+        raw = client.get(f"task:{task_id}:mode")
+        if raw is not None:
+            return AnalysisMode(str(raw))
+    except redis.RedisError:
+        logger.warning("Redis 查询任务模式失败，使用默认 FULL: task_id=%s", task_id)
+    return AnalysisMode.FULL
 
 
 def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = AnalysisMode.FULL) -> AnalysisTask:
@@ -95,7 +96,7 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
     Returns:
         AnalysisTask 实例
     """
-    result = AsyncResult(task_id, app=celery_app)
+    result: AsyncResult = AsyncResult(task_id, app=celery_app)
 
     # 确定状态映射
     if result.state == "PENDING":
@@ -181,7 +182,7 @@ async def submit_analysis(
 
     # 检查是否已有正在运行的任务（防止重复提交）
     try:
-        client = _get_redis_client()
+        client = get_redis_client()
         existing_task_id = client.get(f"repo:{repository_id}:active_task")
         if existing_task_id:
             logger.warning("仓库已有活跃任务，拒绝重复提交: repo=%s, existing_task=%s", repository_id, existing_task_id)
@@ -199,12 +200,17 @@ async def submit_analysis(
         agents=agents,
     )
 
-    # 存储 task_id → repository_id 映射到 Redis
+    # 存储 task_id → repository_id 和 mode 映射到 Redis
     try:
-        client = _get_redis_client()
+        client = get_redis_client()
         client.set(
             f"task:{celery_result.id}:repo",
             str(repository_id),
+            ex=_MAPPING_TTL,
+        )
+        client.set(
+            f"task:{celery_result.id}:mode",
+            mode.value,
             ex=_MAPPING_TTL,
         )
         # 记录仓库的活跃任务 ID（用于去重）
@@ -249,7 +255,7 @@ async def get_task_status(task_id: str):
     Raises:
         HTTPException 404: 任务不存在或无法检索
     """
-    result = AsyncResult(task_id, app=celery_app)
+    result: AsyncResult = AsyncResult(task_id, app=celery_app)
 
     # 检查任务是否存在（通过尝试获取状态）
     try:
@@ -257,10 +263,11 @@ async def get_task_status(task_id: str):
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found") from exc
 
-    # 查找关联的 repository_id
+    # 查找关联的 repository_id 和分析模式
     repo_id = _lookup_repository(task_id)
+    mode = _lookup_task_mode(task_id)
 
-    return _celery_result_to_task(task_id, repo_id)
+    return _celery_result_to_task(task_id, repo_id, mode)
 
 
 @router.post("/tasks/{task_id}/cancel")
@@ -279,7 +286,7 @@ async def cancel_task(task_id: str):
     Raises:
         HTTPException 404: 任务不存在
     """
-    result = AsyncResult(task_id, app=celery_app)
+    result: AsyncResult = AsyncResult(task_id, app=celery_app)
 
     # 检查任务是否存在
     try:
@@ -298,7 +305,7 @@ async def cancel_task(task_id: str):
         logger.info("任务已取消: task_id=%s", task_id)
         # 清理 Redis 中的活跃任务标记和取消标志
         try:
-            client = _get_redis_client()
+            client = get_redis_client()
             repo_id_raw = client.get(f"task:{task_id}:repo")
             if repo_id_raw:
                 client.delete(f"repo:{repo_id_raw}:active_task")

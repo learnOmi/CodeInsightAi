@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 
 from .base import ASTNode, ASTNodeList, LanguageParser
 
 logger = logging.getLogger(__name__)
+
+TREE_SITTER_AVAILABLE = False
 
 try:
     from tree_sitter import Language, Parser
@@ -27,6 +30,14 @@ except ImportError as exc:
     Language = None  # type: ignore[assignment,misc]
     Parser = None  # type: ignore[assignment,misc]
     javascript_language = None  # type: ignore[assignment,misc]
+
+
+def _node_text_to_str(node) -> str:
+    """安全地将 tree-sitter 节点的 text 属性转换为字符串"""
+    text = getattr(node, "text", None)
+    if text is None:
+        return ""
+    return cast(str, text.decode("utf-8"))
 
 
 class JavaScriptParser(LanguageParser):
@@ -187,12 +198,12 @@ class JavaScriptParser(LanguageParser):
                 if child.type == "from_clause":
                     for sub in child.children:
                         if sub.type == "string" or sub.type == "string_literal":
-                            return str(sub.text.decode("utf-8")).strip('"').strip("'")  # type: ignore[union-attr]
+                            return _node_text_to_str(sub).strip('"').strip("'")
 
             # 直接导入: import "module"
             for child in node.children:
                 if child.type == "string" or child.type == "string_literal":
-                    return str(child.text.decode("utf-8")).strip('"').strip("'")  # type: ignore[union-attr]
+                    return _node_text_to_str(child).strip('"').strip("'")
 
             return "unknown"
         except Exception:
@@ -295,8 +306,8 @@ class JavaScriptParser(LanguageParser):
                 if func_node.type == "member_expression":
                     prop_node = func_node.child_by_field_name("property")
                     if prop_node:
-                        return f"*. {str(prop_node.text.decode('utf-8'))}"  # type: ignore[union-attr]
-                return str(func_node.text.decode("utf-8"))  # type: ignore[union-attr]
+                        return f"*. {_node_text_to_str(prop_node)}"
+                return _node_text_to_str(func_node)
             return "unknown"
         except Exception:
             return "unknown"

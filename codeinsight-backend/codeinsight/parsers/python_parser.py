@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 
 from .base import ASTNode, ASTNodeList, LanguageParser
 
 logger = logging.getLogger(__name__)
+
+TREE_SITTER_AVAILABLE = False
 
 try:
     from tree_sitter import Language, Parser
@@ -24,6 +27,14 @@ except ImportError as exc:
     Language = None  # type: ignore[assignment,misc]
     Parser = None  # type: ignore[assignment,misc]
     python_language = None  # type: ignore[assignment,misc]
+
+
+def _node_text_to_str(node) -> str:
+    """安全地将 tree-sitter 节点的 text 属性转换为字符串"""
+    text = getattr(node, "text", None)
+    if text is None:
+        return ""
+    return cast(str, text.decode("utf-8"))
 
 
 class PythonParser(LanguageParser):
@@ -258,13 +269,13 @@ class PythonParser(LanguageParser):
             if node.type == "import_statement":
                 name_node = node.child_by_field_name("module")
                 if name_node:
-                    return str(name_node.text.decode("utf-8"))  # type: ignore[union-attr]
+                    return _node_text_to_str(name_node)
 
             # import_from_statement: from module import name
             elif node.type == "import_from_statement":
                 module_node = node.child_by_field_name("module")
                 if module_node:
-                    return str(module_node.text.decode("utf-8"))  # type: ignore[union-attr]
+                    return _node_text_to_str(module_node)
 
             return "unknown"
         except Exception:
@@ -301,8 +312,8 @@ class PythonParser(LanguageParser):
                 if func_node.type == "attribute":
                     method_node = func_node.child_by_field_name("attribute")
                     if method_node:
-                        return f"*. {str(method_node.text.decode('utf-8'))}"  # type: ignore[union-attr]
-                return str(func_node.text.decode("utf-8"))  # type: ignore[union-attr]
+                        return f"*. {_node_text_to_str(method_node)}"
+                return _node_text_to_str(func_node)
             return "unknown"
         except Exception:
             return "unknown"
@@ -319,11 +330,11 @@ class PythonParser(LanguageParser):
                 if child.type == "attribute":
                     # typing.Protocol 形式：检查 attribute 字段
                     attr_node = child.child_by_field_name("attribute")
-                    if attr_node and str(attr_node.text.decode("utf-8")).strip() == "Protocol":  # type: ignore[union-attr]
+                    if attr_node and _node_text_to_str(attr_node).strip() == "Protocol":
                         return True
                 elif child.type == "identifier":
                     # 简单形式：直接写 Protocol
-                    name = str(child.text.decode("utf-8")).strip()  # type: ignore[union-attr]
+                    name = _node_text_to_str(child).strip()
                     if name == "Protocol":
                         return True
             return False
@@ -339,10 +350,10 @@ class PythonParser(LanguageParser):
             for child in superclasses_node.children:
                 if child.type == "attribute":
                     attr_node = child.child_by_field_name("attribute")
-                    if attr_node and str(attr_node.text.decode("utf-8")).strip() == "Enum":  # type: ignore[union-attr]
+                    if attr_node and _node_text_to_str(attr_node).strip() == "Enum":
                         return True
                 elif child.type == "identifier":
-                    name = str(child.text.decode("utf-8")).strip()  # type: ignore[union-attr]
+                    name = _node_text_to_str(child).strip()
                     if name == "Enum":
                         return True
             return False

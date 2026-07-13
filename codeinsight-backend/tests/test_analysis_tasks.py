@@ -330,26 +330,26 @@ async def test_redis_mapping_on_submit():
     with (
         patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
         patch("codeinsight.api.analysis.run_analysis") as mock_run,
-        patch("codeinsight.api.analysis._get_redis_client") as mock_get_redis,
+        patch("codeinsight.api.analysis.get_redis_client") as mock_get_redis,
     ):
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
         mock_run.delay.return_value = mock_celery_result
 
-        # active_task 检查返回 None（无活跃任务）
         mock_redis = mock_get_redis.return_value
         mock_redis.get.return_value = None
 
         await submit_analysis(repo_uuid, None, mock_db)
 
         mock_get_redis.assert_called()
-        # 两次 set 调用：task:xxx:repo + repo:xxx:active_task
-        assert mock_redis.set.call_count == 2
-        # 第一个 set 是 task_id → repo 映射
+        assert mock_redis.set.call_count == 3
         first_call = mock_redis.set.call_args_list[0]
         assert first_call[0][0] == "task:mapped-task-id:repo"
         assert first_call[0][1] == repo_uuid
+        second_call = mock_redis.set.call_args_list[1]
+        assert second_call[0][0] == "task:mapped-task-id:mode"
+        assert second_call[0][1] == "full"
 
 
 @pytest.mark.asyncio
@@ -366,20 +366,18 @@ async def test_submit_analysis_rejects_duplicate_active_task():
     with (
         patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
         patch("codeinsight.api.analysis.run_analysis") as mock_run,
-        patch("codeinsight.api.analysis._get_redis_client") as mock_get_redis,
+        patch("codeinsight.api.analysis.get_redis_client") as mock_get_redis,
     ):
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
 
-        # 已有活跃任务
         mock_redis = mock_get_redis.return_value
         mock_redis.get.return_value = "existing-task-id"
 
         with pytest.raises(HTTPException) as exc_info:
             await submit_analysis(repo_uuid, None, mock_db)
         assert exc_info.value.status_code == 409
-        # 不应提交新任务
         mock_run.delay.assert_not_called()
 
 
@@ -402,14 +400,12 @@ async def test_cancel_task_clears_active_task_marker():
     with (
         patch("codeinsight.api.analysis.AsyncResult", return_value=mock_result),
         patch("codeinsight.api.analysis.celery_app", mock_app),
-        patch("codeinsight.api.analysis._get_redis_client", return_value=mock_redis),
+        patch("codeinsight.api.analysis.get_redis_client", return_value=mock_redis),
     ):
         result = await cancel_task(task_id)
 
         assert "cancellation requested" in result["message"]
-        # 清理活跃任务标记
         mock_redis.delete.assert_called_once_with("repo:some-repo-id:active_task")
-        # 设置取消标志
         cancel_calls = [c for c in mock_redis.set.call_args_list if "cancel" in c[0][0]]
         assert len(cancel_calls) == 1
 
@@ -423,7 +419,7 @@ async def test_lookup_repository_from_redis():
     test_uuid = str(uuid4())
     mock_redis.get.return_value = test_uuid
 
-    with patch("codeinsight.api.analysis._get_redis_client", return_value=mock_redis):
+    with patch("codeinsight.api.analysis.get_redis_client", return_value=mock_redis):
         result = _lookup_repository("some-task-id")
         assert str(result) == test_uuid
 
@@ -438,7 +434,7 @@ async def test_lookup_repository_redis_error():
     mock_redis = MagicMock()
     mock_redis.get.side_effect = redis_lib.RedisError("connection refused")
 
-    with patch("codeinsight.api.analysis._get_redis_client", return_value=mock_redis):
+    with patch("codeinsight.api.analysis.get_redis_client", return_value=mock_redis):
         result = _lookup_repository("some-task-id")
         assert result == UUID("00000000-0000-0000-0000-000000000000")
 
@@ -453,7 +449,7 @@ def test_check_cancelled_no_flag():
     mock_self = MagicMock()
     mock_self.request.id = "task-123"
 
-    with patch("codeinsight.tasks.analysis_tasks.redis.Redis") as mock_redis_cls:
+    with patch("codeinsight.tasks.analysis_tasks.get_redis_client") as mock_redis_cls:
         mock_redis = mock_redis_cls.return_value
         mock_redis.get.return_value = None
 
@@ -469,7 +465,7 @@ def test_check_cancelled_with_flag_raises():
     mock_self = MagicMock()
     mock_self.request.id = "task-456"
 
-    with patch("codeinsight.tasks.analysis_tasks.redis.Redis") as mock_redis_cls:
+    with patch("codeinsight.tasks.analysis_tasks.get_redis_client") as mock_redis_cls:
         mock_redis = mock_redis_cls.return_value
         mock_redis.get.return_value = "1"
 
@@ -488,7 +484,7 @@ def test_check_cancelled_redis_error_silenced():
 
     mock_self = MagicMock()
 
-    with patch("codeinsight.tasks.analysis_tasks.redis.Redis") as mock_redis_cls:
+    with patch("codeinsight.tasks.analysis_tasks.get_redis_client") as mock_redis_cls:
         mock_redis = mock_redis_cls.return_value
         mock_redis.get.side_effect = redis_lib.RedisError("connection refused")
 

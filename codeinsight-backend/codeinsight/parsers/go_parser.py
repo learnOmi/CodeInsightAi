@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 
 from .base import ASTNode, ASTNodeList, LanguageParser
 
 logger = logging.getLogger(__name__)
+
+TREE_SITTER_AVAILABLE = False
 
 try:
     from tree_sitter import Language, Parser
@@ -30,6 +33,14 @@ except ImportError as exc:
     Language = None  # type: ignore[assignment,misc]
     Parser = None  # type: ignore[assignment,misc]
     go_language = None  # type: ignore[assignment,misc]
+
+
+def _node_text_to_str(node) -> str:
+    """安全地将 tree-sitter 节点的 text 属性转换为字符串"""
+    text = getattr(node, "text", None)
+    if text is None:
+        return ""
+    return cast(str, text.decode("utf-8"))
 
 
 class GoParser(LanguageParser):
@@ -249,8 +260,8 @@ class GoParser(LanguageParser):
                     # selector_expression 包含两个字段：scope 和 name
                     name_node = func_node.child_by_field_name("name")
                     if name_node:
-                        return f"*. {str(name_node.text.decode('utf-8'))}"  # type: ignore[union-attr]
-                return str(func_node.text.decode("utf-8"))  # type: ignore[union-attr]
+                        return f"*. {_node_text_to_str(name_node)}"
+                return _node_text_to_str(func_node)
             return "unknown"
         except Exception:
             return "unknown"
@@ -283,7 +294,7 @@ class GoParser(LanguageParser):
             name_node = node.child_by_field_name("name")
             if name_node:
                 # 可能是包名（带别名）或字符串字面量
-                text = str(name_node.text.decode("utf-8"))  # type: ignore[union-attr]
+                text = _node_text_to_str(name_node)
                 # 如果是字符串，去除引号
                 return text.strip('"')
             return "unknown"

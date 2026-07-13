@@ -4,6 +4,7 @@ AstNode 数据访问对象
 提供 AST 节点实体的 CRUD 操作。
 """
 
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -156,7 +157,8 @@ class AstNodeDAO:
         """
         result = await db.execute(delete(AstNodeModel).where(AstNodeModel.repository_id == repository_id))
         await db.flush()
-        return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount) or 0
 
     async def delete_by_file(self, db: AsyncSession, file_id: UUID) -> int:
         """
@@ -171,7 +173,8 @@ class AstNodeDAO:
         """
         result = await db.execute(delete(AstNodeModel).where(AstNodeModel.file_id == file_id))
         await db.flush()
-        return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount) or 0
 
     async def delete_by_file_ids(self, db: AsyncSession, repository_id: UUID, file_ids: list[UUID]) -> int:
         """
@@ -195,7 +198,8 @@ class AstNodeDAO:
             )
         )
         await db.flush()
-        return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount) or 0
 
     async def count_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:
         """

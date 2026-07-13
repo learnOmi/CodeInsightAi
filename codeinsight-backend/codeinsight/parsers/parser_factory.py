@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from threading import RLock
+from typing import cast
 
 from .base import ASTNodeList, LanguageParser
 
@@ -52,7 +53,8 @@ def _create_parser_for_language(language: str) -> LanguageParser | None:
             logger.warning("不支持的语言: %s", language)
             return None
 
-        return parser_class()  # type: ignore[abstract]
+        concrete_class = cast(type[LanguageParser], parser_class)
+        return concrete_class()
 
     except ImportError as exc:
         logger.error("无法导入解析器: %s", exc)

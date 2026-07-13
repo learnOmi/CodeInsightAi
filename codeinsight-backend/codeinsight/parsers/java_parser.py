@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import cast
 
 from .base import ASTNode, ASTNodeList, LanguageParser
 
 logger = logging.getLogger(__name__)
+
+TREE_SITTER_AVAILABLE = False
 
 try:
     from tree_sitter import Language, Parser
@@ -29,6 +32,14 @@ except ImportError as exc:
     Language = None  # type: ignore[assignment,misc]
     Parser = None  # type: ignore[assignment,misc]
     java_language = None  # type: ignore[assignment,misc]
+
+
+def _node_text_to_str(node) -> str:
+    """安全地将 tree-sitter 节点的 text 属性转换为字符串"""
+    text = getattr(node, "text", None)
+    if text is None:
+        return ""
+    return cast(str, text.decode("utf-8"))
 
 
 class JavaParser(LanguageParser):
@@ -265,7 +276,7 @@ class JavaParser(LanguageParser):
             # method_invocation: obj.method() 或 method()
             name_node = node.child_by_field_name("name")
             if name_node:
-                return str(name_node.text.decode("utf-8"))  # type: ignore[union-attr]
+                return _node_text_to_str(name_node)
             return "unknown"
         except Exception:
             return "unknown"
@@ -297,7 +308,7 @@ class JavaParser(LanguageParser):
             # import_declaration: import com.example.Class;
             name_node = node.child_by_field_name("name")
             if name_node:
-                return str(name_node.text.decode("utf-8"))  # type: ignore[union-attr]
+                return _node_text_to_str(name_node)
             return "unknown"
         except Exception:
             return "unknown"

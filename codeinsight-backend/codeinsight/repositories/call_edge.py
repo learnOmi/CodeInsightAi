@@ -4,6 +4,7 @@ CallEdge 数据访问对象
 提供调用边实体的 CRUD 操作。
 """
 
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -65,7 +66,8 @@ class CallEdgeDAO:
         """删除指定仓库的所有调用边"""
         result = await db.execute(delete(CallEdgeModel).where(CallEdgeModel.repository_id == repository_id))
         await db.flush()
-        return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount) or 0
 
     async def delete_by_file_ids(self, db: AsyncSession, repository_id: UUID, file_ids: list[UUID]) -> int:
         """
@@ -105,7 +107,8 @@ class CallEdgeDAO:
                 (CallEdgeModel.caller_node_id.in_(node_ids)) | (CallEdgeModel.callee_node_id.in_(node_ids)),
             )
         )
-        deleted = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
+        rowcount = getattr(result, "rowcount", 0)
+        deleted = cast(int, rowcount) or 0
         await db.flush()
         return deleted
 

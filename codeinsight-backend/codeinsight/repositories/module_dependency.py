@@ -4,6 +4,7 @@ ModuleDependency 数据访问对象
 提供模块依赖实体的 CRUD 操作。
 """
 
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -28,8 +29,7 @@ class ModuleDependencyDAO:
         dep_objects = [ModuleDependencyModel(**data) for data in deps_data]
         db.add_all(dep_objects)
         await db.flush()
-        for obj in dep_objects:
-            await db.refresh(obj)
+        # R-1 修复：UUID 由应用层生成，flush 后对象状态已完整，无需逐行 refresh
         return dep_objects
 
     async def get_by_id(self, db: AsyncSession, dep_id: UUID) -> ModuleDependencyModel | None:
@@ -70,7 +70,8 @@ class ModuleDependencyDAO:
             delete(ModuleDependencyModel).where(ModuleDependencyModel.repository_id == repository_id)
         )
         await db.flush()
-        return result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0  # type: ignore[attr-defined]
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount) or 0
 
     async def delete_by_file_ids(self, db: AsyncSession, repository_id: UUID, file_ids: list[UUID]) -> int:
         """

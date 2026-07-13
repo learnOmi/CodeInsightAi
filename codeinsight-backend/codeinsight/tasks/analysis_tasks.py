@@ -28,7 +28,7 @@ from uuid import UUID
 import redis
 
 from codeinsight.analyzers import CallGraphBuilder, ModuleDependencyBuilder
-from codeinsight.config import settings
+from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import async_session_factory
 from codeinsight.models import FileModel
 from codeinsight.parsers import ParserFactory
@@ -49,7 +49,7 @@ from codeinsight.services import (
     SnapshotManager,
 )
 
-from . import celery_app  # type: ignore[import-untyped]
+from . import celery_app
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +76,7 @@ def _check_cancelled(task_instance: Any, task_id: str) -> None:
         CancelledError: 当检测到取消标志时
     """
     try:
-        client = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            decode_responses=True,
-        )
+        client = get_redis_client()
         cancelled = client.get(f"task:{task_id}:cancel")
         if cancelled:
             client.delete(f"task:{task_id}:cancel")
@@ -395,6 +391,8 @@ async def _build_structures(repo_uuid: UUID, task_self: Any, progress_callback=N
         else:
             logger.info("模块依赖图构建完成: dependencies=0")
 
+        await db.commit()
+
 
 # ================================================================
 # 增量分析辅助（P2-06）
@@ -549,6 +547,8 @@ async def _build_structures_incremental(
             dep_result = await pipeline.ingest_module_deps(repo_uuid, deps)
             logger.info("增量模块依赖图构建完成: dependencies=%d", dep_result.inserted_count)
 
+        await db.commit()
+
 
 async def _save_analysis_snapshot(
     repo_uuid: UUID,
@@ -570,6 +570,7 @@ async def _save_analysis_snapshot(
 
         snapshot_manager = SnapshotManager(db)
         count = await snapshot_manager.save_snapshot(repo_uuid, version_tag, files)
+        await db.commit()
         return count
 
 
@@ -737,7 +738,7 @@ def run_analysis(
     """
     repo_uuid = UUID(repository_id)
     version_tag = f"v{datetime.now(UTC).strftime('%Y%m%d')}-{uuid.uuid4().hex[:7]}"
-    task_id = self.request.id if self else None  # type: ignore[attr-defined]
+    task_id = getattr(getattr(self, "request", None), "id", None) if self else None
 
     # ── 断点续跑恢复 ──────────────────────────────────────
     # 检查是否有未终态的分析版本，有则从中断点继续

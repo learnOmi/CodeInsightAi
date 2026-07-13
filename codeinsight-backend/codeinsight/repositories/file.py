@@ -4,6 +4,7 @@ File 数据访问对象
 提供文件实体的 CRUD 操作。
 """
 
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -179,7 +180,8 @@ class FileDAO:
         """
         result = await db.execute(delete(FileModel).where(FileModel.repository_id == repository_id))
         await db.flush()
-        return result.rowcount if hasattr(result, "rowcount") else 0  # type: ignore[attr-defined]
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount)
 
     async def get_by_repository(self, db: AsyncSession, repository_id: UUID) -> list[FileModel]:
         """
