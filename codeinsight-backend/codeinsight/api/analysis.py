@@ -15,6 +15,8 @@ from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from codeinsight.auth import get_api_key_dependency
+from codeinsight.config import settings
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import get_db_session
 from codeinsight.repositories import RepositoryDAO
@@ -30,7 +32,9 @@ from codeinsight.tasks.analysis_tasks import run_analysis
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(get_api_key_dependency(settings.api_key))],
+)
 
 _MAPPING_TTL = 86400 * 7  # 映射保留 7 天
 
@@ -40,26 +44,29 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _lookup_repository(task_id: str) -> UUID:
+def _lookup_repository(task_id: str) -> UUID | None:
     """
     根据 task_id 查找关联的 repository_id
 
     从 Redis 中读取 task_id → repository_id 映射。
 
+    API-5 修复：返回 Optional[UUID]，未找到时返回 None，调用方可以明确判断查找失败。
+
     Args:
         task_id: Celery 任务 ID
 
     Returns:
-        repository UUID，未找到则返回占位值
+        repository UUID，未找到则返回 None
     """
     try:
         client = get_redis_client()
         raw = client.get(f"task:{task_id}:repo")
         if raw is not None:
             return UUID(str(raw))
-    except redis.RedisError:
-        logger.warning("Redis 查询失败，使用占位 repository_id: task_id=%s", task_id)
-    return UUID("00000000-0000-0000-0000-000000000000")
+        logger.debug("Redis 中未找到任务映射: task_id=%s", task_id)
+    except redis.RedisError as exc:
+        logger.warning("Redis 查询失败: task_id=%s, error=%s", task_id, exc)
+    return None
 
 
 def _lookup_task_mode(task_id: str) -> AnalysisMode:
@@ -185,10 +192,11 @@ async def submit_analysis(
         client = get_redis_client()
         existing_task_id = client.get(f"repo:{repository_id}:active_task")
         if existing_task_id:
-            logger.warning("仓库已有活跃任务，拒绝重复提交: repo=%s, existing_task=%s", repository_id, existing_task_id)
+            task_id_str = existing_task_id.decode("utf-8") if isinstance(existing_task_id, bytes) else existing_task_id
+            logger.warning("仓库已有活跃任务，拒绝重复提交: repo=%s, existing_task=%s", repository_id, task_id_str)
             raise HTTPException(
                 status_code=409,
-                detail=f"Repository {repository_id} already has an active task: {existing_task_id}",
+                detail=f"Repository {repository_id} already has an active task: {task_id_str}",
             )
     except redis.RedisError as exc:
         logger.warning("Redis 检查失败，允许继续: %s", exc)
@@ -267,6 +275,10 @@ async def get_task_status(task_id: str):
     repo_id = _lookup_repository(task_id)
     mode = _lookup_task_mode(task_id)
 
+    if repo_id is None:
+        logger.info("任务 %s 未关联仓库信息，使用占位值", task_id)
+        repo_id = UUID("00000000-0000-0000-0000-000000000000")
+
     return _celery_result_to_task(task_id, repo_id, mode)
 
 
@@ -308,7 +320,8 @@ async def cancel_task(task_id: str):
             client = get_redis_client()
             repo_id_raw = client.get(f"task:{task_id}:repo")
             if repo_id_raw:
-                client.delete(f"repo:{repo_id_raw}:active_task")
+                repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else repo_id_raw
+                client.delete(f"repo:{repo_id_str}:active_task")
             client.set(f"task:{task_id}:cancel", "1", ex=60)  # 1 分钟过期
         except redis.RedisError as exc:
             logger.warning("Redis 清理失败: %s", exc)

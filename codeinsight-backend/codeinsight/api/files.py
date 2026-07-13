@@ -9,11 +9,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from codeinsight.auth import get_api_key_dependency
+from codeinsight.config import settings
 from codeinsight.db.session import get_db_session
 from codeinsight.repositories.file import FileDAO
 from codeinsight.schemas import File, FileCreate, FileUpdate
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(get_api_key_dependency(settings.api_key))],
+)
 
 
 def get_file_dao() -> FileDAO:

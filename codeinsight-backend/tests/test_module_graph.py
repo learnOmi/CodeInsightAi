@@ -102,9 +102,14 @@ def test_find_imported_file_exact_match():
         "utils/__init__.py": FakeFile(id="file-2", path="utils/__init__.py"),
     }
     file_index_reverse = {file.id: file.path for file in file_index.values()}
+    prefix_index = {
+        "utils": ["utils/helpers.py", "utils/__init__.py"],
+        "utils/helpers.py": ["utils/helpers.py"],
+        "utils/__init__.py": ["utils/__init__.py"],
+    }
     builder = ModuleDependencyBuilder()
 
-    result = builder._find_imported_file("utils/helpers.py", file_index, file_index_reverse)
+    result = builder._find_imported_file("utils/helpers.py", file_index, prefix_index, file_index_reverse)
     assert result is not None
     assert result.path == "utils/helpers.py"
 
@@ -116,9 +121,16 @@ def test_find_imported_file_prefix_match():
         "com/example/util/Helper.java": FakeFile(id="file-2", path="com/example/util/Helper.java"),
     }
     file_index_reverse = {file.id: file.path for file in file_index.values()}
+    prefix_index = {
+        "com": ["com/example/MyClass.java", "com/example/util/Helper.java"],
+        "com/example": ["com/example/MyClass.java", "com/example/util/Helper.java"],
+        "com/example/MyClass.java": ["com/example/MyClass.java"],
+        "com/example/util": ["com/example/util/Helper.java"],
+        "com/example/util/Helper.java": ["com/example/util/Helper.java"],
+    }
     builder = ModuleDependencyBuilder()
 
-    result = builder._find_imported_file("com/example/MyClass", file_index, file_index_reverse)
+    result = builder._find_imported_file("com/example/MyClass", file_index, prefix_index, file_index_reverse)
     assert result is not None
     assert "MyClass" in result.path
 
@@ -130,9 +142,14 @@ def test_find_imported_file_entry_point_match():
         "utils/helpers.py": FakeFile(id="file-2", path="utils/helpers.py"),
     }
     file_index_reverse = {file.id: file.path for file in file_index.values()}
+    prefix_index = {
+        "utils": ["utils/__init__.py", "utils/helpers.py"],
+        "utils/__init__.py": ["utils/__init__.py"],
+        "utils/helpers.py": ["utils/helpers.py"],
+    }
     builder = ModuleDependencyBuilder()
 
-    result = builder._find_imported_file("utils", file_index, file_index_reverse)
+    result = builder._find_imported_file("utils", file_index, prefix_index, file_index_reverse)
     assert result is not None
     assert result.path == "utils/__init__.py"
 
@@ -143,9 +160,10 @@ def test_find_imported_file_not_found():
         "utils/helpers.py": FakeFile(id="file-1", path="utils/helpers.py"),
     }
     file_index_reverse = {file.id: file.path for file in file_index.values()}
+    prefix_index = {"utils": ["utils/helpers.py"], "utils/helpers.py": ["utils/helpers.py"]}
     builder = ModuleDependencyBuilder()
 
-    result = builder._find_imported_file("nonexistent/module", file_index, file_index_reverse)
+    result = builder._find_imported_file("nonexistent/module", file_index, prefix_index, file_index_reverse)
     assert result is None
 
 
@@ -182,10 +200,16 @@ def test_match_dependencies_absolute_import():
         "src/main.py": FakeFile(id="file-2", path="src/main.py"),
     }
     file_index_reverse = {file.id: file.path for file in file_index.values()}
+    prefix_index = {
+        "utils": ["utils/helpers.py"],
+        "utils/helpers.py": ["utils/helpers.py"],
+        "src": ["src/main.py"],
+        "src/main.py": ["src/main.py"],
+    }
     repo_uuid = uuid4()
     builder = ModuleDependencyBuilder()
 
-    deps = builder._match_dependencies(import_nodes, file_index, file_index_reverse, repo_uuid)
+    deps = builder._match_dependencies(import_nodes, file_index, prefix_index, file_index_reverse, repo_uuid)
     assert len(deps) == 1
     assert deps[0]["import_type"] == "absolute"
 
@@ -199,10 +223,11 @@ def test_match_dependencies_external_import():
         "src/main.py": FakeFile(id="file-2", path="src/main.py"),
     }
     file_index_reverse = {file.id: file.path for file in file_index.values()}
+    prefix_index = {"src": ["src/main.py"], "src/main.py": ["src/main.py"]}
     repo_uuid = uuid4()
     builder = ModuleDependencyBuilder()
 
-    deps = builder._match_dependencies(import_nodes, file_index, file_index_reverse, repo_uuid)
+    deps = builder._match_dependencies(import_nodes, file_index, prefix_index, file_index_reverse, repo_uuid)
     assert len(deps) == 1
     assert deps[0]["import_type"] == "external"
     assert deps[0]["imported_file_id"] is None

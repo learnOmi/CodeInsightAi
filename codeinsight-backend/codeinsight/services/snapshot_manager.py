@@ -187,6 +187,8 @@ class SnapshotManager:
         """
         删除指定仓库的所有快照
 
+        SV-6 修复：不执行 commit，由调用者统一管理事务。
+
         Args:
             repo_uuid: 仓库 UUID
 
@@ -194,6 +196,5 @@ class SnapshotManager:
             删除的记录数
         """
         deleted = await self.snapshot_dao.delete_by_repository(self.db, repo_uuid)
-        await self.db.commit()
         logger.info("删除仓库所有快照: repo=%s, deleted=%d", repo_uuid, deleted)
         return deleted

@@ -10,12 +10,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from codeinsight.auth import get_api_key_dependency
+from codeinsight.config import settings
 from codeinsight.db.session import get_db_session
 from codeinsight.models import RepositoryModel
 from codeinsight.repositories.analysis_version import AnalysisVersionDAO
 from codeinsight.schemas import AnalysisVersion, TaskStatus
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(get_api_key_dependency(settings.api_key))],
+)
 
 
 def get_analysis_version_dao() -> AnalysisVersionDAO:
@@ -72,6 +76,8 @@ async def switch_version(
     切换到指定版本
 
     将仓库的当前版本设置为指定版本，后续查询将使用该版本的数据。
+
+    API-9 修复：只允许切换到已完成的版本，禁止切换到分析中或已失败的版本。
     """
     # 验证仓库存在
     repo_result = await db.execute(select(RepositoryModel).where(RepositoryModel.id == repository_id))
@@ -85,6 +91,14 @@ async def switch_version(
         raise HTTPException(
             status_code=404,
             detail=f"Version {version} not found for repository {repository_id}",
+        )
+
+    # API-9：验证版本已完成
+    if target_version.status != TaskStatus.COMPLETED.value:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Version {version} is not completed (status={target_version.status}). "
+            "Only completed versions can be switched to.",
         )
 
     previous_version = repo.current_version

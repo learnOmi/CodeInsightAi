@@ -66,7 +66,11 @@ class LanguageDetector:
 
     通过文件扩展名映射到编程语言类型。
     对于无法识别的文件，返回 "unknown"。
+
+    单例模式：LanguageDetector 的查找表从不变化，使用单例避免重复初始化。
     """
+
+    _instance: "LanguageDetector | None" = None
 
     # 默认支持的语言（有 Tree-sitter 解析器的语言）
     DEFAULT_SUPPORTED_LANGUAGES = frozenset(
@@ -94,6 +98,13 @@ class LanguageDetector:
         """
         self.supported = supported_languages or self.DEFAULT_SUPPORTED_LANGUAGES
         self.extensions = LANGUAGE_EXTENSIONS
+
+    @classmethod
+    def get_instance(cls) -> "LanguageDetector":
+        """获取单例实例"""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
 
     def detect(self, file_path: Path) -> str:
         """

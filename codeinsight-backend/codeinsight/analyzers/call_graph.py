@@ -74,23 +74,34 @@ class CallGraphBuilder:
         logger.info("调用图构建完成: repo=%s, edges=%d", repo_uuid, len(edges_data))
         return len(edges_data)
 
-    async def build_data(self, repo_uuid: UUID, db: AsyncSession) -> list[dict]:
+    async def build_data(
+        self,
+        repo_uuid: UUID,
+        db: AsyncSession,
+        file_ids: list[UUID] | None = None,
+    ) -> list[dict]:
         """
         构建调用图数据（不写入数据库）
+
+        A-1 修复：支持 file_ids 过滤，避免全量加载所有节点。
 
         Args:
             repo_uuid: 仓库 UUID
             db: 数据库会话
+            file_ids: 可选的文件 ID 列表，限制查询范围（增量分析用）
 
         Returns:
             调用边数据列表
         """
-        call_nodes = await self.ast_dao.get_by_repository_and_types(db, repo_uuid, {"call"})
-        function_nodes = await self.ast_dao.get_by_repository_and_types(db, repo_uuid, _CALLABLE_NODE_TYPES)
+        call_nodes = await self.ast_dao.get_by_repository_and_types(db, repo_uuid, {"call"}, file_ids=file_ids)
+        function_nodes = await self.ast_dao.get_by_repository_and_types(
+            db, repo_uuid, _CALLABLE_NODE_TYPES, file_ids=file_ids
+        )
 
         logger.info(
-            "调用图数据构建: repo=%s, calls=%d, functions=%d",
+            "调用图数据构建: repo=%s, file_ids=%s, calls=%d, functions=%d",
             repo_uuid,
+            len(file_ids) if file_ids else "all",
             len(call_nodes),
             len(function_nodes),
         )
@@ -107,6 +118,8 @@ class CallGraphBuilder:
         """
         为指定文件构建调用图数据（增量分析用）
 
+        A-1 修复：已委托给 build_data，统一使用 file_ids 过滤。
+
         Args:
             repo_uuid: 仓库 UUID
             db: 数据库会话
@@ -122,36 +135,7 @@ class CallGraphBuilder:
             logger.info("调用图增量构建: repo=%s, file_ids=0 (跳过)", repo_uuid)
             return []
 
-        call_nodes = await self._get_nodes_by_files_and_types(db, repo_uuid, file_ids, {"call"})
-        function_nodes = await self._get_nodes_by_files_and_types(db, repo_uuid, file_ids, _CALLABLE_NODE_TYPES)
-
-        logger.info(
-            "调用图增量构建: repo=%s, files=%d, calls=%d, functions=%d",
-            repo_uuid,
-            len(file_ids),
-            len(call_nodes),
-            len(function_nodes),
-        )
-
-        function_index = self._build_function_index(function_nodes)
-        return self._match_call_edges(call_nodes, function_index, repo_uuid)
-
-    async def _get_nodes_by_files_and_types(
-        self,
-        db: AsyncSession,
-        repo_uuid: UUID,
-        file_ids: list[UUID],
-        node_types: set[str],
-    ) -> list[AstNodeModel]:
-        """获取指定文件中的指定类型节点"""
-        result = await db.execute(
-            select(AstNodeModel).where(
-                AstNodeModel.repository_id == repo_uuid,
-                AstNodeModel.file_id.in_(file_ids),
-                AstNodeModel.node_type.in_(node_types),
-            )
-        )
-        return list(result.scalars().all())
+        return await self.build_data(repo_uuid, db=db, file_ids=file_ids)
 
     @staticmethod
     def _build_function_index(function_nodes: list[AstNodeModel]) -> dict[str, list[AstNodeModel]]:
@@ -282,6 +266,9 @@ class CallGraphQuery:
         if db is None:
             db = await async_session_factory().__aenter__()
             use_context = True
+            logger.warning(
+                "get_callees: 未传入 db session，已创建新 session。建议调用方传入共享 session 以优化资源管理"
+            )
         else:
             use_context = False
 
@@ -340,6 +327,9 @@ class CallGraphQuery:
         if db is None:
             db = await async_session_factory().__aenter__()
             use_context = True
+            logger.warning(
+                "get_callers: 未传入 db session，已创建新 session。建议调用方传入共享 session 以优化资源管理"
+            )
         else:
             use_context = False
 

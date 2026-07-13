@@ -60,7 +60,7 @@ class AstNodeValidator:
     )
 
     @classmethod
-    def validate(cls, node: dict) -> ValidationResult:
+    def validate(cls, node: dict, valid_file_ids: set[uuid.UUID] | None = None) -> ValidationResult:
         """
         校验单个 AST 节点
 
@@ -69,16 +69,17 @@ class AstNodeValidator:
         2. node_type 是否在白名单内
         3. 行号/列号是否为非负数
         4. file_id 是否为合法 UUID
+        5. file_id 是否存在于合法文件 ID 集合（M-4 修复：确保节点属于当前仓库）
 
         Args:
             node: 节点数据字典
+            valid_file_ids: 合法的文件 ID 集合（来自 files 表），为 None 时跳过此检查
 
         Returns:
             ValidationResult
         """
         errors: list[str] = []
 
-        # 必填字段检查
         for field in cls.REQUIRED_FIELDS:
             if field not in node:
                 errors.append(f"缺少必填字段: {field}")
@@ -86,30 +87,29 @@ class AstNodeValidator:
         if errors:
             return ValidationResult(valid=False, errors=errors)
 
-        # node_type 合法性
         node_type = node.get("node_type", "")
         if node_type not in cls.VALID_NODE_TYPES:
             errors.append(f"非法节点类型: {node_type}")
 
-        # 行号/列号合法性
         for coord in ("start_line", "end_line", "start_column", "end_column"):
             val = node.get(coord)
             if isinstance(val, int) and val < 0:
                 errors.append(f"{coord} 不能为负数: {val}")
 
-        # start_line <= end_line
         start_line = node.get("start_line", 0)
         end_line = node.get("end_line", 0)
         if isinstance(start_line, int) and isinstance(end_line, int) and start_line > end_line:
             errors.append(f"start_line ({start_line}) 不能大于 end_line ({end_line})")
 
-        # file_id 格式检查
         file_id = node.get("file_id")
         if file_id is not None:
             try:
-                uuid.UUID(str(file_id))
+                file_id = uuid.UUID(str(file_id))
             except (ValueError, AttributeError):
                 errors.append(f"非法 file_id: {file_id}")
+
+            if isinstance(file_id, uuid.UUID) and valid_file_ids is not None and file_id not in valid_file_ids:
+                errors.append(f"file_id 不存在于当前仓库: {file_id}")
 
         return ValidationResult(valid=len(errors) == 0, errors=errors)
 

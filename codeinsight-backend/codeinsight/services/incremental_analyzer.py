@@ -9,6 +9,8 @@
 
 import logging
 from collections import deque
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
@@ -20,6 +22,27 @@ from codeinsight.config import settings
 from codeinsight.db.session import async_session_factory
 from codeinsight.models import FileModel
 from codeinsight.repositories import AstNodeDAO, CallEdgeDAO, FileDAO, ModuleDependencyDAO
+
+
+@asynccontextmanager
+async def get_session(db: AsyncSession | None = None) -> AsyncGenerator[AsyncSession, None]:
+    """
+    获取数据库会话上下文管理器。
+
+    如果传入了 db，则直接使用；否则创建新会话并在退出时关闭。
+
+    Args:
+        db: 可选的数据库会话；为 None 时创建独立会话
+
+    Yields:
+        AsyncSession 对象
+    """
+    if db is not None:
+        yield db
+    else:
+        async with async_session_factory() as session:
+            yield session
+
 
 logger = logging.getLogger(__name__)
 
@@ -111,14 +134,18 @@ class IncrementalAnalyzer:
         repo_uuid: UUID,
         current_files: list[FileModel],
         latest_version: str | None = None,
+        db: AsyncSession | None = None,
     ) -> IncrementalDiff:
         """
         计算增量分析差异
+
+        A-7 修复：支持传入共享 db session，避免方法内直接创建新 session。
 
         Args:
             repo_uuid: 仓库 UUID
             current_files: 当前扫描到的文件列表
             latest_version: 上次分析版本标签（None 表示首次分析）
+            db: 可选的数据库会话；为 None 时创建独立会话（兼容旧调用）
 
         Returns:
             IncrementalDiff 包含变更文件和传播文件
@@ -135,13 +162,13 @@ class IncrementalAnalyzer:
             )
 
         # 1. 加载上次快照
-        previous_snapshot = await self._load_snapshot(repo_uuid, latest_version)
+        previous_snapshot = await self._load_snapshot(repo_uuid, latest_version, db=db)
 
         # 2. 计算直接变更
         changes = self._compute_changes(current_files, previous_snapshot)
 
         # 3. 依赖传播
-        propagated = await self._propagate_dependencies(repo_uuid, changes)
+        propagated = await self._propagate_dependencies(repo_uuid, changes, db=db)
 
         # 4. 计算最终需要分析的文件数
         changed_paths = {c.path for c in changes}
@@ -203,9 +230,12 @@ class IncrementalAnalyzer:
         self,
         repo_uuid: UUID,
         version: str | None,
+        db: AsyncSession | None = None,
     ) -> dict[str, str]:
         """
         加载上次分析的文件快照
+
+        A-7 修复：支持传入共享 db session。
 
         Returns:
             {file_path: content_hash} 映射
@@ -213,16 +243,13 @@ class IncrementalAnalyzer:
         if version is None:
             return {}
 
-        async with async_session_factory() as db:
-            # 获取该版本对应的快照
-            snapshots = await self._get_snapshots_by_version(db, repo_uuid, version)
+        async with get_session(db) as session:
+            snapshots = await self._get_snapshots_by_version(session, repo_uuid, version)
             snapshot_by_file_id = {s.file_id: s for s in snapshots}
 
-            # 获取当前文件列表（用于 path 映射）
-            files = await self.file_dao.get_by_repository(db, repo_uuid)
+            files = await self.file_dao.get_by_repository(session, repo_uuid)
             file_path_by_id = {f.id: f.path for f in files}
 
-            # 构建 {path: hash} 映射
             return {
                 file_path_by_id[fid]: s.content_hash for fid, s in snapshot_by_file_id.items() if fid in file_path_by_id
             }
@@ -316,9 +343,12 @@ class IncrementalAnalyzer:
         repo_uuid: UUID,
         changes: list[FileChange],
         max_depth: int | None = None,
+        db: AsyncSession | None = None,
     ) -> list[str]:
         """
         BFS 依赖传播
+
+        A-7 修复：支持传入共享 db session。
 
         传播规则：
         1. 变更文件被其他文件调用（call_edges.callee_node_id）→ 调用方需要重分析
@@ -333,7 +363,6 @@ class IncrementalAnalyzer:
         if not changes:
             return []
 
-        # 只处理新增和修改的文件（删除的文件不需要传播）
         modified_changes = [c for c in changes if c.change_type != ChangeType.DELETED]
         if not modified_changes:
             return []
@@ -341,34 +370,27 @@ class IncrementalAnalyzer:
         visited: set[str] = set()
         propagated: set[str] = set()
 
-        # 初始化队列（使用 deque 实现 O(1) popleft）
         queue: deque[tuple[str, int]] = deque()
         for change in modified_changes:
             visited.add(change.path)
             queue.append((change.path, 0))
 
-        async with async_session_factory() as db:
-            # 加载所有文件（用于路径查找）
-            all_files = await self.file_dao.get_by_repository(db, repo_uuid)
+        async with get_session(db) as session:
+            all_files = await self.file_dao.get_by_repository(session, repo_uuid)
             file_id_to_path: dict[UUID, str] = {f.id: f.path for f in all_files}
 
-            # 预加载所有 call_edges 和 module_deps（一次查询，避免在 BFS 循环中重复查询）
-            all_edges = await self.call_edge_dao.get_by_repository(db, repo_uuid)
-            all_deps = await self.module_dep_dao.get_by_repository(db, repo_uuid)
-            all_nodes = await self.ast_node_dao.get_by_repository(db, repo_uuid)
+            all_edges = await self.call_edge_dao.get_by_repository(session, repo_uuid)
+            all_deps = await self.module_dep_dao.get_by_repository(session, repo_uuid)
+            all_nodes = await self.ast_node_dao.get_by_repository(session, repo_uuid)
 
-            # 构建辅助索引
-            # file_id → node_ids 映射
             file_id_to_node_ids: dict[UUID, set[UUID]] = {}
             for node in all_nodes:
                 file_id_to_node_ids.setdefault(node.file_id, set()).add(node.id)
 
-            # node_id → file_path 映射
             node_id_to_path: dict[UUID, str] = {}
             for node in all_nodes:
                 node_id_to_path[node.id] = node.file_path
 
-            # file_path → file_id 映射（用于快速查找）
             file_path_to_id: dict[str, UUID] = {f.path: f.id for f in all_files}
 
             while queue:
@@ -383,7 +405,6 @@ class IncrementalAnalyzer:
 
                 current_node_ids = file_id_to_node_ids.get(current_file_id, set())
 
-                # ---- 查询调用相关 ----
                 caller_paths: set[str] = set()
                 callee_paths: set[str] = set()
                 for edge in all_edges:
@@ -396,7 +417,6 @@ class IncrementalAnalyzer:
                         if caller_path and caller_path != current_path:
                             caller_paths.add(caller_path)
 
-                # ---- 查询依赖相关 ----
                 importer_paths: set[str] = set()
                 importee_paths: set[str] = set()
                 for dep in all_deps:
@@ -409,7 +429,6 @@ class IncrementalAnalyzer:
                         if importer_path and importer_path != current_path:
                             importer_paths.add(importer_path)
 
-                # 收集新文件
                 for path in caller_paths | callee_paths | importer_paths | importee_paths:
                     if path not in visited:
                         visited.add(path)

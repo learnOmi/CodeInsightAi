@@ -7,8 +7,10 @@ LanguageParser 抽象基类
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -152,6 +154,75 @@ class ASTNodeList:
         return len(self.nodes)
 
 
+class ParseErrorType(StrEnum):
+    """解析错误类型"""
+
+    FILE_NOT_FOUND = "file_not_found"
+    FILE_TOO_LARGE = "file_too_large"
+    FILE_READ_ERROR = "file_read_error"
+    PARSE_ERROR = "parse_error"
+    NODE_EXTRACTION_ERROR = "node_extraction_error"
+
+
+@dataclass
+class ParseResult:
+    """
+    解析结果
+
+    P-3 修复：区分"文件为空"和"解析失败"，提供详细错误信息。
+
+    Attributes:
+        success: 解析是否成功
+        nodes: 解析出的 AST 节点列表
+        error_type: 错误类型（成功时为 None）
+        error_message: 错误详情（成功时为 None）
+        file_size: 文件大小（字节）
+        parsing_time_ms: 解析耗时（毫秒）
+    """
+
+    success: bool
+    nodes: ASTNodeList
+    error_type: ParseErrorType | None = None
+    error_message: str | None = None
+    file_size: int = 0
+    parsing_time_ms: float = 0.0
+
+    @classmethod
+    def success_result(cls, nodes: ASTNodeList, file_size: int = 0, parsing_time_ms: float = 0.0) -> ParseResult:
+        """创建成功结果"""
+        return cls(
+            success=True,
+            nodes=nodes,
+            file_size=file_size,
+            parsing_time_ms=parsing_time_ms,
+        )
+
+    @classmethod
+    def error_result(cls, error_type: ParseErrorType, message: str) -> ParseResult:
+        """创建错误结果"""
+        return cls(
+            success=False,
+            nodes=ASTNodeList(),
+            error_type=error_type,
+            error_message=message,
+        )
+
+    def is_empty(self) -> bool:
+        """判断是否为空（成功但无节点）"""
+        return self.success and len(self.nodes) == 0
+
+    def has_error(self) -> bool:
+        """判断是否有错误"""
+        return not self.success
+
+    def get_error_summary(self) -> str:
+        """获取错误摘要"""
+        if not self.has_error():
+            return ""
+        assert self.error_type is not None, "ParseResult has error but error_type is None"
+        return f"{self.error_type.value}: {self.error_message}"
+
+
 class LanguageParser(ABC):
     """
     语言解析器抽象基类
@@ -252,11 +323,29 @@ class LanguageParser(ABC):
 
         包含文件大小保护：超过 MAX_FILE_SIZE_BYTES 的文件直接返回空列表。
 
+        为保持向后兼容，此方法仍返回 ASTNodeList。
+        如需详细错误信息，请使用 parse_with_result()。
+
         Args:
             file_path: 文件路径
 
         Returns:
             ASTNodeList 包含所有提取的节点
+        """
+        result = self.parse_with_result(file_path)
+        return result.nodes
+
+    def parse_with_result(self, file_path: Path | str) -> ParseResult:
+        """
+        解析文件，返回详细的 ParseResult
+
+        P-3 修复：区分"文件为空"和"解析失败"，提供详细错误信息。
+
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            ParseResult 包含解析结果、错误信息、耗时等
         """
         path = Path(file_path)
 
@@ -264,7 +353,7 @@ class LanguageParser(ABC):
             file_size = path.stat().st_size
         except OSError as e:
             logger.warning("无法获取文件大小: %s, error=%s", path, e)
-            return ASTNodeList()
+            return ParseResult.error_result(ParseErrorType.FILE_READ_ERROR, f"无法获取文件大小: {e}")
 
         if file_size > MAX_FILE_SIZE_BYTES:
             logger.warning(
@@ -273,9 +362,32 @@ class LanguageParser(ABC):
                 file_size,
                 MAX_FILE_SIZE_BYTES,
             )
-            return ASTNodeList()
+            return ParseResult.error_result(
+                ParseErrorType.FILE_TOO_LARGE,
+                f"文件超过大小限制: {file_size} bytes > {MAX_FILE_SIZE_BYTES} bytes",
+            )
 
-        return self._parse_file_impl(path)
+        if not path.exists():
+            logger.warning("文件不存在: %s", path)
+            return ParseResult.error_result(ParseErrorType.FILE_NOT_FOUND, f"文件不存在: {path}")
+
+        start_time = time.time()
+
+        try:
+            nodes = self._parse_file_impl(path)
+            parsing_time_ms = (time.time() - start_time) * 1000
+
+            if len(nodes) == 0:
+                logger.debug("文件解析完成但无节点: %s", path)
+            else:
+                logger.debug("文件解析完成: %s, nodes=%d, time=%.2fms", path, len(nodes), parsing_time_ms)
+
+            return ParseResult.success_result(nodes, file_size, parsing_time_ms)
+
+        except Exception as exc:
+            parsing_time_ms = (time.time() - start_time) * 1000
+            logger.error("解析文件失败: %s, error=%s, time=%.2fms", path, exc, parsing_time_ms)
+            return ParseResult.error_result(ParseErrorType.PARSE_ERROR, f"解析失败: {exc}")
 
     @abstractmethod
     def _parse_file_impl(self, file_path: Path) -> ASTNodeList:

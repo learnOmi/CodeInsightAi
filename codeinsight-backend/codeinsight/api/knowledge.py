@@ -10,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from codeinsight.auth import get_api_key_dependency
+from codeinsight.config import settings
 from codeinsight.db.session import get_db_session
 from codeinsight.models import KnowledgePointModel
 from codeinsight.repositories.knowledge_point import KnowledgePointDAO
@@ -19,7 +21,9 @@ from codeinsight.schemas import (
     PaginatedKnowledgePoints,
 )
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(get_api_key_dependency(settings.api_key))],
+)
 
 
 def get_knowledge_point_dao() -> KnowledgePointDAO:

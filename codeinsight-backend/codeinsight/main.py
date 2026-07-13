@@ -21,6 +21,16 @@ async def lifespan(app: FastAPI):
     # 启动时执行
     print(f"[STARTUP] CodeInsight AI Backend v{settings.app_version}")
     print(f"[STARTUP] Environment: {settings.app_env}")
+
+    # 生产环境配置验证（API-2/C-1）
+    try:
+        settings.validate_production_config()
+        if settings.app_env == "production":
+            print("[STARTUP] Production config validation passed")
+    except ValueError as exc:
+        print(f"[STARTUP] Config validation FAILED: {exc}")
+        raise
+
     yield
     # 关闭时执行
     print("[SHUTDOWN] CodeInsight AI Backend shutting down")

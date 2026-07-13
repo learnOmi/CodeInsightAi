@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     postgres_db: str = "codeinsight"
     postgres_user: str = "codeinsight"
-    postgres_password: str = ""  # ⚠️ 必须通过 .env 配置，生产环境禁止使用默认值
+    postgres_password: str = ""
     database_pool_size: int = 20
     database_max_overflow: int = 10
 
@@ -63,11 +63,11 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.1:8b"
 
     # JWT
-    secret_key: str = ""  # ⚠️ 必须通过 .env 配置 32+ 字符随机值
+    secret_key: str = ""
     access_token_expire_minutes: int = 60
 
     # 认证
-    api_key: str = ""  # ⚠️ 必须通过 .env 配置；留空时跳过认证（仅开发环境）
+    api_key: str = ""
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
@@ -90,6 +90,31 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
     }
+
+    def validate_production_config(self) -> None:
+        """验证生产环境配置
+
+        生产环境（app_env == "production"）必须配置以下参数，否则抛出异常：
+        - postgres_password
+        - secret_key (至少 32 字符)
+        - api_key (至少 16 字符)
+        """
+        if self.app_env != "production":
+            return
+
+        errors: list[str] = []
+
+        if not self.postgres_password:
+            errors.append("POSTGRES_PASSWORD 必须在生产环境配置")
+
+        if not self.secret_key or len(self.secret_key) < 32:
+            errors.append("SECRET_KEY 必须在生产环境配置，且长度至少 32 字符")
+
+        if not self.api_key or len(self.api_key) < 16:
+            errors.append("API_KEY 必须在生产环境配置，且长度至少 16 字符")
+
+        if errors:
+            raise ValueError("生产环境配置验证失败:\n" + "\n".join(f"- {e}" for e in errors))
 
 
 @lru_cache

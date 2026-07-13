@@ -99,6 +99,20 @@ class AstNodeDAO:
         )
         return list(result.scalars().all())
 
+    async def get_ids_by_repository(self, db: AsyncSession, repository_id: UUID) -> set[UUID]:
+        """
+        获取指定仓库的所有 AST 节点 ID（SV-2 优化：仅返回 ID，避免全量加载节点对象）
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+
+        Returns:
+            节点 ID 集合
+        """
+        result = await db.execute(select(AstNodeModel.id).where(AstNodeModel.repository_id == repository_id))
+        return {row[0] for row in result.all()}
+
     async def get_by_ids(self, db: AsyncSession, repository_id: UUID, node_ids: list[UUID]) -> list[AstNodeModel]:
         """
         批量获取指定 ID 的 AST 节点（用于避免 N+1 查询）
@@ -122,7 +136,11 @@ class AstNodeDAO:
         return list(result.scalars().all())
 
     async def get_by_repository_and_types(
-        self, db: AsyncSession, repository_id: UUID, node_types: set[str]
+        self,
+        db: AsyncSession,
+        repository_id: UUID,
+        node_types: set[str],
+        file_ids: list[UUID] | None = None,
     ) -> list[AstNodeModel]:
         """
         获取指定仓库的指定类型 AST 节点
@@ -133,15 +151,20 @@ class AstNodeDAO:
             db: 异步数据库会话
             repository_id: 仓库 ID
             node_types: 节点类型集合（如 {"call"}、{"function", "method", "constructor"}）
+            file_ids: 可选的文件 ID 列表，限制查询范围（增量分析用）
 
         Returns:
             AstNodeModel 列表
         """
-        result = await db.execute(
-            select(AstNodeModel)
-            .where(AstNodeModel.repository_id == repository_id, AstNodeModel.node_type.in_(node_types))
-            .order_by(AstNodeModel.start_line)
+        query = select(AstNodeModel).where(
+            AstNodeModel.repository_id == repository_id,
+            AstNodeModel.node_type.in_(node_types),
         )
+
+        if file_ids:
+            query = query.where(AstNodeModel.file_id.in_(file_ids))
+
+        result = await db.execute(query.order_by(AstNodeModel.start_line))
         return list(result.scalars().all())
 
     async def delete_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:

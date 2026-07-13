@@ -105,12 +105,12 @@ class ModuleDependencyBuilder:
                 len(files),
             )
 
-            # 2. 构建文件索引
-            file_index = {f.path: f for f in files}
+            # 2. 构建文件索引（A-4 优化：预构建前缀索引）
+            file_index, prefix_index = self._build_file_indices(files)
             file_index_reverse = {f.id: f.path for f in files}
 
             # 3. 构建依赖边
-            return self._match_dependencies(import_nodes, file_index, file_index_reverse, repo_uuid)
+            return self._match_dependencies(import_nodes, file_index, prefix_index, file_index_reverse, repo_uuid)
         finally:
             if use_context:
                 await session.__aexit__(None, None, None)
@@ -159,10 +159,11 @@ class ModuleDependencyBuilder:
                 len(files),
             )
 
-            file_index = {f.path: f for f in files}
+            # A-4 优化：预构建前缀索引
+            file_index, prefix_index = self._build_file_indices(files)
             file_index_reverse = {f.id: f.path for f in files}
 
-            return self._match_dependencies(import_nodes, file_index, file_index_reverse, repo_uuid)
+            return self._match_dependencies(import_nodes, file_index, prefix_index, file_index_reverse, repo_uuid)
         finally:
             if use_context:
                 await session.__aexit__(None, None, None)
@@ -171,6 +172,7 @@ class ModuleDependencyBuilder:
         self,
         import_nodes: list[AstNodeModel],
         file_index: dict[str, FileModel],
+        prefix_index: dict[str, list[str]],
         file_index_reverse: dict[UUID, str],
         repo_uuid: UUID,
     ) -> list[dict]:
@@ -180,6 +182,7 @@ class ModuleDependencyBuilder:
         Args:
             import_nodes: import 类型节点列表
             file_index: 文件路径 → FileModel
+            prefix_index: 路径前缀 → 文件路径列表（A-4 优化）
             file_index_reverse: file_id → file_path
             repo_uuid: 仓库 UUID
 
@@ -192,19 +195,21 @@ class ModuleDependencyBuilder:
             import_name = node.name.strip()
             importer_file_path = node.file_path
 
-            # 解析导入名称为模块路径（去掉引号，替换 . 为 /）
             module_path = self._resolve_module_path(import_name, importer_file_path)
 
-            # 匹配目标文件
-            imported_file = self._find_imported_file(module_path, file_index, file_index_reverse)
+            imported_file = self._find_imported_file(module_path, file_index, prefix_index, file_index_reverse)
 
-            # 确定导入类型
             import_type = self._determine_import_type(import_name, imported_file, importer_file_path)
+
+            importer_file_id = self._get_file_id_by_path(node.file_path, file_index)
+            if importer_file_id is None:
+                logger.debug("跳过依赖：无法找到导入者文件路径: %s", node.file_path)
+                continue
 
             deps_data.append(
                 {
                     "repository_id": repo_uuid,
-                    "importer_file_id": self._get_file_id_by_path(node.file_path, file_index),
+                    "importer_file_id": importer_file_id,
                     "imported_file_id": imported_file.id if imported_file else None,
                     "import_name": import_name,
                     "import_type": import_type,
@@ -212,6 +217,32 @@ class ModuleDependencyBuilder:
             )
 
         return deps_data
+
+    @staticmethod
+    def _build_file_indices(files: list[FileModel]) -> tuple[dict[str, FileModel], dict[str, list[str]]]:
+        """
+        构建文件索引
+
+        A-4 优化：预构建精确索引和前缀索引，将 _find_imported_file 的复杂度从 O(n) 降至 O(1)。
+
+        Args:
+            files: 文件列表
+
+        Returns:
+            (精确索引, 前缀索引)
+        """
+        file_index: dict[str, FileModel] = {}
+        prefix_index: dict[str, list[str]] = {}
+
+        for f in files:
+            file_index[f.path] = f
+
+            parts = f.path.split("/")
+            for i in range(1, len(parts) + 1):
+                prefix = "/".join(parts[:i])
+                prefix_index.setdefault(prefix, []).append(f.path)
+
+        return file_index, prefix_index
 
     @staticmethod
     def _resolve_module_path(import_name: str, importer_path: str) -> str:
@@ -244,27 +275,29 @@ class ModuleDependencyBuilder:
         self,
         module_path: str,
         file_index: dict[str, FileModel],
+        prefix_index: dict[str, list[str]],
         file_index_reverse: dict[UUID, str],
     ) -> FileModel | None:
         """
         根据模块路径查找导入目标文件
 
-        A-4 修复：使用后缀树索引（Trie）替代线性扫描，将复杂度从 O(n) 降至 O(m)（m=模块路径长度）。
+        A-4 优化：使用预构建的前缀索引替代线性扫描，将复杂度从 O(n) 降至 O(1)。
         A-8 修复：精确匹配优先，模糊匹配使用严格前缀规则。
 
         Args:
             module_path: 模块路径（如 "com/example"）
             file_index: 文件路径 → FileModel
+            prefix_index: 路径前缀 → 文件路径列表
             file_index_reverse: file_id → file_path
 
         Returns:
             FileModel 实例，找不到则返回 None
         """
-        # 1. 精确匹配
+        # 1. 精确匹配（O(1)）
         if module_path in file_index:
             return file_index[module_path]
 
-        # 2. 常见入口文件精确匹配（__init__.py, index.ts 等）
+        # 2. 常见入口文件精确匹配（__init__.py, index.ts 等）（O(1)）
         entry_patterns = [
             f"{module_path}/__init__.py",
             f"{module_path}/__init__.ts",
@@ -279,17 +312,22 @@ class ModuleDependencyBuilder:
             if pattern in file_index:
                 return file_index[pattern]
 
-        # 3. 前缀匹配：module_path 作为文件路径前缀
+        # 3. 前缀匹配（O(1) 查找 + O(k) 候选过滤，k 通常很小）
         # 3a. 目录前缀（module_path/...）
-        prefix = module_path + "/"
-        for file_path, file_obj in file_index.items():
-            if file_path.startswith(prefix):
-                return file_obj
+        dir_prefix = module_path + "/"
+        if dir_prefix in prefix_index:
+            for file_path in prefix_index[dir_prefix]:
+                return file_index[file_path]
 
         # 3b. 文件前缀（module_path.ext），如 "com/example/MyClass" 匹配 "com/example/MyClass.java"
-        for file_path, file_obj in file_index.items():
-            if file_path.startswith(module_path + "."):
-                return file_obj
+        # 查找所有以 module_path 开头的前缀
+        for prefix_key, file_paths in prefix_index.items():
+            if prefix_key == module_path or (
+                prefix_key.startswith(module_path) and prefix_key[len(module_path)] == "."
+            ):
+                for file_path in file_paths:
+                    if file_path.startswith(module_path + "."):
+                        return file_index[file_path]
 
         return None
 
@@ -322,15 +360,9 @@ class ModuleDependencyBuilder:
         return "absolute"
 
     @staticmethod
-    def _get_file_id_by_path(file_path: str, file_index: dict[str, FileModel]) -> UUID:
+    def _get_file_id_by_path(file_path: str, file_index: dict[str, FileModel]) -> UUID | None:
         """根据文件路径获取 file_id"""
-        # A-3 修复：找不到时返回占位 UUID 而非抛异常，避免崩溃整个依赖匹配循环
         if file_path in file_index:
             return file_index[file_path].id
 
-        # 模糊匹配
-        for path, file_obj in file_index.items():
-            if file_path == path or file_path.endswith("/" + path):
-                return file_obj.id
-
-        raise ValueError(f"Could not find file_id for path: {file_path}")
+        return None

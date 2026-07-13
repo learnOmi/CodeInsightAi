@@ -4,11 +4,15 @@
 提供知识点的全文搜索、向量搜索接口。
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from codeinsight.auth import get_api_key_dependency
+from codeinsight.config import settings
 from codeinsight.schemas import SearchRequest, SearchResponse, SearchSuggestionsResponse
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(get_api_key_dependency(settings.api_key))],
+)
 
 
 @router.post("/search", response_model=SearchResponse)

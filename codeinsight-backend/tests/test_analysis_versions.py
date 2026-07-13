@@ -274,10 +274,8 @@ async def test_api_switch_version_success():
         ]
     )
 
-    # 模拟目标版本存在
-    mock_target_result = MagicMock()
-    mock_target_result.scalar_one_or_none.return_value = FakeAV(version="v2")
-    mock_dao.get_by_version_tag = AsyncMock(return_value=mock_target_result)
+    # 模拟目标版本存在（API-9 修复：必须是已完成状态）
+    mock_dao.get_by_version_tag = AsyncMock(return_value=FakeAV(version="v2", status="completed"))
 
     result = await switch_version(
         "repo-1",

@@ -68,18 +68,25 @@ class StructureDataPipeline:
         self.batch_size = batch_size
         self.progress_callback = progress_callback
 
-        # DAO 实例（支持依赖注入，便于测试 mock）
         self.ast_node_dao = ast_node_dao or AstNodeDAO()
         self.call_edge_dao = call_edge_dao or CallEdgeDAO()
         self.module_dep_dao = module_dep_dao or ModuleDependencyDAO()
         self.file_dao = file_dao or FileDAO()
 
-        # 节点 UUID 映射（解析时的临时映射）
-        self._node_uuid_map: dict[str, UUID] = {}
+        # SV-3 修复：缓存 key 改为 (repository_id, ...) 组合，避免跨仓库缓存污染
+        self._node_uuid_map: dict[tuple[UUID, UUID, int, str, str], UUID] = {}
+        self._valid_node_ids: dict[UUID, set[UUID]] = {}
+        self._valid_file_ids: dict[UUID, set[UUID]] = {}
 
-        # 合法的节点 ID 和文件 ID 集合（用于外键校验）
-        self._valid_node_ids: set[UUID] = set()
-        self._valid_file_ids: set[UUID] = set()
+    def clear_cache(self) -> None:
+        """
+        清空内部缓存
+
+        SV-3 修复：跨仓库分析时必须调用，避免使用上一个仓库的缓存数据。
+        """
+        self._node_uuid_map.clear()
+        self._valid_node_ids.clear()
+        self._valid_file_ids.clear()
 
     # ================================================================
     # 公开 API
@@ -105,13 +112,11 @@ class StructureDataPipeline:
         if not nodes:
             return result
 
-        # 1. 加载文件 ID 集合（用于外键校验）
         await self._load_valid_file_ids(repo_uuid)
 
-        # 2. 校验
         valid_nodes: list[dict] = []
         for node in nodes:
-            validation = AstNodeValidator.validate(node)
+            validation = AstNodeValidator.validate(node, self._valid_file_ids[repo_uuid])
             if validation.valid:
                 valid_nodes.append(node)
             else:
@@ -126,18 +131,14 @@ class StructureDataPipeline:
         if not valid_nodes:
             return result
 
-        # 3. 去重（基于 file_id + start_line + node_type + name）
         unique_nodes = self._deduplicate_nodes(valid_nodes)
         result.duplicate_count = len(valid_nodes) - len(unique_nodes)
-        result.skipped_count = len(nodes) - len(unique_nodes)
 
         if not unique_nodes:
             return result
 
-        # 4. 转换并填充默认值
         db_nodes = self._transform_ast_nodes(repo_uuid, unique_nodes)
 
-        # 5. 批量写入
         result.inserted_count = await self._batch_insert(
             db_nodes,
             self.ast_node_dao.create_many,
@@ -145,11 +146,11 @@ class StructureDataPipeline:
             total=len(db_nodes),
         )
 
-        # 6. 构建节点 UUID 映射
         for node in db_nodes:
-            key = f"{node['file_id']}:{node['start_line']}:{node['node_type']}:{node['name']}"
+            key = (repo_uuid, node["file_id"], node["start_line"], node["node_type"], node["name"])
             self._node_uuid_map[key] = node["node_id"]
 
+        result.skipped_count = len(nodes) - result.inserted_count
         return result
 
     async def ingest_call_edges(
@@ -167,42 +168,15 @@ class StructureDataPipeline:
         Returns:
             IngestResult
         """
-        result = IngestResult()
-
-        if not edges:
-            return result
-
-        # 1. 加载节点 ID 集合（用于外键校验）
-        await self._load_valid_node_ids(repo_uuid)
-
-        # 2. 校验
-        valid_edges: list[dict] = []
-        for edge in edges:
-            validation = CallEdgeValidator.validate(edge, self._valid_node_ids)
-            if validation.valid:
-                valid_edges.append(edge)
-            else:
-                result.validation_errors += 1
-                logger.debug("调用边校验失败: %s", validation.errors)
-
-        result.total_count = len(edges)
-        logger.info(
-            "调用边校验完成: total=%d, valid=%d, errors=%d", len(edges), len(valid_edges), result.validation_errors
-        )
-
-        if not valid_edges:
-            return result
-
-        # 3. 批量写入
-        result.inserted_count = await self._batch_insert(
-            valid_edges,
-            self.call_edge_dao.create_many,
+        return await self._ingest_items(
+            items=edges,
+            repo_uuid=repo_uuid,
+            load_valid_ids_fn=self._load_valid_node_ids,
+            validator_fn=lambda edge: CallEdgeValidator.validate(edge, self._valid_node_ids[repo_uuid]),
+            create_many_fn=self.call_edge_dao.create_many,
             stage="ingest_edges",
-            total=len(valid_edges),
+            stage_name="调用边",
         )
-
-        result.skipped_count = len(edges) - result.inserted_count
-        return result
 
     async def ingest_module_deps(
         self,
@@ -219,41 +193,77 @@ class StructureDataPipeline:
         Returns:
             IngestResult
         """
+        return await self._ingest_items(
+            items=deps,
+            repo_uuid=repo_uuid,
+            load_valid_ids_fn=self._load_valid_file_ids,
+            validator_fn=lambda dep: ModuleDepValidator.validate(dep, self._valid_file_ids[repo_uuid]),
+            create_many_fn=self.module_dep_dao.create_many,
+            stage="ingest_deps",
+            stage_name="模块依赖",
+        )
+
+    async def _ingest_items(
+        self,
+        items: list[dict],
+        repo_uuid: UUID,
+        load_valid_ids_fn: Callable[[UUID], Awaitable[None]],
+        validator_fn: Callable[[dict], object],
+        create_many_fn: CreateManyFn,
+        stage: str,
+        stage_name: str,
+    ) -> IngestResult:
+        """
+        通用入库模板方法（SV-11 优化：提取三个 ingest_* 的公共逻辑）
+
+        Args:
+            items: 待入库数据列表
+            repo_uuid: 仓库 UUID
+            load_valid_ids_fn: 加载验证所需 ID 集合的方法
+            validator_fn: 校验函数，返回具有 valid 属性的对象
+            create_many_fn: DAO 的批量创建方法
+            stage: 进度阶段名称
+            stage_name: 日志显示的阶段名称
+
+        Returns:
+            IngestResult
+        """
         result = IngestResult()
 
-        if not deps:
+        if not items:
             return result
 
-        # 1. 加载文件 ID 集合
-        await self._load_valid_file_ids(repo_uuid)
+        await load_valid_ids_fn(repo_uuid)
 
-        # 2. 校验
-        valid_deps: list[dict] = []
-        for dep in deps:
-            validation = ModuleDepValidator.validate(dep, self._valid_file_ids)
-            if validation.valid:
-                valid_deps.append(dep)
+        valid_items: list[dict] = []
+        for item in items:
+            validation = validator_fn(item)
+            if getattr(validation, "valid", False):
+                valid_items.append(item)
             else:
                 result.validation_errors += 1
-                logger.debug("模块依赖校验失败: %s", validation.errors)
+                logger.debug("%s校验失败: %s", stage_name, getattr(validation, "errors", ""))
 
-        result.total_count = len(deps)
+        result.total_count = len(items)
         logger.info(
-            "模块依赖校验完成: total=%d, valid=%d, errors=%d", len(deps), len(valid_deps), result.validation_errors
+            "%s校验完成: total=%d, valid=%d, errors=%d",
+            stage_name,
+            len(items),
+            len(valid_items),
+            result.validation_errors,
         )
 
-        if not valid_deps:
+        if not valid_items:
             return result
 
-        # 3. 批量写入
         result.inserted_count = await self._batch_insert(
-            valid_deps,
-            self.module_dep_dao.create_many,
-            stage="ingest_deps",
-            total=len(valid_deps),
+            valid_items,
+            create_many_fn,
+            stage=stage,
+            total=len(valid_items),
         )
 
-        result.skipped_count = len(deps) - result.inserted_count
+        result.skipped_count = len(items) - result.inserted_count
         return result
 
     # ================================================================
@@ -262,30 +272,34 @@ class StructureDataPipeline:
 
     async def _load_valid_file_ids(self, repo_uuid: UUID) -> None:
         """加载仓库的所有文件 ID（用于外键校验）"""
-        if self._valid_file_ids:
+        if repo_uuid in self._valid_file_ids:
             return
 
         files = await self.file_dao.get_by_repository(self.db, repo_uuid)
-        self._valid_file_ids = {f.id for f in files}
-        logger.debug("加载文件 ID 集合: count=%d", len(self._valid_file_ids))
+        self._valid_file_ids[repo_uuid] = {f.id for f in files}
+        logger.debug("加载文件 ID 集合: repo=%s, count=%d", repo_uuid, len(self._valid_file_ids[repo_uuid]))
 
     async def _load_valid_node_ids(self, repo_uuid: UUID) -> None:
-        """加载仓库的所有 AST 节点 ID（用于外键校验）"""
-        if self._valid_node_ids:
+        """加载仓库的所有 AST 节点 ID（用于外键校验）
+
+        SV-2 优化：仅加载节点 ID，避免全量加载节点对象，减少内存占用。
+        """
+        if repo_uuid in self._valid_node_ids:
             return
 
-        nodes = await self.ast_node_dao.get_by_repository(self.db, repo_uuid)
-        self._valid_node_ids = {n.id for n in nodes}
-        logger.debug("加载节点 ID 集合: count=%d", len(self._valid_node_ids))
+        self._valid_node_ids[repo_uuid] = await self.ast_node_dao.get_ids_by_repository(self.db, repo_uuid)
+        logger.debug("加载节点 ID 集合: repo=%s, count=%d", repo_uuid, len(self._valid_node_ids[repo_uuid]))
 
     def _deduplicate_nodes(self, nodes: list[dict]) -> list[dict]:
         """
         去重 AST 节点（基于 file_id + start_line + node_type + name）
         保留最后出现的记录。
+
+        SV-10 优化：使用 tuple 作为 key，避免 O(n) 字符串拼接。
         """
-        seen: dict[str, dict] = {}
+        seen: dict[tuple, dict] = {}
         for node in nodes:
-            key = f"{node['file_id']}:{node['start_line']}:{node['node_type']}:{node['name']}"
+            key = (node["file_id"], node["start_line"], node["node_type"], node["name"])
             seen[key] = node
         return list(seen.values())
 

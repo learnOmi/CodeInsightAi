@@ -6,6 +6,7 @@ Git 仓库扫描器
 
 import hashlib
 import logging
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 READ_BUFFER_SIZE = 64 * 1024
 DEFAULT_MAX_LINE_COUNT = 10000
+DEFAULT_MAX_FILES = 50000
 
 
 @dataclass
@@ -127,6 +129,19 @@ class ScanResult:
             "errors": self.errors,
         }
 
+    def batch_iter(self, batch_size: int = 1000) -> Generator[list[ScannedFile], None, None]:
+        """
+        S-2 修复：分批迭代文件，减少内存占用。
+
+        Args:
+            batch_size: 每批文件数量，默认为 1000
+
+        Returns:
+            分批生成器，每次返回一批文件
+        """
+        for i in range(0, len(self.files), batch_size):
+            yield self.files[i : i + batch_size]
+
 
 class GitScanner:
     """
@@ -167,16 +182,19 @@ class GitScanner:
         repo_path: str,
         exclude_dirs: frozenset[str] | None = None,
         max_line_count: int = DEFAULT_MAX_LINE_COUNT,
+        max_files: int = DEFAULT_MAX_FILES,
     ) -> None:
         """
         Args:
             repo_path: Git 仓库路径（绝对路径）
             exclude_dirs: 排除的目录名集合，默认使用 DEFAULT_EXCLUDE_DIRS
             max_line_count: 最大行数限制，超过则跳过文件
+            max_files: 最大文件数量限制，防止内存溢出
         """
         self.repo_path = Path(repo_path).resolve()
         self.exclude_dirs = exclude_dirs or self.DEFAULT_EXCLUDE_DIRS
         self.max_line_count = max_line_count
+        self.max_files = max_files
         self._git_repo: git.Repo | None = None
 
     def _open_repo(self) -> git.Repo | None:
@@ -202,64 +220,87 @@ class GitScanner:
         from .language_detector import LanguageDetector
 
         if language_detector is None:
-            language_detector = LanguageDetector()
+            language_detector = LanguageDetector.get_instance()
 
         git_repo = self._open_repo()
         files: list[ScannedFile] = []
         errors: list[str] = []
         skipped_count = 0
         language_distribution: dict[str, int] = {}
+        repo_path_str = str(self.repo_path)
 
-        # 递归遍历所有文件
         try:
             for file_path in self.repo_path.rglob("*"):
-                # 跳过目录
-                if file_path.is_dir():
-                    continue
+                try:
+                    if file_path.is_dir():
+                        continue
 
-                # 检查是否在排除目录中
-                if any(part in self.exclude_dirs for part in file_path.parts):
-                    skipped_count += 1
-                    continue
-
-                # 使用 GitPython 检查 .gitignore
-                if git_repo is not None:
-                    relative = file_path.relative_to(self.repo_path)
-                    if git_repo.ignored(str(relative)):
+                    if any(part in self.exclude_dirs for part in file_path.parts):
                         skipped_count += 1
                         continue
 
-                # 检测语言
-                language = language_detector.detect(file_path)
+                    if git_repo is not None:
+                        try:
+                            relative = file_path.relative_to(self.repo_path)
+                        except ValueError:
+                            skipped_count += 1
+                            continue
+                        if git_repo.ignored(str(relative)):
+                            skipped_count += 1
+                            continue
 
-                # 只扫描源代码文件
-                if not language_detector.is_source_file(file_path):
+                    language = language_detector.detect(file_path)
+
+                    if not language_detector.is_source_file(file_path):
+                        skipped_count += 1
+                        continue
+
+                    scanned = ScannedFile.from_path(
+                        file_path=file_path,
+                        repo_path=self.repo_path,
+                        language=language,
+                        max_line_count=self.max_line_count,
+                    )
+
+                    if scanned is None:
+                        skipped_count += 1
+                        continue
+
+                    if file_path.is_symlink():
+                        resolved = file_path.resolve()
+                        if not str(resolved).startswith(repo_path_str):
+                            logger.warning("符号链接指向仓库外，跳过: %s -> %s", file_path, resolved)
+                            skipped_count += 1
+                            continue
+
+                    files.append(scanned)
+
+                    language_distribution[language] = language_distribution.get(language, 0) + 1
+
+                    if len(files) >= self.max_files:
+                        logger.warning("已达到最大文件数量限制，停止扫描: %d", self.max_files)
+                        break
+
+                except OSError as exc:
+                    errors.append(f"处理文件失败: {file_path}: {exc}")
+                    logger.warning("处理文件失败: %s: %s", file_path, exc)
                     skipped_count += 1
-                    continue
-
-                # 创建 ScannedFile
-                scanned = ScannedFile.from_path(
-                    file_path=file_path,
-                    repo_path=self.repo_path,
-                    language=language,
-                    max_line_count=self.max_line_count,
-                )
-
-                if scanned is None:
+                except Exception as exc:
+                    errors.append(f"处理文件异常: {file_path}: {exc}")
+                    logger.warning("处理文件异常: %s: %s", file_path, exc)
                     skipped_count += 1
-                    continue
-
-                files.append(scanned)
-
-                # 统计语言分布
-                language_distribution[language] = language_distribution.get(language, 0) + 1
 
         except OSError as exc:
-            errors.append(f"扫描失败: {exc}")
-            logger.exception("扫描失败: %s", exc)
+            errors.append(f"扫描目录失败: {self.repo_path}: {exc}")
+            logger.error("扫描目录失败: %s: %s", self.repo_path, exc)
+        except Exception as exc:
+            errors.append(f"扫描异常: {self.repo_path}: {exc}")
+            logger.error("扫描异常: %s: %s", self.repo_path, exc)
 
-        # 计算总行数
         total_lines = sum(f.line_count for f in files)
+
+        if errors:
+            logger.warning("扫描完成但存在错误: files=%d, errors=%d", len(files), len(errors))
 
         return ScanResult(
             files=files,

@@ -426,7 +426,7 @@ async def test_lookup_repository_from_redis():
 
 @pytest.mark.asyncio
 async def test_lookup_repository_redis_error():
-    """测试：Redis 出错时返回占位 UUID"""
+    """测试：Redis 出错时返回 None（调用方处理）"""
     import redis as redis_lib
 
     from codeinsight.api.analysis import _lookup_repository
@@ -436,7 +436,7 @@ async def test_lookup_repository_redis_error():
 
     with patch("codeinsight.api.analysis.get_redis_client", return_value=mock_redis):
         result = _lookup_repository("some-task-id")
-        assert result == UUID("00000000-0000-0000-0000-000000000000")
+        assert result is None
 
 
 # ======================== 细粒度取消测试 ========================

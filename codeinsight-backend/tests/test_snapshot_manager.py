@@ -342,9 +342,8 @@ class TestGetLatestSnapshot:
 
     @pytest.mark.asyncio
     async def test_delete_by_repository(self):
-        """测试删除指定仓库的所有快照"""
+        """测试删除指定仓库的所有快照（SV-6 修复：不执行 commit，由调用者管理事务）"""
         mock_db = MagicMock()
-        mock_db.commit = AsyncMock()
 
         with patch("codeinsight.services.snapshot_manager.FileAnalysisSnapshotDAO") as mock_dao_cls:
             mock_dao = mock_dao_cls.return_value
@@ -355,4 +354,3 @@ class TestGetLatestSnapshot:
 
             assert result == 10
             mock_dao.delete_by_repository.assert_called_with(mock_db, REPO_UUID)
-            mock_db.commit.assert_called_once()
