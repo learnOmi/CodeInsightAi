@@ -4,6 +4,7 @@ CodeInsight AI 后端服务入口
 FastAPI 应用初始化，注册路由中间件和生命周期事件。
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -14,26 +15,28 @@ from codeinsight.api import analysis, files, knowledge, repositories, search, ve
 from codeinsight.config import settings
 from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时执行
-    print(f"[STARTUP] CodeInsight AI Backend v{settings.app_version}")
-    print(f"[STARTUP] Environment: {settings.app_env}")
+    logger.info("[STARTUP] CodeInsight AI Backend v%s", settings.app_version)
+    logger.info("[STARTUP] Environment: %s", settings.app_env)
 
-    # 生产环境配置验证（API-2/C-1）
+    # 生产环境配置验证（API-2/C-1, S-2 修复）
     try:
         settings.validate_production_config()
         if settings.app_env == "production":
-            print("[STARTUP] Production config validation passed")
+            logger.info("[STARTUP] Production config validation passed")
     except ValueError as exc:
-        print(f"[STARTUP] Config validation FAILED: {exc}")
+        logger.error("[STARTUP] Config validation FAILED: %s", exc)
         raise
 
     yield
     # 关闭时执行
-    print("[SHUTDOWN] CodeInsight AI Backend shutting down")
+    logger.info("[SHUTDOWN] CodeInsight AI Backend shutting down")
 
 
 def create_app() -> FastAPI:
@@ -57,7 +60,7 @@ def create_app() -> FastAPI:
         allow_headers=settings.cors_allowed_headers,
     )
 
-    # 注册全局异常处理器
+    # 注册全局异常处理器（Q-2 修复：添加通用 Exception 处理器）
     @app.exception_handler(RepositoryPathExistsError)
     async def repository_path_exists_handler(request: Request, exc: RepositoryPathExistsError):
         return JSONResponse(
@@ -79,6 +82,24 @@ def create_app() -> FastAPI:
             content={"detail": "功能尚未实现: " + str(exc) if str(exc) else "功能尚未实现"},
         )
 
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        """全局异常处理器（Q-2 修复）
+
+        捕获所有未处理的异常，返回统一格式的 500 响应，不暴露堆栈信息。
+        """
+        logger.error(
+            "Unhandled exception on %s %s: %s",
+            request.method,
+            request.url.path,
+            exc,
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error"},
+        )
+
     # 注册路由
     app.include_router(repositories.router, prefix="/api/v1/repositories", tags=["仓库管理"])
     app.include_router(analysis.router, prefix="/api/v1", tags=["分析任务"])
@@ -87,12 +108,15 @@ def create_app() -> FastAPI:
     app.include_router(versions.router, prefix="/api/v1", tags=["版本管理"])
     app.include_router(files.router, prefix="/api/v1/files", tags=["文件管理"])
 
+    # 健康检查端点（S-1 修复：不返回敏感错误信息，防止信息泄露）
+    # 注意：健康检查端点不加认证，因为需要被负载均衡器等基础设施访问
     @app.get("/api/v1/health", tags=["健康检查"])
     async def health_check():
         """
         健康检查端点
 
-        API-19 修复：检测下游依赖（数据库、Redis）的可用性。
+        S-1 修复：不返回详细错误信息，避免泄露数据库连接信息等敏感数据。
+        Q-1 修复：错误状态仅返回 "unavailable"，详细信息记录到日志。
         """
         checks = {
             "service": {"status": "ok", "version": settings.app_version},
@@ -108,8 +132,9 @@ def create_app() -> FastAPI:
                 await db.execute("SELECT 1")
                 checks["database"] = {"status": "ok"}
                 break
-        except Exception as e:
-            checks["database"] = {"status": "error", "error": str(e)}
+        except Exception as exc:
+            logger.error("Health check: database unavailable - %s", exc)
+            checks["database"] = {"status": "unavailable"}
 
         # 检测 Redis 连接
         try:
@@ -118,8 +143,9 @@ def create_app() -> FastAPI:
             redis_client = get_redis_client()
             redis_client.ping()
             checks["redis"] = {"status": "ok"}
-        except Exception as e:
-            checks["redis"] = {"status": "error", "error": str(e)}
+        except Exception as exc:
+            logger.error("Health check: redis unavailable - %s", exc)
+            checks["redis"] = {"status": "unavailable"}
 
         # 综合状态
         all_ok = all(check["status"] == "ok" for check in checks.values())

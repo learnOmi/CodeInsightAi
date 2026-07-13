@@ -7,7 +7,7 @@ ModuleDependency ORM 模型
 import uuid
 from datetime import datetime
 
-from sqlalchemy import UUID, CheckConstraint, ForeignKey, String
+from sqlalchemy import UUID, CheckConstraint, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -44,6 +44,8 @@ class ModuleDependencyModel(Base):
             "import_type IN ('relative', 'absolute', 'external')",
             name="chk_import_type",
         ),
+        # DB-2 修复：添加 repository_id 索引
+        Index("idx_module_dependencies_repository", "repository_id"),
     )
 
     def __repr__(self) -> str:

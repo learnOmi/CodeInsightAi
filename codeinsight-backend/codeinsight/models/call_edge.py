@@ -7,7 +7,7 @@ CallEdge ORM 模型
 import uuid
 from datetime import datetime
 
-from sqlalchemy import UUID, CheckConstraint, ForeignKey, Integer, String
+from sqlalchemy import UUID, CheckConstraint, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -47,6 +47,8 @@ class CallEdgeModel(Base):
             "call_type IN ('static', 'dynamic', 'unknown')",
             name="chk_call_type",
         ),
+        # DB-2 修复：添加 repository_id 索引
+        Index("idx_call_edges_repository", "repository_id"),
     )
 
     def __repr__(self) -> str:

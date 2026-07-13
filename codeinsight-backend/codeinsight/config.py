@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     # 文件上传
     max_repository_path_length: int = 500
     max_request_size: int = 10 * 1024 * 1024
+    max_file_size_bytes: int = 10 * 1024 * 1024
 
     # 增量分析
     incremental_max_change_ratio: float = 0.3
@@ -85,6 +86,13 @@ class Settings(BaseSettings):
 
     # Celery（开发环境同步执行方便调试）
     celery_task_always_eager: bool = True
+
+    # Redis 键 TTL（秒）
+    redis_task_mapping_ttl: int = 86400 * 7  # 任务映射保留 7 天
+    redis_cancel_flag_ttl: int = 60  # 取消标志 60 秒过期
+
+    # 数据入库批量大小
+    ingest_batch_size: int = 500
 
     model_config = {
         "env_file": ".env",

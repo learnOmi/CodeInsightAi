@@ -12,9 +12,12 @@ from pathlib import Path
 
 import git
 
+from codeinsight.config import settings
+
 logger = logging.getLogger(__name__)
 
-MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+# D-3 修复：从配置统一读取，不再硬编码
+MAX_FILE_SIZE_BYTES = settings.max_file_size_bytes
 READ_BUFFER_SIZE = 64 * 1024
 DEFAULT_MAX_LINE_COUNT = 10000
 DEFAULT_MAX_FILES = 50000

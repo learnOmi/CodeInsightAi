@@ -78,32 +78,15 @@ def get_bearer_token_dependency(valid_secret: str | None):
     """
     创建 Bearer Token 认证依赖（JWT 预留）
 
-    当前阶段不使用，后续集成用户系统后启用。
-
-    Args:
-        valid_secret: JWT 密钥，为 None 时跳过认证
-
-    Returns:
-        认证依赖函数
+    S-3 修复：当前阶段不可用，直接抛出 NotImplementedError。
+    集成用户系统后，使用 python-jose 验证 JWT 签名和过期时间。
     """
 
     def _check_bearer_token(token: BearerTokenDep):
-        if valid_secret is None:
-            return None
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing bearer token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        # TODO: 集成用户系统后，使用 python-jose 验证 JWT
-        # 当前仅检查 token 非空
-        if not token.credentials:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid bearer token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return token.credentials
+        # S-3: Bearer Token 认证尚未实现，避免误用导致安全漏洞
+        raise NotImplementedError(
+            "Bearer Token authentication is not yet implemented. "
+            "API Key authentication is currently the only supported method."
+        )
 
     return _check_bearer_token

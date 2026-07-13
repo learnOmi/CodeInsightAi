@@ -7,7 +7,7 @@ ModuleDependency 数据访问对象
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.models import ModuleDependencyModel
@@ -90,24 +90,22 @@ class ModuleDependencyDAO:
         if not file_ids:
             return 0
 
+        # D-4 修复：合并为单次 DELETE，减少数据库往返
         result = await db.execute(
             delete(ModuleDependencyModel).where(
-                ModuleDependencyModel.repository_id == repository_id,
-                ModuleDependencyModel.importer_file_id.in_(file_ids),
+                and_(
+                    ModuleDependencyModel.repository_id == repository_id,
+                    or_(
+                        ModuleDependencyModel.importer_file_id.in_(file_ids),
+                        ModuleDependencyModel.imported_file_id.in_(file_ids),
+                    ),
+                )
             )
         )
-        deleted_importer = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0
-
-        result = await db.execute(
-            delete(ModuleDependencyModel).where(
-                ModuleDependencyModel.repository_id == repository_id,
-                ModuleDependencyModel.imported_file_id.in_(file_ids),
-            )
-        )
-        deleted_imported = result.rowcount if hasattr(result, "rowcount") and result.rowcount else 0
+        deleted = getattr(result, "rowcount", 0)
 
         await db.flush()
-        return deleted_importer + deleted_imported
+        return deleted
 
     async def count_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:
         """统计指定仓库的模块依赖数量"""

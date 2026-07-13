@@ -135,6 +135,26 @@ class AstNodeDAO:
         )
         return list(result.scalars().all())
 
+    async def get_ids_by_file(self, db: AsyncSession, repository_id: UUID, file_id: UUID) -> set[UUID]:
+        """
+        获取指定文件的所有 AST 节点 ID（P-1 优化：按需查询，避免全量加载）
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            file_id: 文件 ID
+
+        Returns:
+            节点 ID 集合
+        """
+        result = await db.execute(
+            select(AstNodeModel.id).where(
+                AstNodeModel.repository_id == repository_id,
+                AstNodeModel.file_id == file_id,
+            )
+        )
+        return {row[0] for row in result.all()}
+
     async def get_by_repository_and_types(
         self,
         db: AsyncSession,

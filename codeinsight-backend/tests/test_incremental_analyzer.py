@@ -5,6 +5,7 @@ IncrementalAnalyzer 单元测试
 所有 DAO 和数据库操作均通过 patch 模拟，不需要真实数据库。
 """
 
+from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
@@ -87,12 +88,21 @@ def _make_changes(
     ]
 
 
+@contextmanager
 def _patch_dao_results(repo_uuid: UUID, files, edges, deps, nodes=None):
     """
     统一的 DAO 模拟上下文管理器。
 
     在 codeinsight.services.incremental_analyzer 模块内替换 DAO 类和 async_session_factory，
     使 _propagate_dependencies 内的 DAO 实例返回预设数据。
+
+    P-1 修复后 _propagate_dependencies 改为按需查询：file_dao.get_by_repository 仍被调用
+    （构建 file_path ↔ file_id 映射），但 _get_node_ids_by_file / _get_related_call_paths /
+    _get_related_import_paths 通过 session.execute 按需查询，不再使用 call_edge_dao /
+    module_dep_dao / ast_node_dao 的 get_by_repository。
+
+    为避免模拟复杂的 session.execute 行为，这里直接在 IncrementalAnalyzer 类上 mock 这三个
+    按需查询方法，基于 edges/deps/nodes 预计算传播结果，使测试覆盖的场景保持不变。
     """
     nodes = nodes if nodes is not None else [_make_ast_node(f.id, f.path) for f in files]
 
@@ -113,14 +123,69 @@ def _patch_dao_results(repo_uuid: UUID, files, edges, deps, nodes=None):
     mock_cm.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_cm.return_value.__aexit__ = AsyncMock(return_value=False)
 
-    return patch.multiple(
-        "codeinsight.services.incremental_analyzer",
-        FileDAO=file_dao_mock,
-        CallEdgeDAO=call_edge_dao_mock,
-        ModuleDependencyDAO=module_dep_dao_mock,
-        AstNodeDAO=ast_dao_mock,
-        async_session_factory=mock_cm,
-    )
+    # 预计算按需查询方法所需的映射关系
+    node_id_to_path: dict[UUID, str] = {n.id: n.file_path for n in nodes}
+    file_to_node_ids: dict[UUID, set[UUID]] = {}
+    for n in nodes:
+        file_to_node_ids.setdefault(n.file_id, set()).add(n.id)
+
+    async def _mock_get_node_ids(session, repo_uuid_arg, file_id):
+        """模拟按文件查询 AST 节点 ID"""
+        return set(file_to_node_ids.get(file_id, set()))
+
+    async def _mock_get_call_paths(session, repo_uuid_arg, node_ids):
+        """模拟查询相关调用边，返回 (caller_paths, callee_paths)
+
+        - callee_paths: 当前节点作为 caller 时，被调用方所在文件路径
+        - caller_paths: 当前节点作为 callee 时，调用方所在文件路径
+        """
+        caller_paths: set[str] = set()
+        callee_paths: set[str] = set()
+        for edge in edges:
+            if edge.caller_node_id in node_ids:
+                callee_path = node_id_to_path.get(edge.callee_node_id)
+                if callee_path:
+                    callee_paths.add(callee_path)
+            if edge.callee_node_id in node_ids:
+                caller_path = node_id_to_path.get(edge.caller_node_id)
+                if caller_path:
+                    caller_paths.add(caller_path)
+        return caller_paths, callee_paths
+
+    async def _mock_get_import_paths(session, repo_uuid_arg, file_id, file_id_to_path):
+        """模拟查询相关模块依赖，返回 (importer_paths, importee_paths)"""
+        importer_paths: set[str] = set()
+        importee_paths: set[str] = set()
+        for dep in deps:
+            if dep.importer_file_id == file_id:
+                importee_path = file_id_to_path.get(dep.imported_file_id)
+                if importee_path:
+                    importee_paths.add(importee_path)
+            if dep.imported_file_id == file_id:
+                importer_path = file_id_to_path.get(dep.importer_file_id)
+                if importer_path:
+                    importer_paths.add(importer_path)
+        return importer_paths, importee_paths
+
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch.multiple(
+                "codeinsight.services.incremental_analyzer",
+                FileDAO=file_dao_mock,
+                CallEdgeDAO=call_edge_dao_mock,
+                ModuleDependencyDAO=module_dep_dao_mock,
+                AstNodeDAO=ast_dao_mock,
+                async_session_factory=mock_cm,
+            )
+        )
+        stack.enter_context(patch.object(IncrementalAnalyzer, "_get_node_ids_by_file", side_effect=_mock_get_node_ids))
+        stack.enter_context(
+            patch.object(IncrementalAnalyzer, "_get_related_call_paths", side_effect=_mock_get_call_paths)
+        )
+        stack.enter_context(
+            patch.object(IncrementalAnalyzer, "_get_related_import_paths", side_effect=_mock_get_import_paths)
+        )
+        yield
 
 
 # ======================== compute_diff 测试 ========================

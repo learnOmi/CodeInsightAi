@@ -15,9 +15,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from codeinsight.config import settings
+
 logger = logging.getLogger(__name__)
 
-MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+# D-3 修复：从配置统一读取，不再硬编码
+MAX_FILE_SIZE_BYTES = settings.max_file_size_bytes
 
 
 @dataclass

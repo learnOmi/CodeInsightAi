@@ -10,8 +10,13 @@ client = TestClient(app)
 
 
 def test_health_check():
-    """测试健康检查端点"""
+    """测试健康检查端点
+
+    S-1 修复：端点不再返回敏感错误信息（错误时仅返回 "unavailable"）。
+    注意：健康检查端点不加认证，因为需要被负载均衡器等基础设施访问。
+    """
     response = client.get("/api/v1/health")
+
     assert response.status_code == 200
     data = response.json()
     assert data["status"] in ["ok", "degraded"]

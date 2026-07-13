@@ -7,19 +7,20 @@ repos:
         language: system
         types: [python]
         args: ["check", "--fix"]
-        exclude: ^tests/
+        files: ^codeinsight-backend/codeinsight/
       - id: ruff-format
         name: ruff-format
         entry: ruff
         language: system
         types: [python]
         args: ["format"]
-        exclude: ^tests/
+        files: ^codeinsight-backend/codeinsight/
       - id: mypy
         name: mypy
-        entry: C:/Users/Administrator/CodeInsightAi/codeinsight-backend/.venv/Scripts/mypy.exe
+        entry: mypy
         language: system
         types: [python]
-        pass_filenames: true
-        args: ["--ignore-missing-imports"]
-        exclude: ^tests/
+        pass_filenames: false
+        args: ["--ignore-missing-imports", "codeinsight-backend/codeinsight/"]
+        files: ^codeinsight-backend/codeinsight/
+        always_run: true

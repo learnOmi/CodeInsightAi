@@ -60,15 +60,18 @@ class StructureDataPipeline:
     def __init__(
         self,
         db: AsyncSession,
-        batch_size: int = 500,
+        batch_size: int | None = None,
         progress_callback: ProgressCallback | None = None,
         ast_node_dao: AstNodeDAO | None = None,
         call_edge_dao: CallEdgeDAO | None = None,
         module_dep_dao: ModuleDependencyDAO | None = None,
         file_dao: FileDAO | None = None,
     ) -> None:
+        # P-3 修复：batch_size 从配置读取，不再硬编码
+        from codeinsight.config import settings
+
         self.db = db
-        self.batch_size = batch_size
+        self.batch_size = batch_size or settings.ingest_batch_size
         self.progress_callback = progress_callback
 
         self.ast_node_dao = ast_node_dao or AstNodeDAO()

@@ -21,6 +21,7 @@ from uuid import UUID
 from codeinsight.analyzers import CallGraphBuilder, ModuleDependencyBuilder
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import async_session_factory
+from codeinsight.exceptions import CancelledError
 from codeinsight.models import FileModel
 from codeinsight.parsers import ParserFactory
 from codeinsight.pipelines.structure_pipeline import StructureDataPipeline
@@ -37,12 +38,6 @@ from codeinsight.schemas import AnalysisMode, TaskStatus
 from codeinsight.services import IncrementalAnalyzer, IncrementalDiff, SnapshotManager
 
 logger = logging.getLogger(__name__)
-
-
-class CancelledError(Exception):
-    """用户手动取消任务的异常"""
-
-    pass
 
 
 class CancelChecker:

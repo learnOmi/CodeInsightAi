@@ -37,8 +37,6 @@ router = APIRouter(
     dependencies=[Depends(get_api_key_dependency(settings.api_key))],
 )
 
-_MAPPING_TTL = 86400 * 7  # 映射保留 7 天
-
 
 def get_repository_dao() -> RepositoryDAO:
     """获取 RepositoryDAO 实例（依赖注入）"""
@@ -226,15 +224,15 @@ async def submit_analysis(
         client.set(
             f"task:{celery_result.id}:repo",
             str(repository_id),
-            ex=_MAPPING_TTL,
+            ex=settings.redis_task_mapping_ttl,
         )
         client.set(
             f"task:{celery_result.id}:mode",
             mode.value,
-            ex=_MAPPING_TTL,
+            ex=settings.redis_task_mapping_ttl,
         )
         # 记录仓库的活跃任务 ID（用于去重）
-        client.set(f"repo:{repository_id}:active_task", celery_result.id, ex=_MAPPING_TTL)
+        client.set(f"repo:{repository_id}:active_task", celery_result.id, ex=settings.redis_task_mapping_ttl)
     except redis.RedisError as exc:
         logger.warning("Redis 写入映射失败: %s", exc)
 
@@ -334,7 +332,7 @@ async def cancel_task(task_id: str):
             if repo_id_raw:
                 repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else repo_id_raw
                 client.delete(f"repo:{repo_id_str}:active_task")
-            client.set(f"task:{task_id}:cancel", "1", ex=60)  # 1 分钟过期
+            client.set(f"task:{task_id}:cancel", "1", ex=settings.redis_cancel_flag_ttl)
         except redis.RedisError as exc:
             logger.warning("Redis 清理失败: %s", exc)
         return {"message": f"Task {task_id} cancellation requested"}
