@@ -14,6 +14,11 @@
         "summary": "Create Repository",
         "description": "添加代码仓库\n\n添加一个新的代码仓库并开始分析。",
         "operationId": "create_repository_api_v1_repositories_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -54,6 +59,11 @@
         "summary": "List Repositories",
         "description": "获取仓库列表\n\n分页返回用户的所有仓库。",
         "operationId": "list_repositories_api_v1_repositories_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "skip",
@@ -119,6 +129,11 @@
         "summary": "Get Repository",
         "description": "获取仓库详情",
         "operationId": "get_repository_api_v1_repositories__repository_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -161,6 +176,11 @@
         "summary": "Update Repository",
         "description": "更新仓库信息",
         "operationId": "update_repository_api_v1_repositories__repository_id__put",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -213,6 +233,11 @@
         "summary": "Delete Repository",
         "description": "删除仓库及其所有分析数据",
         "operationId": "delete_repository_api_v1_repositories__repository_id__delete",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -226,15 +251,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteResponse"
-                }
-              }
-            }
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -255,8 +273,13 @@
           "分析任务"
         ],
         "summary": "Submit Analysis",
-        "description": "提交分析任务\n\n创建一个异步分析任务并提交到 Celery 队列。\n返回 202 Accepted 状态码，表示任务已接受但尚未完成。\n\nArgs:\n    repository_id: 目标仓库 ID\n    request: 可选的分析参数（模式、启用的 Agent 列表）\n    db: 数据库会话\n\nReturns:\n    AnalysisTask: 包含 task_id、初始状态的响应",
+        "description": "提交分析任务\n\n创建一个异步分析任务并提交到 Celery 队列。\n返回 202 Accepted 状态码，表示任务已接受但尚未完成。\n\nArgs:\n    repository_id: 目标仓库 ID\n    request: 可选的分析参数（模式、启用的 Agent 列表）\n    db: 数据库会话\n    repo_dao: RepositoryDAO 实例\n\nReturns:\n    AnalysisTask: 包含 task_id、初始状态的响应",
         "operationId": "submit_analysis_api_v1_repositories__repository_id__analyze_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -318,6 +341,11 @@
         "summary": "Get Task Status",
         "description": "查询任务状态\n\n从 Celery result_backend 读取任务进度。\n\nArgs:\n    task_id: Celery 任务 ID\n\nReturns:\n    AnalysisTask: 包含当前状态和进度的响应\n\nRaises:\n    HTTPException 404: 任务不存在或无法检索",
         "operationId": "get_task_status_api_v1_tasks__task_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "task_id",
@@ -361,6 +389,11 @@
         "summary": "Cancel Task",
         "description": "取消分析任务\n\n通过 Celery control.revoke 终止正在执行的 Worker 任务。\n\nArgs:\n    task_id: Celery 任务 ID\n\nReturns:\n    包含成功消息的字典\n\nRaises:\n    HTTPException 404: 任务不存在",
         "operationId": "cancel_task_api_v1_tasks__task_id__cancel_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "task_id",
@@ -402,6 +435,11 @@
         "summary": "List Knowledge Points",
         "description": "获取知识点列表\n\n分页返回指定仓库的知识点列表，支持按版本、分类、标签筛选。",
         "operationId": "list_knowledge_points_api_v1_knowledge_points_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -554,6 +592,11 @@
         "summary": "Get Knowledge Point",
         "description": "获取知识点详情\n\n根据 ID 获取单个知识点的完整信息，包括代码片段、调用链、拓展内容等。",
         "operationId": "get_knowledge_point_api_v1_knowledge_points__point_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "point_id",
@@ -596,8 +639,13 @@
           "知识点"
         ],
         "summary": "Get Knowledge Stats",
-        "description": "获取知识点统计\n\n返回指定仓库的知识点统计数据，包括按分类分布、置信度分布、热门标签等。",
+        "description": "获取知识点统计\n\n返回指定仓库的知识点统计数据，包括按分类分布、置信度分布、热门标签等。\n优化：9 次独立查询合并为 3 次（分类 GROUP BY + 总数 + 置信度 GROUP BY）。",
         "operationId": "get_knowledge_stats_api_v1_repositories__repository_id__knowledge_stats_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -691,7 +739,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/api/v1/search/suggestions": {
@@ -702,6 +755,11 @@
         "summary": "Search Suggestions",
         "description": "获取搜索建议",
         "operationId": "search_suggestions_api_v1_search_suggestions_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "q",
@@ -745,6 +803,11 @@
         "summary": "List Versions",
         "description": "获取分析版本列表\n\n返回指定仓库的所有分析版本，按创建时间降序排列。",
         "operationId": "list_versions_api_v1_repositories__repository_id__versions_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -791,8 +854,13 @@
           "版本管理"
         ],
         "summary": "Switch Version",
-        "description": "切换到指定版本\n\n将仓库的当前版本设置为指定版本，后续查询将使用该版本的数据。",
+        "description": "切换到指定版本\n\n将仓库的当前版本设置为指定版本，后续查询将使用该版本的数据。\n\nAPI-9 修复：只允许切换到已完成的版本，禁止切换到分析中或已失败的版本。",
         "operationId": "switch_version_api_v1_repositories__repository_id__switch_version_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -844,8 +912,13 @@
           "版本管理"
         ],
         "summary": "Rollback Version",
-        "description": "回滚到指定版本\n\n将仓库状态恢复到指定历史版本，并标记此次变更为\"回滚\"操作。",
+        "description": "回滚到指定版本\n\n将仓库状态恢复到指定历史版本（语义上表示从当前版本撤回）。\n\nAPI-13 修复：复用 _update_current_version 共享逻辑，消除重复代码。\nAPI-14 修复：移除伪造的 rollback_record_id。",
         "operationId": "rollback_version_api_v1_repositories__repository_id__rollback_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "repository_id",
@@ -891,13 +964,492 @@
         }
       }
     },
+    "/api/v1/files": {
+      "get": {
+        "tags": [
+          "文件管理"
+        ],
+        "summary": "List Files",
+        "description": "获取文件列表（分页）",
+        "operationId": "list_files_api_v1_files_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "仓库 ID",
+              "title": "Repository Id"
+            },
+            "description": "仓库 ID"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "页码",
+              "default": 1,
+              "title": "Page"
+            },
+            "description": "页码"
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "每页数量",
+              "default": 20,
+              "title": "Page Size"
+            },
+            "description": "每页数量"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "文件管理"
+        ],
+        "summary": "Create File",
+        "description": "添加代码文件\n\n在指定仓库下添加一个新文件。",
+        "operationId": "create_file_api_v1_files_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/files/{file_id}": {
+      "get": {
+        "tags": [
+          "文件管理"
+        ],
+        "summary": "Get File",
+        "description": "获取文件详情",
+        "operationId": "get_file_api_v1_files__file_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "File Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "文件管理"
+        ],
+        "summary": "Update File",
+        "description": "更新文件信息",
+        "operationId": "update_file_api_v1_files__file_id__put",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "File Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "文件管理"
+        ],
+        "summary": "Delete File",
+        "description": "删除文件",
+        "operationId": "delete_file_api_v1_files__file_id__delete",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "File Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/files/by-hash/{content_hash}": {
+      "get": {
+        "tags": [
+          "文件管理"
+        ],
+        "summary": "Get Files By Hash",
+        "description": "根据内容哈希查找文件（用于增量检测）",
+        "operationId": "get_files_by_hash_api_v1_files_by_hash__content_hash__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "content_hash",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Content Hash"
+            }
+          },
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "仓库 ID",
+              "title": "Repository Id"
+            },
+            "description": "仓库 ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/File"
+                  },
+                  "title": "Response Get Files By Hash Api V1 Files By Hash  Content Hash  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ast-nodes": {
+      "get": {
+        "tags": [
+          "AST 节点"
+        ],
+        "summary": "List Ast Nodes",
+        "description": "获取 AST 节点列表\n\n支持按文件、仓库、节点类型过滤。\n至少提供 file_id 或 repository_id 之一。",
+        "operationId": "list_ast_nodes_api_v1_ast_nodes_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "文件 ID（按文件查询节点）",
+              "title": "File Id"
+            },
+            "description": "文件 ID（按文件查询节点）"
+          },
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "仓库 ID（按仓库查询节点）",
+              "title": "Repository Id"
+            },
+            "description": "仓库 ID（按仓库查询节点）"
+          },
+          {
+            "name": "node_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "节点类型过滤",
+              "title": "Node Type"
+            },
+            "description": "节点类型过滤"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AstNode"
+                  },
+                  "title": "Response List Ast Nodes Api V1 Ast Nodes Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ast-nodes/{node_id}": {
+      "get": {
+        "tags": [
+          "AST 节点"
+        ],
+        "summary": "Get Ast Node",
+        "description": "获取单个 AST 节点详情",
+        "operationId": "get_ast_node_api_v1_ast_nodes__node_id__get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Node Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AstNode"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
           "健康检查"
         ],
         "summary": "Health Check",
-        "description": "健康检查端点",
+        "description": "健康检查端点\n\nS-1 修复：不返回详细错误信息，避免泄露数据库连接信息等敏感数据。\nQ-1 修复：错误状态仅返回 \"unavailable\"，详细信息记录到日志。",
         "operationId": "health_check_api_v1_health_get",
         "responses": {
           "200": {
@@ -1153,6 +1705,101 @@
         "title": "AnalyzeRequest",
         "description": "提交分析任务请求"
       },
+      "AstNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "fileId": {
+            "type": "string",
+            "title": "Fileid"
+          },
+          "nodeType": {
+            "type": "string",
+            "title": "Nodetype"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "startLine": {
+            "type": "integer",
+            "title": "Startline"
+          },
+          "endLine": {
+            "type": "integer",
+            "title": "Endline"
+          },
+          "startColumn": {
+            "type": "integer",
+            "title": "Startcolumn",
+            "default": 0
+          },
+          "endColumn": {
+            "type": "integer",
+            "title": "Endcolumn",
+            "default": 0
+          },
+          "parentNodeId": {
+            "type": "string",
+            "title": "Parentnodeid"
+          },
+          "filePath": {
+            "type": "string",
+            "title": "Filepath"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature"
+          },
+          "docstring": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docstring"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repositoryId",
+          "fileId",
+          "nodeType",
+          "name",
+          "startLine",
+          "endLine",
+          "filePath",
+          "language",
+          "createdAt"
+        ],
+        "title": "AstNode",
+        "description": "AST 节点"
+      },
       "CallChainNode": {
         "properties": {
           "nodeId": {
@@ -1258,20 +1905,6 @@
         "title": "CodeSnippet",
         "description": "代码片段"
       },
-      "DeleteResponse": {
-        "properties": {
-          "message": {
-            "type": "string",
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "message"
-        ],
-        "title": "DeleteResponse",
-        "description": "删除响应"
-      },
       "ExpansionContent": {
         "properties": {
           "principle": {
@@ -1317,6 +1950,144 @@
         ],
         "title": "ExpansionContent",
         "description": "拓展内容"
+      },
+      "File": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "absolutePath": {
+            "type": "string",
+            "title": "Absolutepath"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "lineCount": {
+            "type": "integer",
+            "title": "Linecount"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes"
+          },
+          "contentHash": {
+            "type": "string",
+            "title": "Contenthash"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          },
+          "updatedAt": {
+            "type": "string",
+            "title": "Updatedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repositoryId",
+          "path",
+          "absolutePath",
+          "language",
+          "lineCount",
+          "sizeBytes",
+          "contentHash",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "File",
+        "description": "代码文件"
+      },
+      "FileCreate": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "absolutePath": {
+            "type": "string",
+            "title": "Absolutepath"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "lineCount": {
+            "type": "integer",
+            "title": "Linecount",
+            "default": 0
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "title": "Sizebytes",
+            "default": 0
+          },
+          "contentHash": {
+            "type": "string",
+            "title": "Contenthash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "absolutePath",
+          "language",
+          "contentHash"
+        ],
+        "title": "FileCreate",
+        "description": "创建文件请求"
+      },
+      "FileUpdate": {
+        "properties": {
+          "lineCount": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linecount"
+          },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sizebytes"
+          },
+          "contentHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contenthash"
+          }
+        },
+        "type": "object",
+        "title": "FileUpdate",
+        "description": "更新文件请求"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1737,7 +2508,7 @@
           "cancelled"
         ],
         "title": "RepositoryStatus",
-        "description": "仓库分析状态"
+        "description": "仓库状态（M-3 修复：使用 StrEnum 替代松散 str，确保类型安全）\n\n注意：analyzing_structures 是 TaskStatus 的细分状态，不在此枚举中。"
       },
       "RepositoryUpdate": {
         "properties": {
@@ -1751,6 +2522,16 @@
               }
             ],
             "title": "Name"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RepositoryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -2053,6 +2834,13 @@
           "type"
         ],
         "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
       }
     }
   }

@@ -8,7 +8,7 @@ import {
   submitAnalysis,
   getTaskStatus,
   cancelTask,
-} from "@/lib/api";
+} from "@/api/repositories";
 import type { components } from "@codeinsight/shared";
 
 type RepositoryCreate = components["schemas"]["RepositoryCreate"];

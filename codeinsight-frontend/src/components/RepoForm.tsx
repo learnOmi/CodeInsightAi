@@ -2,8 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import { useCreateRepository } from "@/hooks/use-repositories";
-import { APIError } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { APIError } from "@/api/base";
+import { cn } from "@/utils";
 
 interface RepoFormProps {
   onClose?: () => void;

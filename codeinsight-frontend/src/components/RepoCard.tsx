@@ -1,35 +1,31 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   useSubmitAnalysis,
   useCancelTask,
   useDeleteRepository,
   useTaskStatus,
 } from "@/hooks/use-repositories";
-import { APIError } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { APIError } from "@/api/base";
+import { cn } from "@/utils";
+import { getAnalysisStatusConfig } from "@codeinsight/shared";
 import type { components } from "@codeinsight/shared";
 
 type Repository = components["schemas"]["Repository"];
+type TaskStatus = components["schemas"]["TaskStatus"];
 
 interface RepoCardProps {
   repository: Repository;
 }
 
-const statusConfig: Record<string, { label: string; color: string }> = {
-  pending: { label: "待分析", color: "bg-gray-100 text-gray-800" },
-  analyzing: { label: "分析中", color: "bg-blue-100 text-blue-800" },
-  completed: { label: "已完成", color: "bg-green-100 text-green-800" },
-  failed: { label: "失败", color: "bg-red-100 text-red-800" },
-  cancelled: { label: "已取消", color: "bg-yellow-100 text-yellow-800" },
-};
-
-const taskStatusLabels: Record<string, string> = {
+const taskStepLabels: Record<TaskStatus, string> = {
   pending: "等待中",
   scanning: "扫描文件",
   parsing: "解析代码",
-  analyzing_modules: "分析模块",
+  analyzing_structures: "结构分析",
+  analyzing_modules: "AI 分析",
   storing: "存储结果",
   completed: "已完成",
   failed: "失败",
@@ -80,24 +76,33 @@ export function RepoCard({ repository }: RepoCardProps) {
     setShowConfirm(false);
   };
 
-  const status = statusConfig[repository.status] || statusConfig.pending;
-  const progress = taskData?.progress || { percent: 0, filesProcessed: 0, filesTotal: 0 };
-  const currentStep = taskData?.progress?.currentStep ? taskStatusLabels[taskData.progress.currentStep] : "";
+  const statusConfig = getAnalysisStatusConfig(repository.status);
+  const progress = taskData?.progress || { percent: 0, filesProcessed: 0, filesTotal: 0, currentStep: "pending" as TaskStatus, knowledgePointsFound: 0 };
+  const currentStep = progress.currentStep ? taskStepLabels[progress.currentStep] : "";
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
       <div className="flex justify-between items-start mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">{repository.name}</h3>
+          <Link
+            href={`/repositories/${repository.id}/files`} className="hover:opacity-80">
+            <h3 className="text-lg font-semibold text-gray-900 hover:text-blue-600 transition-colors">
+              {repository.name}
+            </h3>
+          </Link>
           <p className="text-sm text-gray-500 truncate max-w-xs">{repository.path}</p>
         </div>
         <span
           className={cn(
-            "px-3 py-1 rounded-full text-xs font-medium",
-            status.color
+            "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium",
+            statusConfig.color,
+            statusConfig.animate && "animate-pulse"
           )}
         >
-          {status.label}
+          <span className={statusConfig.animate ? "inline-block animate-spin" : ""}>
+            {statusConfig.icon}
+          </span>
+          {statusConfig.label}
         </span>
       </div>
 
@@ -139,6 +144,14 @@ export function RepoCard({ repository }: RepoCardProps) {
       )}
 
       <div className="flex gap-2">
+        {!isAnalyzing && (
+          <Link
+            href={`/repositories/${repository.id}/files`}
+            className="flex-1 px-4 py-2 rounded-lg font-medium text-sm text-center transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
+          >
+            查看文件
+          </Link>
+        )}
         {!isAnalyzing && (
           <button
             onClick={handleSubmitAnalysis}

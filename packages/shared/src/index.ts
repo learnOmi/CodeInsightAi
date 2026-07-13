@@ -16,4 +16,14 @@
 export type { paths, components, operations } from './generated';
 
 // 前端专属常量
-export { KNOWLEDGE_CATEGORY_NAMES, KNOWLEDGE_CATEGORY_COLORS } from './constants';
+export {
+  KNOWLEDGE_CATEGORY_NAMES,
+  KNOWLEDGE_CATEGORY_COLORS,
+  NODE_TYPE_CONFIG,
+  getNodeTypeConfig,
+  ANALYSIS_STATUS_CONFIG,
+  getAnalysisStatusConfig,
+  FILE_ICONS,
+  getFileIcon,
+} from './constants';
+export type { NodeTypeConfig, AnalysisStatusConfig } from './constants';

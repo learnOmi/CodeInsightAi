@@ -663,6 +663,68 @@ export interface components {
             totalPages: number;
         };
         /**
+         * AstNode
+         * @description AST 节点
+         */
+        AstNode: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Fileid */
+            fileId: string;
+            /** Nodetype */
+            nodeType: string;
+            /** Name */
+            name: string;
+            /** Startline */
+            startLine: number;
+            /** Endline */
+            endLine: number;
+            /** Startcolumn */
+            startColumn?: number;
+            /** Endcolumn */
+            endColumn?: number;
+            /** Parentnodeid */
+            parentNodeId?: string;
+            /** Filepath */
+            filePath: string;
+            /** Language */
+            language: string;
+            /** Signature */
+            signature?: string | null;
+            /** Docstring */
+            docstring?: string | null;
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
+         * File
+         * @description 代码文件
+         */
+        File: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Path */
+            path: string;
+            /** Absolutepath */
+            absolutePath: string;
+            /** Language */
+            language: string;
+            /** Linecount */
+            lineCount: number;
+            /** Sizebytes */
+            sizeBytes: number;
+            /** Contenthash */
+            contentHash: string;
+            /** Createdat */
+            createdAt: string;
+            /** Updatedat */
+            updatedAt: string;
+        };
+        /**
          * Repository
          * @description 仓库信息
          */
