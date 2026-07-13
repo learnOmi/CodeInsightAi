@@ -53,7 +53,7 @@ export function RepoList() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               filter === option.value
                 ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                : "bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
             }`}
           >
             {option.label}
@@ -62,7 +62,7 @@ export function RepoList() {
       </div>
 
       {filteredRepositories.length === 0 ? (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-[var(--text-muted)]">
           {filter === "all" ? "暂无仓库" : `暂无${filterOptions.find((o) => o.value === filter)?.label}的仓库`}
         </div>
       ) : (

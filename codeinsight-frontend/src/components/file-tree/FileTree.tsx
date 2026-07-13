@@ -37,14 +37,14 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
         onClick={handleClick}
         className={cn(
           "flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer text-sm transition-colors",
-          "hover:bg-gray-100",
+          "hover:bg-[var(--bg-hover)]",
           isSelected && "bg-blue-50 text-blue-700 font-medium"
         )}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
       >
         {/* 展开/折叠箭头 */}
         {node.isDirectory ? (
-          <span className="text-gray-400 text-xs w-3 flex-shrink-0">
+          <span className="text-[var(--text-muted)] text-xs w-3 flex-shrink-0">
             {expanded ? "\u25BE" : "\u25B8"}
           </span>
         ) : (
@@ -57,11 +57,11 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
         </span>
 
         {/* 名称 */}
-        <span className="truncate">{node.name}</span>
+        <span className="truncate text-[var(--text-primary)]">{node.name}</span>
 
         {/* 行数（仅文件显示） */}
         {!node.isDirectory && node.file && (
-          <span className="ml-auto text-xs text-gray-400 flex-shrink-0">
+          <span className="ml-auto text-xs text-[var(--text-muted)] flex-shrink-0">
             {node.file.lineCount}L
           </span>
         )}
@@ -95,7 +95,7 @@ interface FileTreeProps {
 export function FileTree({ nodes, selectedFileId, onSelectFile }: FileTreeProps) {
   if (nodes.length === 0) {
     return (
-      <div className="text-center text-gray-400 text-sm py-8">
+      <div className="text-center text-[var(--text-muted)] text-sm py-8">
         暂无文件
       </div>
     );

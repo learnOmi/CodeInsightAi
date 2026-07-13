@@ -18,7 +18,7 @@ export function NodeBadge({ type, name }: { type: string; name: string }) {
         {config.icon}
         {config.label}
       </span>
-      <span className="font-mono text-sm text-gray-800">{name}</span>
+      <span className="font-mono text-sm text-[var(--text-primary)]">{name}</span>
     </span>
   );
 }

@@ -30,13 +30,13 @@ export default function FilesPage({
   return (
     <div className="flex gap-6 h-[calc(100vh-120px)]">
       {/* 左侧：文件树 */}
-      <div className="w-1/2 max-w-md flex flex-col bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-700">
-            {"\u6587\u4EF6\u6811"}
+      <div className="w-1/2 max-w-md flex flex-col bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden">
+        <div className="border-b border-[var(--border)] px-4 py-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+            {"文件树"}
           </h2>
-          <span className="text-xs text-gray-400">
-            {fileCount} {"\u4E2A\u6587\u4EF6"}
+          <span className="text-xs text-[var(--text-muted)]">
+            {fileCount} {"个文件"}
           </span>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
@@ -45,14 +45,14 @@ export default function FilesPage({
               {[...Array(10)].map((_, i) => (
                 <div
                   key={i}
-                  className="h-6 bg-gray-100 rounded animate-pulse"
+                  className="h-6 bg-[var(--bg-hover)] rounded animate-pulse"
                   style={{ width: `${80 - (i % 5) * 10}%`, marginLeft: `${(i % 3) * 16}px` }}
                 />
               ))}
             </div>
           ) : error ? (
             <div className="text-center text-red-500 text-sm py-4">
-              {"\u52A0\u8F7D\u6587\u4EF6\u5217\u8868\u5931\u8D25"}
+              {"加载文件列表失败"}
             </div>
           ) : (
             <FileTree
@@ -65,18 +65,18 @@ export default function FilesPage({
       </div>
 
       {/* 右侧：结构概览 */}
-      <div className="flex-1 bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="border-b border-gray-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-700">
-            {"\u4EE3\u7801\u7ED3\u6784"}
+      <div className="flex-1 bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden">
+        <div className="border-b border-[var(--border)] px-4 py-3">
+          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+            {"代码结构"}
           </h2>
         </div>
         <div className="overflow-y-auto p-4">
           {selectedFileId ? (
             <StructureList fileId={selectedFileId} fileName={selectedFileName} />
           ) : (
-            <div className="text-center text-gray-400 text-sm py-12">
-              {"\u8BF7\u4ECE\u5DE6\u4FA7\u6587\u4EF6\u6811\u4E2D\u9009\u62E9\u4E00\u4E2A\u6587\u4EF6"}
+            <div className="text-center text-[var(--text-muted)] text-sm py-12">
+              {"请从左侧文件树中选择一个文件"}
             </div>
           )}
         </div>

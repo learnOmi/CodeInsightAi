@@ -21,22 +21,22 @@ export default function RepoDetailLayout({
   const currentStatus = statusRepo?.status ?? repo?.status ?? "pending";
 
   return (
-    <main className="min-h-screen bg-gray-50">
+    <main className="min-h-screen bg-[var(--bg-base)]">
       {/* 顶部导航栏 */}
-      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+      <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg-card)]">
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
           <Link
             href="/repositories"
-            className="text-sm text-gray-500 hover:text-gray-800 transition-colors"
+            className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             {"\u2190 仓库列表"}
           </Link>
-          <div className="h-5 w-px bg-gray-200" />
-          <h1 className="text-base font-semibold text-gray-900">
+          <div className="h-5 w-px bg-[var(--border)]" />
+          <h1 className="text-base font-semibold text-[var(--text-primary)]">
             {repo?.name ?? "\u52A0\u8F7D\u4E2D..."}
           </h1>
           {repo && (
-            <span className="text-xs text-gray-400 truncate max-w-xs">
+            <span className="text-xs text-[var(--text-muted)] truncate max-w-xs">
               {repo.path}
             </span>
           )}

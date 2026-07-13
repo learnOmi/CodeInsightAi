@@ -21,9 +21,11 @@ export interface TreeNode {
  * 算法：按 path 的 "/" 分隔符逐层构建目录树
  */
 export function buildFileTree(files: FileItem[]): TreeNode[] {
+  // 防御性处理：API 可能返回 null/undefined/非数组
+  const safeFiles = Array.isArray(files) ? files : [];
   const root: TreeNode = { path: "", name: "", children: [], isDirectory: true };
 
-  for (const file of files) {
+  for (const file of safeFiles) {
     const parts = file.path.split("/").filter(Boolean);
     let current = root;
 

@@ -1,9 +1,32 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useRef, type FormEvent, type ChangeEvent } from "react";
 import { useCreateRepository } from "@/hooks/use-repositories";
 import { APIError } from "@/api/base";
 import { cn } from "@/utils";
+
+const HISTORY_KEY = "repo_path_history";
+const MAX_HISTORY = 5;
+
+function loadPathHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePathHistory(path: string): void {
+  try {
+    const history = loadPathHistory().filter((p) => p !== path);
+    history.unshift(path);
+    if (history.length > MAX_HISTORY) history.pop();
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    // ignore
+  }
+}
 
 interface RepoFormProps {
   onClose?: () => void;
@@ -15,6 +38,8 @@ export function RepoForm({ onClose }: RepoFormProps) {
   const [autoAnalyze, setAutoAnalyze] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const createRepository = useCreateRepository();
 
@@ -39,6 +64,8 @@ export function RepoForm({ onClose }: RepoFormProps) {
         autoAnalyze,
       });
       setSuccess("仓库创建成功");
+      savePathHistory(path.trim());
+      setHistory(loadPathHistory());
       setName("");
       setPath("");
       setAutoAnalyze(true);
@@ -59,33 +86,93 @@ export function RepoForm({ onClose }: RepoFormProps) {
     }
   };
 
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // webkitdirectory 模式下，file.path 在部分浏览器不可用，
+      // 使用 file.webkitRelativePath 作为路径（去掉最外层文件夹名）
+      const rawPath = file.webkitRelativePath;
+      // 去掉最外层文件夹名（如 "my-project/src/index.ts" → "my-project"）
+      const normalizedPath = rawPath.split("/")[0];
+      setPath(normalizedPath);
+      // 清空 input value 以便下次重复选择同一目录也能触发 onChange
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleClearHistory = () => {
+    localStorage.removeItem(HISTORY_KEY);
+    setHistory([]);
+  };
+
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
-      <h2 className="text-xl font-semibold mb-4">添加仓库</h2>
+    <div className="bg-[var(--bg-card)] rounded-lg shadow-md p-6">
+      <h2 className="text-xl font-semibold mb-4 text-[var(--text-primary)]">添加仓库</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
             仓库名称
           </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-4 py-2 border border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-[var(--bg-base)] text-[var(--text-primary)]"
             placeholder="例如：my-project"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
             仓库路径
           </label>
-          <input
-            type="text"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="例如：/path/to/repo"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-[var(--bg-base)] text-[var(--text-primary)]"
+              placeholder="例如：/path/to/repo"
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              // @ts-expect-error webkitdirectory is a non-standard but widely supported attribute
+              webkitdirectory=""
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="px-3 py-2 bg-[var(--bg-hover)] border border-[var(--border)] rounded-lg hover:bg-[var(--border)] transition-colors"
+              title="选择本地目录"
+            >
+              📁
+            </button>
+          </div>
+          {history.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {history.map((h, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setPath(h)}
+                  className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
+                >
+                  {h}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={handleClearHistory}
+                className="text-xs px-2 py-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                清空
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex items-center">
           <input
@@ -93,9 +180,9 @@ export function RepoForm({ onClose }: RepoFormProps) {
             id="auto-analyze"
             checked={autoAnalyze}
             onChange={(e) => setAutoAnalyze(e.target.checked)}
-            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            className="w-4 h-4 text-blue-600 border-[var(--border)] rounded focus:ring-blue-500"
           />
-          <label htmlFor="auto-analyze" className="ml-2 text-sm text-gray-700">
+          <label htmlFor="auto-analyze" className="ml-2 text-sm text-[var(--text-secondary)]">
             创建后自动分析
           </label>
         </div>
@@ -121,7 +208,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50"
+            className="px-4 py-2 border border-[var(--border)] rounded-lg font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           >
             取消
           </button>

@@ -81,16 +81,16 @@ export function RepoCard({ repository }: RepoCardProps) {
   const currentStep = progress.currentStep ? taskStepLabels[progress.currentStep] : "";
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+    <div className="bg-[var(--bg-card)] rounded-lg shadow-md p-6 hover:shadow-lg transition-all duration-200 border border-[var(--border)]">
       <div className="flex justify-between items-start mb-4">
         <div>
           <Link
-            href={`/repositories/${repository.id}/files`} className="hover:opacity-80">
-            <h3 className="text-lg font-semibold text-gray-900 hover:text-blue-600 transition-colors">
-              {repository.name}
-            </h3>
+            href={`/repositories/${repository.id}/files`}
+            className="text-[var(--text-primary)] hover:text-blue-500 transition-colors"
+          >
+            <h3 className="text-lg font-semibold">{repository.name}</h3>
           </Link>
-          <p className="text-sm text-gray-500 truncate max-w-xs">{repository.path}</p>
+          <p className="text-sm text-[var(--text-secondary)] truncate max-w-xs">{repository.path}</p>
         </div>
         <span
           className={cn(
@@ -109,16 +109,16 @@ export function RepoCard({ repository }: RepoCardProps) {
       {isAnalyzing && (
         <div className="mb-4 space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-gray-600">{currentStep || "分析中"}</span>
-            <span className="text-gray-600">{progress.percent}%</span>
+            <span className="text-[var(--text-secondary)]">{currentStep || "分析中"}</span>
+            <span className="text-[var(--text-secondary)]">{progress.percent}%</span>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
+          <div className="w-full bg-[var(--bg-hover)] rounded-full h-2">
             <div
               className="bg-blue-600 h-2 rounded-full transition-all duration-300"
               style={{ width: `${progress.percent}%` }}
             />
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-[var(--text-muted)]">
             {progress.filesProcessed} / {progress.filesTotal} 文件
           </div>
         </div>
@@ -126,16 +126,16 @@ export function RepoCard({ repository }: RepoCardProps) {
 
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="text-center">
-          <div className="text-xl font-bold text-gray-900">{repository.fileCount}</div>
-          <div className="text-xs text-gray-500">文件数</div>
+          <div className="text-xl font-bold text-[var(--text-primary)]">{repository.fileCount}</div>
+          <div className="text-xs text-[var(--text-muted)]">文件数</div>
         </div>
         <div className="text-center">
-          <div className="text-xl font-bold text-gray-900">{repository.lineCount}</div>
-          <div className="text-xs text-gray-500">代码行数</div>
+          <div className="text-xl font-bold text-[var(--text-primary)]">{repository.lineCount}</div>
+          <div className="text-xs text-[var(--text-muted)]">代码行数</div>
         </div>
         <div className="text-center">
-          <div className="text-xl font-bold text-gray-900">{repository.knowledgePointsCount}</div>
-          <div className="text-xs text-gray-500">知识点</div>
+          <div className="text-xl font-bold text-[var(--text-primary)]">{repository.knowledgePointsCount}</div>
+          <div className="text-xs text-[var(--text-muted)]">知识点</div>
         </div>
       </div>
 
@@ -147,7 +147,7 @@ export function RepoCard({ repository }: RepoCardProps) {
         {!isAnalyzing && (
           <Link
             href={`/repositories/${repository.id}/files`}
-            className="flex-1 px-4 py-2 rounded-lg font-medium text-sm text-center transition-colors bg-gray-100 text-gray-700 hover:bg-gray-200"
+            className="flex-1 px-4 py-2 rounded-lg font-medium text-sm text-center transition-colors bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
           >
             查看文件
           </Link>
@@ -196,7 +196,7 @@ export function RepoCard({ repository }: RepoCardProps) {
             </button>
             <button
               onClick={() => setShowConfirm(false)}
-              className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-sm text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 border border-[var(--border)] rounded-lg font-medium text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             >
               取消
             </button>

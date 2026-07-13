@@ -23,9 +23,9 @@ export function StructureList({ fileId, fileName }: StructureListProps) {
   if (isLoading) {
     return (
       <div className="space-y-2">
-        <h3 className="text-lg font-semibold mb-3">{fileName}</h3>
+        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">{fileName}</h3>
         {[...Array(8)].map((_, i) => (
-          <div key={i} className="h-6 bg-gray-100 rounded animate-pulse" style={{ width: `${80 - i * 5}%` }} />
+          <div key={i} className="h-6 bg-[var(--bg-hover)] rounded animate-pulse" style={{ width: `${80 - i * 5}%` }} />
         ))}
       </div>
     );
@@ -34,7 +34,7 @@ export function StructureList({ fileId, fileName }: StructureListProps) {
   if (error) {
     return (
       <div>
-        <h3 className="text-lg font-semibold mb-3">{fileName}</h3>
+        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">{fileName}</h3>
         <div className="text-red-500 text-sm">加载结构数据失败</div>
       </div>
     );
@@ -42,10 +42,10 @@ export function StructureList({ fileId, fileName }: StructureListProps) {
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-3">{fileName}</h3>
+      <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">{fileName}</h3>
 
       {flatNodes.length === 0 ? (
-        <div className="text-gray-400 text-sm py-4">
+        <div className="text-[var(--text-muted)] text-sm py-4">
           该文件暂无解析结果
         </div>
       ) : (
@@ -53,11 +53,11 @@ export function StructureList({ fileId, fileName }: StructureListProps) {
           {flatNodes.map((node) => (
             <li
               key={node.id}
-              className="flex items-center gap-2 py-1 px-2 rounded hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-2 py-1 px-2 rounded hover:bg-[var(--bg-hover)] transition-colors"
               style={{ paddingLeft: `${node.depth * 20 + 8}px` }}
             >
               <NodeBadge type={node.nodeType} name={node.name} />
-              <span className="ml-auto text-xs text-gray-400 font-mono flex-shrink-0">
+              <span className="ml-auto text-xs text-[var(--text-muted)] font-mono flex-shrink-0">
                 L{node.startLine}-{node.endLine}
               </span>
             </li>
