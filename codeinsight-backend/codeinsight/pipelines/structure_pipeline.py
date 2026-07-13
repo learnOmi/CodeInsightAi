@@ -110,51 +110,24 @@ class StructureDataPipeline:
         Returns:
             IngestResult
         """
-        result = IngestResult()
 
-        if not nodes:
-            return result
+        def _post_insert(repo_uuid: UUID, db_nodes: list[dict]) -> None:
+            for node in db_nodes:
+                key = (repo_uuid, node["file_id"], node["start_line"], node["node_type"], node["name"])
+                self._node_uuid_map[key] = node["node_id"]
 
-        await self._load_valid_file_ids(repo_uuid)
-
-        valid_nodes: list[dict] = []
-        for node in nodes:
-            validation = AstNodeValidator.validate(node, self._valid_file_ids[repo_uuid])
-            if validation.valid:
-                valid_nodes.append(node)
-            else:
-                result.validation_errors += 1
-                logger.debug("节点校验失败: %s", validation.errors)
-
-        result.total_count = len(nodes)
-        logger.info(
-            "AST 节点校验完成: total=%d, valid=%d, errors=%d", len(nodes), len(valid_nodes), result.validation_errors
-        )
-
-        if not valid_nodes:
-            return result
-
-        unique_nodes = self._deduplicate_nodes(valid_nodes)
-        result.duplicate_count = len(valid_nodes) - len(unique_nodes)
-
-        if not unique_nodes:
-            return result
-
-        db_nodes = self._transform_ast_nodes(repo_uuid, unique_nodes)
-
-        result.inserted_count = await self._batch_insert(
-            db_nodes,
-            self.ast_node_dao.create_many,
+        return await self._ingest_items(
+            items=nodes,
+            repo_uuid=repo_uuid,
+            load_valid_ids_fn=self._load_valid_file_ids,
+            validator_fn=lambda node: AstNodeValidator.validate(node, self._valid_file_ids[repo_uuid]),
+            create_many_fn=self.ast_node_dao.create_many,
             stage="ingest_nodes",
-            total=len(db_nodes),
+            stage_name="AST 节点",
+            dedup_fn=self._deduplicate_nodes,
+            transform_fn=self._transform_ast_nodes,
+            post_insert_fn=_post_insert,
         )
-
-        for node in db_nodes:
-            key = (repo_uuid, node["file_id"], node["start_line"], node["node_type"], node["name"])
-            self._node_uuid_map[key] = node["node_id"]
-
-        result.skipped_count = len(db_nodes) - result.inserted_count
-        return result
 
     async def ingest_call_edges(
         self,
@@ -215,6 +188,9 @@ class StructureDataPipeline:
         create_many_fn: CreateManyFn,
         stage: str,
         stage_name: str,
+        dedup_fn: Callable[[list[dict]], list[dict]] | None = None,
+        transform_fn: Callable[[UUID, list[dict]], list[dict]] | None = None,
+        post_insert_fn: Callable[[UUID, list[dict]], None] | None = None,
     ) -> IngestResult:
         """
         通用入库模板方法（SV-11 优化：提取三个 ingest_* 的公共逻辑）
@@ -227,6 +203,9 @@ class StructureDataPipeline:
             create_many_fn: DAO 的批量创建方法
             stage: 进度阶段名称
             stage_name: 日志显示的阶段名称
+            dedup_fn: 去重函数，可选
+            transform_fn: 转换函数，接收 (repo_uuid, items)，返回转换后列表，可选
+            post_insert_fn: 插入后回调函数，接收 (repo_uuid, inserted_items)，可选
 
         Returns:
             IngestResult
@@ -259,12 +238,27 @@ class StructureDataPipeline:
         if not valid_items:
             return result
 
+        if dedup_fn:
+            unique_items = dedup_fn(valid_items)
+            result.duplicate_count = len(valid_items) - len(unique_items)
+            if not unique_items:
+                return result
+            valid_items = unique_items
+
+        if transform_fn:
+            valid_items = transform_fn(repo_uuid, valid_items)
+            if not valid_items:
+                return result
+
         result.inserted_count = await self._batch_insert(
             valid_items,
             create_many_fn,
             stage=stage,
             total=len(valid_items),
         )
+
+        if post_insert_fn:
+            post_insert_fn(repo_uuid, valid_items)
 
         result.skipped_count = len(valid_items) - result.inserted_count
         return result

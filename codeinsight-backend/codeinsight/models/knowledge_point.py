@@ -50,16 +50,14 @@ class KnowledgePointModel(Base):
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        # M-6: embedding HNSW 索引，用于向量相似度搜索
         Index(
             "idx_knowledge_points_embedding",
             "embedding",
             postgresql_using="hnsw",
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
-        # M-7: tags JSONB GIN 索引，用于标签筛选
         Index("idx_knowledge_points_tags", "tags", postgresql_using="gin"),
-        # 常用查询索引
+        Index("idx_knowledge_points_repository", "repository_id"),
         Index("idx_knowledge_points_repository_version", "repository_id", "version"),
         Index("idx_knowledge_points_category", "category"),
         Index("idx_knowledge_points_confidence", "confidence"),

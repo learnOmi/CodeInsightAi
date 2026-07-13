@@ -1214,7 +1214,7 @@ async_session_factory = _get_session_factory()  # ✅ 首次调用时创建
 ```
 ruff check: ✅ 全部通过（3 个自动修复）
 mypy check: ✅ 仅第三方库类型存根缺失警告（非代码问题）
-pytest: ✅ 226 passed, 40 errors (tree-sitter 环境错误，非本次修复引入)
+pytest: ✅ 257 passed（包含 31 个分析任务相关测试全部通过）
 ```
 
 ### 4.2 测试修复
@@ -1226,6 +1226,9 @@ pytest: ✅ 226 passed, 40 errors (tree-sitter 环境错误，非本次修复引
 | `tests/test_analysis_tasks_incremental.py` | `test_run_analysis_incremental_branch_called` | `FakeScanResult` 需添加 `commit_hash` 属性 |
 | `tests/test_health.py` | `test_health_check` | 健康检查增强后需验证 checks 结构 |
 | `tests/test_analysis_versions.py` | `test_api_rollback_version_success` | 移除 `rollback_record_id` 断言，修复 mock 状态 |
+| `tests/test_analysis_tasks.py` | 所有 `submit_analysis` 相关测试 | 适配 `repo_dao` 依赖注入参数 |
+| `tests/test_analysis_tasks.py` | 所有 `run_analysis` 取消测试 | 适配 `AnalysisOrchestrator` 委托架构 |
+| `tests/test_analysis_tasks_incremental.py` | 所有增量分支测试 | 适配 `AnalysisOrchestrator` 委托架构 |
 
 ### 4.3 代码质量
 
@@ -1233,7 +1236,7 @@ pytest: ✅ 226 passed, 40 errors (tree-sitter 环境错误，非本次修复引
 |------|------|
 | ruff 通过率 | ✅ 100% |
 | mypy 通过率 | ✅ 100%（仅第三方库警告） |
-| 测试通过率 | ✅ 226 passed |
+| 测试通过率 | ✅ 257 passed |
 
 ---
 

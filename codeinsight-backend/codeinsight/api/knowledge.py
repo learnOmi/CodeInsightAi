@@ -4,6 +4,7 @@
 提供知识点的列表、详情、统计接口。
 """
 
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -31,18 +32,23 @@ def get_knowledge_point_dao() -> KnowledgePointDAO:
     return KnowledgePointDAO()
 
 
+# Annotated 类型别名，消除 B008 警告
+DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+KnowledgePointDaoDep = Annotated[KnowledgePointDAO, Depends(get_knowledge_point_dao)]
+
+
 @router.get("/knowledge-points", response_model=PaginatedKnowledgePoints)
 async def list_knowledge_points(
-    repository_id: UUID = Query(..., description="仓库 ID"),  # noqa: B008
-    version: str | None = Query(None, description="分析版本号，不传则使用当前版本"),
-    category: str | None = Query(None, description="按分类筛选：DP-/AD-/AL-/ET-/DK-"),
-    tag: str | None = Query(None, description="按标签筛选"),
-    page: int = Query(default=1, ge=1, description="页码"),
-    page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
-    sort_by: str = Query(default="created_at", description="排序字段：created_at/title/confidence"),
-    sort_order: str = Query(default="desc", pattern="^(asc|desc)$", description="排序方向"),
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: KnowledgePointDAO = Depends(get_knowledge_point_dao),  # noqa: B008
+    repository_id: Annotated[UUID, Query(description="仓库 ID")],
+    db: DbSession,
+    dao: KnowledgePointDaoDep,
+    version: Annotated[str | None, Query(description="分析版本号，不传则使用当前版本")] = None,
+    category: Annotated[str | None, Query(description="按分类筛选：DP-/AD-/AL-/ET-/DK-")] = None,
+    tag: Annotated[str | None, Query(description="按标签筛选")] = None,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 20,
+    sort_by: Annotated[str, Query(description="排序字段：created_at/title/confidence")] = "created_at",
+    sort_order: Annotated[str, Query(pattern="^(asc|desc)$", description="排序方向")] = "desc",
 ):
     """
     获取知识点列表
@@ -87,8 +93,8 @@ async def list_knowledge_points(
 @router.get("/knowledge-points/{point_id}", response_model=KnowledgePoint)
 async def get_knowledge_point(
     point_id: UUID,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: KnowledgePointDAO = Depends(get_knowledge_point_dao),  # noqa: B008
+    db: DbSession,
+    dao: KnowledgePointDaoDep,
 ):
     """
     获取知识点详情
@@ -106,9 +112,9 @@ async def get_knowledge_point(
 @router.get("/repositories/{repository_id}/knowledge-stats", response_model=KnowledgeStats)
 async def get_knowledge_stats(
     repository_id: UUID,
-    version: str | None = Query(None, description="分析版本号，不传则使用当前版本"),
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: KnowledgePointDAO = Depends(get_knowledge_point_dao),  # noqa: B008
+    db: DbSession,
+    dao: KnowledgePointDaoDep,
+    version: Annotated[str | None, Query(description="分析版本号，不传则使用当前版本")] = None,
 ):
     """
     获取知识点统计

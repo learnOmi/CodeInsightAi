@@ -4,6 +4,7 @@
 提供分析版本的列表、切换和回滚接口。
 """
 
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,11 +28,16 @@ def get_analysis_version_dao() -> AnalysisVersionDAO:
     return AnalysisVersionDAO()
 
 
+# Annotated 类型别名，消除 B008 警告
+DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+VersionDaoDep = Annotated[AnalysisVersionDAO, Depends(get_analysis_version_dao)]
+
+
 @router.get("/repositories/{repository_id}/versions", response_model=list[AnalysisVersion])
 async def list_versions(
     repository_id: UUID,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: AnalysisVersionDAO = Depends(get_analysis_version_dao),  # noqa: B008
+    db: DbSession,
+    dao: VersionDaoDep,
 ):
     """
     获取分析版本列表
@@ -117,9 +123,9 @@ async def _update_current_version(
 @router.post("/repositories/{repository_id}/switch-version")
 async def switch_version(
     repository_id: UUID,
-    version: str = Query(..., description="目标版本号"),
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: AnalysisVersionDAO = Depends(get_analysis_version_dao),  # noqa: B008
+    version: Annotated[str, Query(description="目标版本号")],
+    db: DbSession,
+    dao: VersionDaoDep,
 ):
     """
     切换到指定版本
@@ -141,9 +147,9 @@ async def switch_version(
 @router.post("/repositories/{repository_id}/rollback")
 async def rollback_version(
     repository_id: UUID,
-    version: str = Query(..., description="回滚目标版本"),
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: AnalysisVersionDAO = Depends(get_analysis_version_dao),  # noqa: B008
+    version: Annotated[str, Query(description="回滚目标版本")],
+    db: DbSession,
+    dao: VersionDaoDep,
 ):
     """
     回滚到指定版本

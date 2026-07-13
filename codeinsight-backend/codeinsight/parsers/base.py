@@ -9,9 +9,11 @@ from __future__ import annotations
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -250,9 +252,29 @@ class LanguageParser(ABC):
     #: 节点类型 → 名称提取方法名
     NAME_FIELD_MAP: dict[str, str] = {}
 
+    #: 需要递归处理子节点的节点类型
+    RECURSIVE_NODE_TYPES: set[str] = {"function", "class", "interface", "protocol", "enum"}
+
     # ============================================================
     # 通用辅助方法（消除 5 个 parser 间 ~80% 重复）
     # ============================================================
+
+    @staticmethod
+    def _get_node_position(node) -> tuple[int, int, int, int]:
+        """
+        从 tree-sitter 节点提取位置信息（1-indexed）
+
+        Args:
+            node: tree-sitter 节点
+
+        Returns:
+            (start_line, end_line, start_column, end_column)
+        """
+        start_line = node.start_point[0] + 1
+        end_line = node.end_point[0] + 1
+        start_column = node.start_point[1] + 1
+        end_column = node.end_point[1] + 1
+        return start_line, end_line, start_column, end_column
 
     @staticmethod
     def _create_node(
@@ -322,6 +344,51 @@ class LanguageParser(ABC):
             import_name = import_name.split(" as ")[-1].strip()
 
         return import_name
+
+    # ============================================================
+    # 通用节点遍历方法（P-1 修复：提取公共遍历逻辑）
+    # ============================================================
+
+    def _traverse_and_extract(
+        self,
+        node,
+        result: ASTNodeList,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+        on_node_found: Callable[[str, Any, ASTNode | None], ASTNode | None] | None = None,
+        on_child_traverse: Callable[[Any, ASTNode | None], bool] | None = None,
+    ) -> None:
+        """
+        通用 AST 遍历和节点提取方法
+
+        P-1 修复：提取公共节点遍历逻辑，各 parser 通过回调自定义行为。
+
+        Args:
+            node: 当前 tree-sitter 节点
+            result: 结果列表
+            file_path: 文件路径
+            language: 语言名称
+            parent_node: 父 ASTNode（已转换的）
+            on_node_found: 节点发现回调，返回创建的 ASTNode 或 None
+            on_child_traverse: 子节点遍历回调，返回是否继续遍历
+        """
+        if on_node_found:
+            ast_node = on_node_found(node.type, node, parent_node)
+            if ast_node:
+                result.add(ast_node)
+                # 如果是需要递归处理的节点类型，设置为新的父节点
+                if ast_node.node_type in self.RECURSIVE_NODE_TYPES:
+                    parent_node = ast_node
+
+        for child in node.children:
+            should_traverse = True
+            if on_child_traverse:
+                should_traverse = on_child_traverse(child, parent_node)
+            if should_traverse:
+                self._traverse_and_extract(
+                    child, result, file_path, language, parent_node, on_node_found, on_child_traverse
+                )
 
     # ============================================================
     # 抽象接口

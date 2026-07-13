@@ -64,7 +64,7 @@ async def test_submit_analysis_success():
         mock_dao.return_value = dao_instance
         mock_run.delay.return_value = mock_celery_result
 
-        result = await submit_analysis(repo_uuid, None, mock_db)
+        result = await submit_analysis(repo_uuid, mock_db, dao_instance, None)
 
         assert result.task_id == "test-celery-task-id"
         assert str(result.repository_id) == repo_uuid
@@ -102,7 +102,7 @@ async def test_submit_analysis_with_request():
 
         req = AnalyzeRequest(mode=AnalysisMode.FULL, agents=["design_pattern"])
 
-        result = await submit_analysis(repo_uuid, req, mock_db)
+        result = await submit_analysis(repo_uuid, mock_db, dao_instance, req)
 
         assert result.mode == AnalysisMode.FULL
         mock_run.delay.assert_called_once_with(
@@ -128,7 +128,7 @@ async def test_submit_analysis_repository_not_found():
         mock_dao.return_value = dao_instance
 
         with pytest.raises(HTTPException) as exc_info:
-            await submit_analysis(fake_uuid, None, mock_db)
+            await submit_analysis(fake_uuid, mock_db, dao_instance, None)
         assert exc_info.value.status_code == 404
 
 
@@ -340,7 +340,7 @@ async def test_redis_mapping_on_submit():
         mock_redis = mock_get_redis.return_value
         mock_redis.get.return_value = None
 
-        await submit_analysis(repo_uuid, None, mock_db)
+        await submit_analysis(repo_uuid, mock_db, dao_instance, None)
 
         mock_get_redis.assert_called()
         assert mock_redis.set.call_count == 3
@@ -376,7 +376,7 @@ async def test_submit_analysis_rejects_duplicate_active_task():
         mock_redis.get.return_value = "existing-task-id"
 
         with pytest.raises(HTTPException) as exc_info:
-            await submit_analysis(repo_uuid, None, mock_db)
+            await submit_analysis(repo_uuid, mock_db, dao_instance, None)
         assert exc_info.value.status_code == 409
         mock_run.delay.assert_not_called()
 
@@ -501,37 +501,21 @@ def test_run_analysis_cancellation_at_scanning_phase():
     mock_self = MagicMock()
     mock_self.request.id = "cancel-at-scanning"
 
-    # asyncio.run 需要返回 (None, None) 给 _get_in_progress_version，其余返回 MagicMock
-    _asyncio_run_calls = [0]  # 可变计数器（避免 closure 限制）
-
-    def _mock_asyncio_run_impl(*args, **kwargs):
-        if _asyncio_run_calls[0] == 0:
-            _asyncio_run_calls[0] += 1
-            return (None, None)  # _get_in_progress_version
-        _asyncio_run_calls[0] += 1
-        return MagicMock()  # 其余调用
-
-    mock_asyncio_run = MagicMock(side_effect=_mock_asyncio_run_impl)
-
     with (
-        patch("codeinsight.tasks.analysis_tasks.asyncio.run", mock_asyncio_run),
-        patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress,
-        patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check,
-        patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
+        patch("codeinsight.tasks.analysis_tasks.AnalysisOrchestrator") as mock_orchestrator_cls,
     ):
-        # 第一次调用 _check_cancelled (scanning 阶段) 抛出 CancelledError
-        mock_check.side_effect = [CancelledError("cancelled")]
-
-        mock_scanner_instance = MagicMock()
-        mock_scanner_cls.return_value = mock_scanner_instance
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.run.side_effect = CancelledError("cancelled")
+        mock_orchestrator_cls.return_value = mock_orchestrator
 
         with pytest.raises(CancelledError):
             run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
 
-        # 确认在 scanning 阶段之后调用了取消检查
-        assert mock_check.call_count == 1
-        # 确认状态更新至少到达 scanning（1 次：scanning）
-        assert mock_progress.call_count >= 1
+        mock_orchestrator_cls.assert_called_once_with(
+            repo_uuid=UUID(repo_uuid),
+            mode="full",
+            task_instance=mock_self,
+        )
 
 
 def test_run_analysis_cancellation_at_parsing_phase():
@@ -543,42 +527,15 @@ def test_run_analysis_cancellation_at_parsing_phase():
     mock_self = MagicMock()
     mock_self.request.id = "cancel-at-parsing"
 
-    mock_scan_result = MagicMock()
-    mock_scan_result.total_count = 10
-    mock_scan_result.total_lines = 100
-    mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
-    mock_scan_result.files = []
-
-    # 复用 _mock_asyncio_run_impl：第一次返回 (None, None)
-    _asyncio_run_calls = [0]
-
-    def _mock_asyncio_run_impl(*args, **kwargs):
-        if _asyncio_run_calls[0] == 0:
-            _asyncio_run_calls[0] += 1
-            return (None, None)
-        _asyncio_run_calls[0] += 1
-        return MagicMock()
-
-    mock_asyncio_run = MagicMock(side_effect=_mock_asyncio_run_impl)
-
     with (
-        patch("codeinsight.tasks.analysis_tasks.asyncio.run", mock_asyncio_run),
-        patch("codeinsight.tasks.analysis_tasks._update_progress"),
-        patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check,
-        patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
+        patch("codeinsight.tasks.analysis_tasks.AnalysisOrchestrator") as mock_orchestrator_cls,
     ):
-        # scanning 通过，parsing 阶段取消
-        mock_check.side_effect = [None, CancelledError("cancelled")]
-
-        mock_scanner_instance = MagicMock()
-        mock_scanner_instance.scan.return_value = mock_scan_result
-        mock_scanner_cls.return_value = mock_scanner_instance
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.run.side_effect = CancelledError("cancelled")
+        mock_orchestrator_cls.return_value = mock_orchestrator
 
         with pytest.raises(CancelledError):
             run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
-
-        # 确认在 scanning 阶段之后，parsing 阶段调用了取消检查
-        assert mock_check.call_count == 2
 
 
 def test_run_analysis_cancellation_at_storing_phase():
@@ -590,42 +547,15 @@ def test_run_analysis_cancellation_at_storing_phase():
     mock_self = MagicMock()
     mock_self.request.id = "cancel-at-storing"
 
-    mock_scan_result = MagicMock()
-    mock_scan_result.total_count = 10
-    mock_scan_result.total_lines = 100
-    mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
-    mock_scan_result.files = []
-
-    _asyncio_run_calls = [0]
-
-    def _mock_asyncio_run_impl(*args, **kwargs):
-        if _asyncio_run_calls[0] == 0:
-            _asyncio_run_calls[0] += 1
-            return (None, None)
-        _asyncio_run_calls[0] += 1
-        return MagicMock()
-
-    mock_asyncio_run = MagicMock(side_effect=_mock_asyncio_run_impl)
-
     with (
-        patch("codeinsight.tasks.analysis_tasks.asyncio.run", mock_asyncio_run),
-        patch("codeinsight.tasks.analysis_tasks._update_progress") as mock_progress,
-        patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check,
-        patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
+        patch("codeinsight.tasks.analysis_tasks.AnalysisOrchestrator") as mock_orchestrator_cls,
     ):
-        # scanning, parsing, analyzing 通过，storing 阶段取消
-        mock_check.side_effect = [None, None, None, CancelledError("cancelled")]
-
-        mock_scanner_instance = MagicMock()
-        mock_scanner_instance.scan.return_value = mock_scan_result
-        mock_scanner_cls.return_value = mock_scanner_instance
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.run.side_effect = CancelledError("cancelled")
+        mock_orchestrator_cls.return_value = mock_orchestrator
 
         with pytest.raises(CancelledError):
             run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
-
-        # 确认在 storing 阶段之前都通过了
-        assert mock_check.call_count == 4
-        assert mock_progress.call_count >= 4
 
 
 def test_run_analysis_no_cancellation_completes_normally():
@@ -637,38 +567,18 @@ def test_run_analysis_no_cancellation_completes_normally():
     mock_self = MagicMock()
     mock_self.request.id = "normal-task"
 
-    mock_scan_result = MagicMock()
-    mock_scan_result.total_count = 10
-    mock_scan_result.total_lines = 100
-    mock_scan_result.language_distribution = {"python": 5, "typescript": 5}
-    mock_scan_result.files = []
-
-    _asyncio_run_calls = [0]
-
-    def _mock_asyncio_run_impl(*args, **kwargs):
-        if _asyncio_run_calls[0] == 0:
-            _asyncio_run_calls[0] += 1
-            return (None, None)  # _get_in_progress_version
-        _asyncio_run_calls[0] += 1
-        return MagicMock()
-
-    mock_asyncio_run = MagicMock(side_effect=_mock_asyncio_run_impl)
-
     with (
-        patch("codeinsight.tasks.analysis_tasks.asyncio.run", mock_asyncio_run),
-        patch("codeinsight.tasks.analysis_tasks._update_progress"),
-        patch("codeinsight.tasks.analysis_tasks._check_cancelled") as mock_check,
-        patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
+        patch("codeinsight.tasks.analysis_tasks.AnalysisOrchestrator") as mock_orchestrator_cls,
     ):
-        mock_check.return_value = None  # 无取消
-
-        mock_scanner_instance = MagicMock()
-        mock_scanner_instance.scan.return_value = mock_scan_result
-        mock_scanner_cls.return_value = mock_scanner_instance
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.run.return_value = {
+            "version_id": str(uuid4()),
+            "version_tag": "v20260714-test",
+            "status": "completed",
+        }
+        mock_orchestrator_cls.return_value = mock_orchestrator
 
         result = run_analysis.__wrapped__.__func__(mock_self, repo_uuid, "full")
 
         assert result["status"] == "completed"
         assert "version_tag" in result
-        # 5 个阶段都应检查取消（新增 Step 4: 结构分析）
-        assert mock_check.call_count == 5

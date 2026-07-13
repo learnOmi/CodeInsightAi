@@ -107,6 +107,12 @@ class AnalysisOrchestrator:
         repo_uuid: UUID,
         mode: str = AnalysisMode.FULL.value,
         task_instance: Any | None = None,
+        repository_dao: RepositoryDAO | None = None,
+        file_dao: FileDAO | None = None,
+        version_dao: AnalysisVersionDAO | None = None,
+        ast_node_dao: AstNodeDAO | None = None,
+        call_edge_dao: CallEdgeDAO | None = None,
+        module_dep_dao: ModuleDependencyDAO | None = None,
     ) -> None:
         self.repo_uuid = repo_uuid
         self.mode = mode
@@ -114,31 +120,34 @@ class AnalysisOrchestrator:
         self.task_id = getattr(getattr(task_instance, "request", None), "id", None) if task_instance else None
         self.progress_manager = ProgressManager(task_instance)
         self.cancel_checker = CancelChecker()
-        self.version_tag = f"v{datetime.now(UTC).strftime('%Y%m%d')}-{uuid.uuid4().hex[:7]}"
+        self.version_tag = f"v{datetime.now(UTC).strftime('%Y%m%d')}-{uuid.uuid4().hex}"
         self.version_id: UUID | None = None
         self.total_files = 0
         self.scan_result: ScanResult | None = None
         self.incremental_diff: IncrementalDiff | None = None
         self.files_to_parse: list[FileModel] = []
 
+        self.repository_dao = repository_dao or RepositoryDAO()
+        self.file_dao = file_dao or FileDAO()
+        self.version_dao = version_dao or AnalysisVersionDAO()
+        self.ast_node_dao = ast_node_dao or AstNodeDAO()
+        self.call_edge_dao = call_edge_dao or CallEdgeDAO()
+        self.module_dep_dao = module_dep_dao or ModuleDependencyDAO()
+
     async def _get_repo_path(self) -> str | None:
         """获取仓库路径"""
-        repo_dao = RepositoryDAO()
         async with async_session_factory() as db:
-            repo = await repo_dao.get_by_id(db, self.repo_uuid)
+            repo = await self.repository_dao.get_by_id(db, self.repo_uuid)
             return repo.path if repo is not None else None
 
     async def _do_analysis_setup(self) -> None:
         """创建分析版本记录"""
-        version_dao = AnalysisVersionDAO()
-        repo_dao = RepositoryDAO()
-
         async with async_session_factory() as db:
-            repo = await repo_dao.get_by_id(db, self.repo_uuid)
+            repo = await self.repository_dao.get_by_id(db, self.repo_uuid)
             if repo is None:
                 raise ValueError(f"Repository {self.repo_uuid} not found")
 
-            version = await version_dao.create(
+            version = await self.version_dao.create(
                 db,
                 {
                     "repository_id": self.repo_uuid,
@@ -165,12 +174,12 @@ class AnalysisOrchestrator:
         knowledge_points_count: int | None = None,
         completed_at: datetime | None = None,
         error_message: str | None = None,
+        version: str | None = None,
     ) -> None:
         """更新分析版本状态"""
         if self.version_id is None:
             return
 
-        version_dao = AnalysisVersionDAO()
         update_data: dict[str, Any] = {"status": status.value}
         if total_files is not None:
             update_data["total_files"] = total_files
@@ -182,16 +191,17 @@ class AnalysisOrchestrator:
             update_data["completed_at"] = completed_at
         if error_message is not None:
             update_data["error_message"] = error_message
+        if version is not None:
+            update_data["version"] = version
 
         async with async_session_factory() as db:
-            await version_dao.update(db, self.version_id, update_data)
+            await self.version_dao.update(db, self.version_id, update_data)
             await db.commit()
 
     async def _set_repo_status(self, status: str) -> None:
         """更新仓库状态"""
-        dao = RepositoryDAO()
         async with async_session_factory() as db:
-            repo = await dao.get_by_id(db, self.repo_uuid)
+            repo = await self.repository_dao.get_by_id(db, self.repo_uuid)
             if repo is not None:
                 repo.status = status
                 await db.flush()
@@ -205,9 +215,8 @@ class AnalysisOrchestrator:
         knowledge_points_count: int = 0,
     ) -> None:
         """更新仓库统计信息"""
-        dao = RepositoryDAO()
         async with async_session_factory() as db:
-            repo = await dao.get_by_id(db, self.repo_uuid)
+            repo = await self.repository_dao.get_by_id(db, self.repo_uuid)
             if repo is not None:
                 repo.file_count = total_files
                 repo.line_count = total_lines
@@ -219,19 +228,17 @@ class AnalysisOrchestrator:
 
     async def _store_files_to_db(self, files_data: list[dict]) -> None:
         """存储扫描结果到 files 表"""
-        file_dao = FileDAO()
         async with async_session_factory() as db:
-            await file_dao.delete_by_repository(db, self.repo_uuid)
+            await self.file_dao.delete_by_repository(db, self.repo_uuid)
             if files_data:
-                repo_files = await file_dao.create_many(db, self.repo_uuid, files_data)
+                repo_files = await self.file_dao.create_many(db, self.repo_uuid, files_data)
                 logger.info("文件存储完成: %d 个文件", len(repo_files))
             await db.commit()
 
     async def _reconstruct_scan_result(self) -> bool:
         """从数据库重建扫描结果（断点续跑用）"""
-        file_dao = FileDAO()
         async with async_session_factory() as db:
-            files = await file_dao.get_by_repository(db, self.repo_uuid)
+            files = await self.file_dao.get_by_repository(db, self.repo_uuid)
 
         if not files:
             return False
@@ -280,15 +287,19 @@ class AnalysisOrchestrator:
         self.scan_result = scanner.scan()
         self.total_files = self.scan_result.total_count
 
+        if self.scan_result.commit_hash:
+            self.version_tag = f"v{datetime.now(UTC).strftime('%Y%m%d')}-{self.scan_result.commit_hash}"
+
         logger.info(
-            "扫描完成: repo_path=%s, files=%d, lines=%d",
+            "扫描完成: repo_path=%s, files=%d, lines=%d, version_tag=%s",
             repo_path,
             self.total_files,
             self.scan_result.total_lines,
+            self.version_tag,
         )
         logger.info("语言分布: %s", self.scan_result.language_distribution)
 
-        await self._update_analysis_version(TaskStatus.SCANNING, total_files=self.total_files)
+        await self._update_analysis_version(TaskStatus.SCANNING, total_files=self.total_files, version=self.version_tag)
         await self._update_repository_stats(
             total_files=self.total_files,
             total_lines=self.scan_result.total_lines,
@@ -326,8 +337,7 @@ class AnalysisOrchestrator:
             async with async_session_factory() as db:
                 snapshot_manager = SnapshotManager(db)
                 latest_version = await snapshot_manager.get_latest_version(self.repo_uuid)
-                file_dao = FileDAO()
-                current_files = await file_dao.get_by_repository(db, self.repo_uuid)
+                current_files = await self.file_dao.get_by_repository(db, self.repo_uuid)
                 self.incremental_diff = await analyzer.compute_diff(self.repo_uuid, current_files, latest_version)
 
             if self.incremental_diff is None:
@@ -348,8 +358,7 @@ class AnalysisOrchestrator:
             affected_paths.update(self.incremental_diff.propagated_files)
 
             async with async_session_factory() as db:
-                file_dao = FileDAO()
-                current_files = await file_dao.get_by_repository(db, self.repo_uuid)
+                current_files = await self.file_dao.get_by_repository(db, self.repo_uuid)
                 self.files_to_parse = [f for f in current_files if f.path in affected_paths]
 
             logger.info(
@@ -372,13 +381,10 @@ class AnalysisOrchestrator:
             logger.warning("扫描结果为空，跳过 AST 解析")
             return
 
-        file_dao = FileDAO()
-        ast_dao = AstNodeDAO()
-
         async with async_session_factory() as db:
-            await ast_dao.delete_by_repository(db, self.repo_uuid)
+            await self.ast_node_dao.delete_by_repository(db, self.repo_uuid)
 
-            repo_files = await file_dao.get_by_repository(db, self.repo_uuid)
+            repo_files = await self.file_dao.get_by_repository(db, self.repo_uuid)
             file_id_map: dict[str, UUID] = {f.path: f.id for f in repo_files}
 
             pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
@@ -429,11 +435,9 @@ class AnalysisOrchestrator:
             logger.info("增量 AST 解析: 无需解析的文件")
             return
 
-        ast_dao = AstNodeDAO()
-
         async with async_session_factory() as db:
             file_ids = [f.id for f in self.files_to_parse]
-            deleted = await ast_dao.delete_by_file_ids(db, self.repo_uuid, file_ids)
+            deleted = await self.ast_node_dao.delete_by_file_ids(db, self.repo_uuid, file_ids)
             logger.info("增量 AST 解析: 删除旧节点 %d 条", deleted)
 
             pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
@@ -477,10 +481,8 @@ class AnalysisOrchestrator:
     async def build_structures(self, progress_callback: Callable[[int, int, str], None] | None = None) -> None:
         """Step 4: 构建调用图和模块依赖图（全量）"""
         async with async_session_factory() as db:
-            call_edge_dao = CallEdgeDAO()
-            module_dep_dao = ModuleDependencyDAO()
-            await call_edge_dao.delete_by_repository(db, self.repo_uuid)
-            await module_dep_dao.delete_by_repository(db, self.repo_uuid)
+            await self.call_edge_dao.delete_by_repository(db, self.repo_uuid)
+            await self.module_dep_dao.delete_by_repository(db, self.repo_uuid)
 
             pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
 
@@ -512,10 +514,8 @@ class AnalysisOrchestrator:
         async with async_session_factory() as db:
             pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
 
-            call_edge_dao = CallEdgeDAO()
-            module_dep_dao = ModuleDependencyDAO()
-            deleted_edges = await call_edge_dao.delete_by_file_ids(db, self.repo_uuid, file_ids)
-            deleted_deps = await module_dep_dao.delete_by_file_ids(db, self.repo_uuid, file_ids)
+            deleted_edges = await self.call_edge_dao.delete_by_file_ids(db, self.repo_uuid, file_ids)
+            deleted_deps = await self.module_dep_dao.delete_by_file_ids(db, self.repo_uuid, file_ids)
             logger.info("增量结构分析: 删除旧边 edges=%d, deps=%d", deleted_edges, deleted_deps)
 
             call_graph_builder = CallGraphBuilder()
@@ -539,8 +539,7 @@ class AnalysisOrchestrator:
 
         try:
             async with async_session_factory() as db:
-                file_dao = FileDAO()
-                files = await file_dao.get_by_repository(db, self.repo_uuid)
+                files = await self.file_dao.get_by_repository(db, self.repo_uuid)
                 snapshot_manager = SnapshotManager(db)
                 count = await snapshot_manager.save_snapshot(self.repo_uuid, self.version_tag, files)
                 await db.commit()

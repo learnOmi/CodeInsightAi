@@ -8,6 +8,7 @@
 
 import logging
 from datetime import UTC, datetime
+from typing import Annotated
 from uuid import UUID
 
 import redis
@@ -37,6 +38,16 @@ router = APIRouter(
 )
 
 _MAPPING_TTL = 86400 * 7  # 映射保留 7 天
+
+
+def get_repository_dao() -> RepositoryDAO:
+    """获取 RepositoryDAO 实例（依赖注入）"""
+    return RepositoryDAO()
+
+
+# Annotated 类型别名，消除 B008 警告
+DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+RepoDaoDep = Annotated[RepositoryDAO, Depends(get_repository_dao)]
 
 
 def _utcnow() -> datetime:
@@ -160,8 +171,9 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
 @router.post("/repositories/{repository_id}/analyze", response_model=AnalysisTask, status_code=202)
 async def submit_analysis(
     repository_id: UUID,
+    db: DbSession,
+    repo_dao: RepoDaoDep,
     request: AnalyzeRequest | None = None,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
 ):
     """
     提交分析任务
@@ -173,13 +185,13 @@ async def submit_analysis(
         repository_id: 目标仓库 ID
         request: 可选的分析参数（模式、启用的 Agent 列表）
         db: 数据库会话
+        repo_dao: RepositoryDAO 实例
 
     Returns:
         AnalysisTask: 包含 task_id、初始状态的响应
     """
     # 验证仓库存在
-    dao = RepositoryDAO()
-    repo = await dao.get_by_id(db, repository_id)
+    repo = await repo_dao.get_by_id(db, repository_id)
     if repo is None:
         raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
 

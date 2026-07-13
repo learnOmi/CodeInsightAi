@@ -99,6 +99,7 @@ class Settings(BaseSettings):
         - postgres_password
         - secret_key (至少 32 字符)
         - api_key (至少 16 字符)
+        - cors_origins (不能包含通配符 "*")
         """
         if self.app_env != "production":
             return
@@ -113,6 +114,12 @@ class Settings(BaseSettings):
 
         if not self.api_key or len(self.api_key) < 16:
             errors.append("API_KEY 必须在生产环境配置，且长度至少 16 字符")
+
+        if "*" in self.cors_origins:
+            errors.append("CORS_ORIGINS 在生产环境不能使用通配符 '*'")
+
+        if not self.cors_origins:
+            errors.append("CORS_ORIGINS 在生产环境必须配置")
 
         if errors:
             raise ValueError("生产环境配置验证失败:\n" + "\n".join(f"- {e}" for e in errors))

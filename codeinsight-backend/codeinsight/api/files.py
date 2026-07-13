@@ -4,6 +4,7 @@
 提供文件的增删改查接口。
 """
 
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -27,13 +28,19 @@ def get_file_dao() -> FileDAO:
     return FileDAO()
 
 
+# Annotated 类型别名，消除 B008 警告
+DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+FileDaoDep = Annotated[FileDAO, Depends(get_file_dao)]
+RepositoryIdQuery = Annotated[UUID, Query(description="仓库 ID")]
+
+
 @router.get("")
 async def list_files(
-    repository_id: UUID = Query(..., description="仓库 ID"),  # noqa: B008
-    page: int = Query(default=1, ge=1, description="页码"),
-    page_size: int = Query(default=20, ge=1, le=100, description="每页数量"),
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: FileDAO = Depends(get_file_dao),  # noqa: B008
+    repository_id: RepositoryIdQuery,
+    db: DbSession,
+    dao: FileDaoDep,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 20,
 ):
     """
     获取文件列表（分页）
@@ -52,8 +59,8 @@ async def list_files(
 @router.post("", response_model=File, status_code=201)
 async def create_file(
     request: FileCreate,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: FileDAO = Depends(get_file_dao),  # noqa: B008
+    db: DbSession,
+    dao: FileDaoDep,
 ):
     """
     添加代码文件
@@ -67,8 +74,8 @@ async def create_file(
 @router.get("/{file_id}", response_model=File)
 async def get_file(
     file_id: UUID,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: FileDAO = Depends(get_file_dao),  # noqa: B008
+    db: DbSession,
+    dao: FileDaoDep,
 ):
     """
     获取文件详情
@@ -84,9 +91,9 @@ async def get_file(
 @router.get("/by-hash/{content_hash}", response_model=list[File])
 async def get_files_by_hash(
     content_hash: str,
-    repository_id: UUID = Query(..., description="仓库 ID"),  # noqa: B008
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: FileDAO = Depends(get_file_dao),  # noqa: B008
+    repository_id: RepositoryIdQuery,
+    db: DbSession,
+    dao: FileDaoDep,
 ):
     """
     根据内容哈希查找文件（用于增量检测）
@@ -101,8 +108,8 @@ async def get_files_by_hash(
 async def update_file(
     file_id: UUID,
     request: FileUpdate,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: FileDAO = Depends(get_file_dao),  # noqa: B008
+    db: DbSession,
+    dao: FileDaoDep,
 ):
     """
     更新文件信息
@@ -118,8 +125,8 @@ async def update_file(
 @router.delete("/{file_id}", status_code=204)
 async def delete_file(
     file_id: UUID,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: FileDAO = Depends(get_file_dao),  # noqa: B008
+    db: DbSession,
+    dao: FileDaoDep,
 ):
     """
     删除文件

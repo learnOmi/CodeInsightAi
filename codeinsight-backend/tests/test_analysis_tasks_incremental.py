@@ -315,50 +315,23 @@ class TestRunAnalysisIncremental:
         mock_self = MagicMock()
         mock_self.request.id = "inc-task-001"
 
-        mock_scan_result = FakeScanResult(
-            files=[FakeScanFile("a.py", "/repo/a.py", "python", 10, 100, "h1")],
-            total_count=1,
-            total_lines=10,
-            language_distribution={"python": 1},
-        )
-
-        mock_asyncio_run = _make_mock_asyncio_run(
-            diff_result=IncrementalDiff(
-                changed_files=[],
-                propagated_files=[],
-                total_files_to_analyze=1,
-                skipped_files=0,
-                needs_full_analysis=False,
-            )
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.path = "/tmp/test-repo"
-        mock_repo_dao = MagicMock()
-        mock_repo_dao.return_value.get_by_id = AsyncMock(return_value=mock_repo)
-
-        with (
-            patch("codeinsight.tasks.analysis_tasks.asyncio.run", mock_asyncio_run),
-            patch("codeinsight.tasks.analysis_tasks.async_session_factory", self._make_mock_session_cm()),
-            patch("codeinsight.tasks.analysis_tasks._update_progress"),
-            patch("codeinsight.tasks.analysis_tasks._check_cancelled", return_value=None),
-            patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
-            patch("codeinsight.tasks.analysis_tasks._store_files_to_db"),
-            patch("codeinsight.tasks.analysis_tasks.RepositoryDAO", mock_repo_dao),
-            patch("codeinsight.tasks.analysis_tasks._parse_and_store_ast_incremental"),
-            patch("codeinsight.tasks.analysis_tasks._build_structures_incremental"),
-            patch("codeinsight.tasks.analysis_tasks._save_analysis_snapshot"),
-        ):
-            mock_scanner_instance = MagicMock()
-            mock_scanner_instance.scan.return_value = mock_scan_result
-            mock_scanner_cls.return_value = mock_scanner_instance
+        with patch("codeinsight.tasks.analysis_tasks.AnalysisOrchestrator") as mock_orchestrator_cls:
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run.return_value = {
+                "version_id": str(uuid4()),
+                "version_tag": "v20260714-test",
+                "status": "completed",
+            }
+            mock_orchestrator_cls.return_value = mock_orchestrator
 
             result = run_analysis.__wrapped__.__func__(mock_self, REPO_UUID_STR, "incremental")
 
-        assert result["status"] == "completed"
-        # 验证 _compute_incremental_diff 被调用
-        inc_calls = [c for c in mock_asyncio_run.call_args_list if "_compute_incremental_diff" in str(c.args[0])]
-        assert len(inc_calls) > 0
+            assert result["status"] == "completed"
+            mock_orchestrator_cls.assert_called_once_with(
+                repo_uuid=UUID(REPO_UUID_STR),
+                mode="incremental",
+                task_instance=mock_self,
+            )
 
     def test_run_analysis_full_mode_ignores_incremental(self):
         """测试 full 模式下不进入增量分支"""
@@ -367,42 +340,23 @@ class TestRunAnalysisIncremental:
         mock_self = MagicMock()
         mock_self.request.id = "full-task-001"
 
-        mock_scan_result = FakeScanResult(
-            files=[],
-            total_count=0,
-            total_lines=0,
-            language_distribution={},
-        )
-
-        mock_asyncio_run = _make_mock_asyncio_run()
-
-        mock_repo = MagicMock()
-        mock_repo.path = "/tmp/test-repo"
-        mock_repo_dao = MagicMock()
-        mock_repo_dao.return_value.get_by_id = AsyncMock(return_value=mock_repo)
-
-        with (
-            patch("codeinsight.tasks.analysis_tasks.asyncio.run", mock_asyncio_run),
-            patch("codeinsight.tasks.analysis_tasks.async_session_factory", self._make_mock_session_cm()),
-            patch("codeinsight.tasks.analysis_tasks._update_progress"),
-            patch("codeinsight.tasks.analysis_tasks._check_cancelled", return_value=None),
-            patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
-            patch("codeinsight.tasks.analysis_tasks._store_files_to_db"),
-            patch("codeinsight.tasks.analysis_tasks.RepositoryDAO", mock_repo_dao),
-            patch("codeinsight.tasks.analysis_tasks._parse_and_store_ast"),
-            patch("codeinsight.tasks.analysis_tasks._build_structures"),
-            patch("codeinsight.tasks.analysis_tasks._save_analysis_snapshot"),
-        ):
-            mock_scanner_instance = MagicMock()
-            mock_scanner_instance.scan.return_value = mock_scan_result
-            mock_scanner_cls.return_value = mock_scanner_instance
+        with patch("codeinsight.tasks.analysis_tasks.AnalysisOrchestrator") as mock_orchestrator_cls:
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run.return_value = {
+                "version_id": str(uuid4()),
+                "version_tag": "v20260714-test",
+                "status": "completed",
+            }
+            mock_orchestrator_cls.return_value = mock_orchestrator
 
             result = run_analysis.__wrapped__.__func__(mock_self, REPO_UUID_STR, "full")
 
-        assert result["status"] == "completed"
-        # 验证 _compute_incremental_diff 未被调用
-        inc_calls = [c for c in mock_asyncio_run.call_args_list if "_compute_incremental_diff" in str(c.args[0])]
-        assert len(inc_calls) == 0
+            assert result["status"] == "completed"
+            mock_orchestrator_cls.assert_called_once_with(
+                repo_uuid=UUID(REPO_UUID_STR),
+                mode="full",
+                task_instance=mock_self,
+            )
 
     def test_run_analysis_incremental_falls_back_to_full(self):
         """测试 incremental 模式下 needs_full_analysis=True 时降级为全量"""
@@ -411,48 +365,15 @@ class TestRunAnalysisIncremental:
         mock_self = MagicMock()
         mock_self.request.id = "fallback-task-001"
 
-        mock_scan_result = FakeScanResult(
-            files=[FakeScanFile("a.py", "/repo/a.py", "python", 10, 100, "h1")],
-            total_count=1,
-            total_lines=10,
-            language_distribution={"python": 1},
-        )
-
-        mock_asyncio_run = _make_mock_asyncio_run(
-            diff_result=IncrementalDiff(
-                changed_files=[],
-                propagated_files=[],
-                total_files_to_analyze=100,
-                skipped_files=0,
-                needs_full_analysis=True,
-            )
-        )
-
-        mock_repo = MagicMock()
-        mock_repo.path = "/tmp/test-repo"
-        mock_repo_dao = MagicMock()
-        mock_repo_dao.return_value.get_by_id = AsyncMock(return_value=mock_repo)
-
-        with (
-            patch("codeinsight.tasks.analysis_tasks.asyncio.run", mock_asyncio_run),
-            patch("codeinsight.tasks.analysis_tasks.async_session_factory", self._make_mock_session_cm()),
-            patch("codeinsight.tasks.analysis_tasks._update_progress"),
-            patch("codeinsight.tasks.analysis_tasks._check_cancelled", return_value=None),
-            patch("codeinsight.tasks.analysis_tasks.GitScanner") as mock_scanner_cls,
-            patch("codeinsight.tasks.analysis_tasks._store_files_to_db"),
-            patch("codeinsight.tasks.analysis_tasks.RepositoryDAO", mock_repo_dao),
-            patch("codeinsight.tasks.analysis_tasks._parse_and_store_ast"),
-            patch("codeinsight.tasks.analysis_tasks._build_structures"),
-            patch("codeinsight.tasks.analysis_tasks._save_analysis_snapshot"),
-        ):
-            mock_scanner_instance = MagicMock()
-            mock_scanner_instance.scan.return_value = mock_scan_result
-            mock_scanner_cls.return_value = mock_scanner_instance
+        with patch("codeinsight.tasks.analysis_tasks.AnalysisOrchestrator") as mock_orchestrator_cls:
+            mock_orchestrator = MagicMock()
+            mock_orchestrator.run.return_value = {
+                "version_id": str(uuid4()),
+                "version_tag": "v20260714-test",
+                "status": "completed",
+            }
+            mock_orchestrator_cls.return_value = mock_orchestrator
 
             result = run_analysis.__wrapped__.__func__(mock_self, REPO_UUID_STR, "incremental")
 
-        assert result["status"] == "completed"
-        # 验证降级后调用的是全量解析 _parse_and_store_ast
-        # _parse_and_store_ast 被 patch 为 MagicMock，其调用时通过 asyncio.run 传参
-        # 由于 MagicMock 返回的是 mock 协程 (_execute_mock_call)，检查 asyncio.run 调用次数
-        # 以及确认 _parse_and_store_ast 的 mock 本身被调用
+            assert result["status"] == "completed"

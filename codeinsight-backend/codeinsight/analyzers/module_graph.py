@@ -34,6 +34,29 @@ class ModuleDependencyBuilder:
         self.file_dao = FileDAO()
         self.dep_dao = ModuleDependencyDAO()
 
+    async def _get_session(self, db: AsyncSession | None = None, method_name: str = "") -> tuple[AsyncSession, bool]:
+        """
+        获取数据库会话（A-11 修复：提取重复的 session 管理模板）
+
+        Args:
+            db: 可选的数据库会话
+            method_name: 调用方法名，用于日志警告
+
+        Returns:
+            (session, use_context) 元组，use_context 表示是否需要手动关闭
+        """
+        if db is None:
+            db = await async_session_factory().__aenter__()
+            use_context = True
+            if method_name:
+                logger.warning(
+                    "%s: 未传入 db session，已创建新 session。建议调用方传入共享 session 以优化资源管理",
+                    method_name,
+                )
+        else:
+            use_context = False
+        return db, use_context
+
     async def build(
         self,
         repo_uuid: UUID,
@@ -57,12 +80,7 @@ class ModuleDependencyBuilder:
             logger.info("模块依赖构建 (dry_run): repo=%s, dependencies=%d", repo_uuid, len(deps_data))
             return len(deps_data)
 
-        # 需要写入，使用独立 session
-        use_context = db is None
-        session = db
-        if use_context:
-            session = await async_session_factory().__aenter__()
-        assert session is not None  # type narrowing for mypy
+        session, use_context = await self._get_session(db, "ModuleDependencyBuilder.build")
 
         try:
             await self.dep_dao.delete_by_repository(session, repo_uuid)
@@ -88,11 +106,7 @@ class ModuleDependencyBuilder:
         Returns:
             依赖边数据列表
         """
-        use_context = db is None
-        session = db
-        if use_context:
-            session = await async_session_factory().__aenter__()
-        assert session is not None  # type narrowing for mypy
+        session, use_context = await self._get_session(db, "ModuleDependencyBuilder.build_data")
 
         try:
             # 1. 按需加载 import 节点和文件
@@ -136,11 +150,7 @@ class ModuleDependencyBuilder:
             logger.info("模块依赖增量构建: repo=%s, file_paths=0 (跳过)", repo_uuid)
             return []
 
-        use_context = db is None
-        session = db
-        if use_context:
-            session = await async_session_factory().__aenter__()
-        assert session is not None
+        session, use_context = await self._get_session(db, "ModuleDependencyBuilder.build_data_for_files")
 
         try:
             # 增量构建：只加载需要文件的 import 节点和文件

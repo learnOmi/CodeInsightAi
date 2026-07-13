@@ -4,6 +4,7 @@
 提供仓库的增删改查接口。
 """
 
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -26,11 +27,16 @@ def get_repository_dao() -> RepositoryDAO:
     return RepositoryDAO()
 
 
+# Annotated 类型别名，消除 B008 警告
+DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+RepoDaoDep = Annotated[RepositoryDAO, Depends(get_repository_dao)]
+
+
 @router.post("", response_model=Repository, status_code=201)
 async def create_repository(
     request: RepositoryCreate,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: RepositoryDAO = Depends(get_repository_dao),  # noqa: B008
+    db: DbSession,
+    dao: RepoDaoDep,
 ):
     """
     添加代码仓库
@@ -47,10 +53,10 @@ async def create_repository(
 
 @router.get("", response_model=list[Repository])
 async def list_repositories(
-    skip: int = Query(default=0, ge=0, description="跳过的记录数"),
-    limit: int = Query(default=100, ge=1, le=500, description="返回的记录数"),
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: RepositoryDAO = Depends(get_repository_dao),  # noqa: B008
+    db: DbSession,
+    dao: RepoDaoDep,
+    skip: Annotated[int, Query(ge=0, description="跳过的记录数")] = 0,
+    limit: Annotated[int, Query(ge=1, le=500, description="返回的记录数")] = 100,
 ):
     """
     获取仓库列表
@@ -64,8 +70,8 @@ async def list_repositories(
 @router.get("/{repository_id}", response_model=Repository)
 async def get_repository(
     repository_id: UUID,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: RepositoryDAO = Depends(get_repository_dao),  # noqa: B008
+    db: DbSession,
+    dao: RepoDaoDep,
 ):
     """
     获取仓库详情
@@ -82,8 +88,8 @@ async def get_repository(
 async def update_repository(
     repository_id: UUID,
     request: RepositoryUpdate,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: RepositoryDAO = Depends(get_repository_dao),  # noqa: B008
+    db: DbSession,
+    dao: RepoDaoDep,
 ):
     """
     更新仓库信息
@@ -100,8 +106,8 @@ async def update_repository(
 @router.delete("/{repository_id}", status_code=204)
 async def delete_repository(
     repository_id: UUID,
-    db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    dao: RepositoryDAO = Depends(get_repository_dao),  # noqa: B008
+    db: DbSession,
+    dao: RepoDaoDep,
 ):
     """
     删除仓库及其所有分析数据
