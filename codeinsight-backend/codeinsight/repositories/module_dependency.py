@@ -102,10 +102,10 @@ class ModuleDependencyDAO:
                 )
             )
         )
-        deleted = getattr(result, "rowcount", 0)
-
+        # M-5 修复：与 delete_by_repository 保持一致的 rowcount 读取方式
         await db.flush()
-        return deleted
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount) or 0
 
     async def count_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:
         """统计指定仓库的模块依赖数量"""

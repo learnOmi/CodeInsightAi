@@ -18,6 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.auth import get_api_key_dependency
 from codeinsight.config import settings
+from codeinsight.constants.redis_keys import (
+    repo_active_task_key,
+    task_cancel_key,
+    task_mode_key,
+    task_repo_key,
+)
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import get_db_session
 from codeinsight.repositories import RepositoryDAO
@@ -69,7 +75,7 @@ def _lookup_repository(task_id: str) -> UUID | None:
     """
     try:
         client = get_redis_client()
-        raw = client.get(f"task:{task_id}:repo")
+        raw = client.get(task_repo_key(task_id))
         if raw is not None:
             return UUID(str(raw))
         logger.debug("Redis 中未找到任务映射: task_id=%s", task_id)
@@ -92,7 +98,7 @@ def _lookup_task_mode(task_id: str) -> AnalysisMode:
     """
     try:
         client = get_redis_client()
-        raw = client.get(f"task:{task_id}:mode")
+        raw = client.get(task_mode_key(task_id))
         if raw is not None:
             return AnalysisMode(str(raw))
     except redis.RedisError:
@@ -200,7 +206,7 @@ async def submit_analysis(
     # 检查是否已有正在运行的任务（防止重复提交）
     try:
         client = get_redis_client()
-        existing_task_id = client.get(f"repo:{repository_id}:active_task")
+        existing_task_id = client.get(repo_active_task_key(str(repository_id)))
         if existing_task_id:
             task_id_str = existing_task_id.decode("utf-8") if isinstance(existing_task_id, bytes) else existing_task_id
             logger.warning("仓库已有活跃任务，拒绝重复提交: repo=%s, existing_task=%s", repository_id, task_id_str)
@@ -222,17 +228,17 @@ async def submit_analysis(
     try:
         client = get_redis_client()
         client.set(
-            f"task:{celery_result.id}:repo",
+            task_repo_key(celery_result.id),
             str(repository_id),
             ex=settings.redis_task_mapping_ttl,
         )
         client.set(
-            f"task:{celery_result.id}:mode",
+            task_mode_key(celery_result.id),
             mode.value,
             ex=settings.redis_task_mapping_ttl,
         )
         # 记录仓库的活跃任务 ID（用于去重）
-        client.set(f"repo:{repository_id}:active_task", celery_result.id, ex=settings.redis_task_mapping_ttl)
+        client.set(repo_active_task_key(str(repository_id)), celery_result.id, ex=settings.redis_task_mapping_ttl)
     except redis.RedisError as exc:
         logger.warning("Redis 写入映射失败: %s", exc)
 
@@ -328,11 +334,11 @@ async def cancel_task(task_id: str):
         # 清理 Redis 中的活跃任务标记和取消标志
         try:
             client = get_redis_client()
-            repo_id_raw = client.get(f"task:{task_id}:repo")
+            repo_id_raw = client.get(task_repo_key(task_id))
             if repo_id_raw:
-                repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else repo_id_raw
-                client.delete(f"repo:{repo_id_str}:active_task")
-            client.set(f"task:{task_id}:cancel", "1", ex=settings.redis_cancel_flag_ttl)
+                repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else str(repo_id_raw)
+                client.delete(repo_active_task_key(repo_id_str))
+            client.set(task_cancel_key(task_id), "1", ex=settings.redis_cancel_flag_ttl)
         except redis.RedisError as exc:
             logger.warning("Redis 清理失败: %s", exc)
         return {"message": f"Task {task_id} cancellation requested"}

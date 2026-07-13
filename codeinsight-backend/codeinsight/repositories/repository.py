@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeinsight.models import RepositoryModel
+from codeinsight.models import RepositoryModel, RepositoryStatus
 from codeinsight.schemas import RepositoryCreate, RepositoryUpdate
 
 
@@ -30,7 +30,7 @@ class RepositoryDAO:
         repo = RepositoryModel(
             name=data.name,
             path=data.path,
-            status="pending",
+            status=RepositoryStatus.PENDING.value,
             current_version=None,
             file_count=0,
             line_count=0,

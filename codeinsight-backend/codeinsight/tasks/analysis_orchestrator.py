@@ -19,6 +19,7 @@ from typing import Any
 from uuid import UUID
 
 from codeinsight.analyzers import CallGraphBuilder, ModuleDependencyBuilder
+from codeinsight.constants.redis_keys import task_cancel_key
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import async_session_factory
 from codeinsight.exceptions import CancelledError
@@ -52,9 +53,9 @@ class CancelChecker:
         if not task_id:
             return
         try:
-            cancelled = self._client.get(f"task:{task_id}:cancel")
+            cancelled = self._client.get(task_cancel_key(task_id))
             if cancelled:
-                self._client.delete(f"task:{task_id}:cancel")
+                self._client.delete(task_cancel_key(task_id))
                 logger.info("检测到取消标志，终止任务: task_id=%s", task_id)
                 raise CancelledError(f"Task {task_id} was cancelled by user")
         except Exception as exc:

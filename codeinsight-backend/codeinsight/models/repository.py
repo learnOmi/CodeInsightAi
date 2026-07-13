@@ -6,6 +6,7 @@ Repository ORM 模型
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import UUID, CheckConstraint, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -13,6 +14,25 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from codeinsight.db.base import Base
+
+
+class RepositoryStatus(StrEnum):
+    """仓库状态（M-3 修复：使用 StrEnum 替代松散 str，确保类型安全）
+
+    注意：analyzing_structures 是 TaskStatus 的细分状态，不在此枚举中。
+    """
+
+    PENDING = "pending"
+    ANALYZING = "analyzing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+# 模块级变量：生成 CHECK 约束 SQL
+# 避免 f-string 内嵌 f-string 的语法错误，分两步拼接
+_repository_status_values = ", ".join("'" + e.value + "'" for e in RepositoryStatus)
+_repository_status_check_sql = "status IN (" + _repository_status_values + ")"
 
 
 class RepositoryModel(Base):
@@ -27,7 +47,11 @@ class RepositoryModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
     path: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default=RepositoryStatus.PENDING.value,
+    )
     current_version: Mapped[str | None] = mapped_column(String, nullable=True)
     file_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     line_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -38,9 +62,9 @@ class RepositoryModel(Base):
     last_analyzed_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     __table_args__ = (
-        # M-5: CHECK 约束限制状态值，防止脏数据
+        # M-3 修复：CHECK 约束与 RepositoryStatus 枚举保持一致
         CheckConstraint(
-            "status IN ('pending', 'analyzing', 'analyzing_structures', 'completed', 'failed')",
+            _repository_status_check_sql,
             name="chk_repository_status",
         ),
     )

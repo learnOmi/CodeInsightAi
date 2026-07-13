@@ -10,21 +10,12 @@
 """
 
 from datetime import datetime
-from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 from pydantic.alias_generators import to_camel
 
-
-class RepositoryStatus(StrEnum):
-    """仓库分析状态"""
-
-    PENDING = "pending"
-    ANALYZING = "analyzing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+from codeinsight.models.repository import RepositoryStatus
 
 
 class Repository(BaseModel):
@@ -84,3 +75,4 @@ class RepositoryUpdate(BaseModel):
     )
 
     name: str | None = None
+    status: RepositoryStatus | None = None

@@ -183,20 +183,34 @@ class FileDAO:
         rowcount = getattr(result, "rowcount", 0)
         return cast(int, rowcount)
 
-    async def get_by_repository(self, db: AsyncSession, repository_id: UUID) -> list[FileModel]:
+    async def get_by_repository(
+        self,
+        db: AsyncSession,
+        repository_id: UUID,
+        skip: int | None = None,
+        limit: int | None = None,
+    ) -> list[FileModel]:
         """
-        获取指定仓库的所有文件
+        获取指定仓库的文件列表
+
+        M-2 修复：支持可选分页参数，避免大型仓库一次性加载全部文件。
+        当 skip/limit 均为 None 时，保持返回全部文件的原有行为（向后兼容）。
 
         Args:
             db: 异步数据库会话
             repository_id: 仓库 ID
+            skip: 跳过的记录数（None 表示不跳过）
+            limit: 返回的记录数上限（None 表示不限制，返回全部）
 
         Returns:
             FileModel 列表
         """
-        result = await db.execute(
-            select(FileModel).where(FileModel.repository_id == repository_id).order_by(FileModel.path)
-        )
+        query = select(FileModel).where(FileModel.repository_id == repository_id).order_by(FileModel.path)
+        if skip is not None:
+            query = query.offset(skip)
+        if limit is not None:
+            query = query.limit(limit)
+        result = await db.execute(query)
         return list(result.scalars().all())
 
     async def get_all(self, db: AsyncSession, repository_id: UUID, skip: int = 0, limit: int = 100) -> list[FileModel]:

@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     # 数据入库批量大小
     ingest_batch_size: int = 500
 
+    # 向量嵌入维度（M-4 修复：pgvector 维度集中配置，默认 1536 对应 OpenAI text-embedding-3-small）
+    embedding_dimension: int = 1536
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

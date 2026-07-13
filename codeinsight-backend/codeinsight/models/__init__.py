@@ -11,10 +11,11 @@ from .file import FileModel
 from .file_analysis_snapshot import FileAnalysisSnapshotModel
 from .knowledge_point import KnowledgePointModel
 from .module_dependency import ModuleDependencyModel
-from .repository import RepositoryModel
+from .repository import RepositoryModel, RepositoryStatus
 
 __all__ = [
     "RepositoryModel",
+    "RepositoryStatus",
     "FileModel",
     "FileAnalysisSnapshotModel",
     "AstNodeModel",

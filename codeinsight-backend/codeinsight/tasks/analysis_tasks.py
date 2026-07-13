@@ -18,6 +18,7 @@ from uuid import UUID
 
 import redis
 
+from codeinsight.constants.redis_keys import task_cancel_key
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import async_session_factory
 from codeinsight.exceptions import CancelledError
@@ -89,9 +90,9 @@ def _check_cancelled(task_instance: Any, task_id: str) -> None:
     """
     try:
         client = get_redis_client()
-        cancelled = client.get(f"task:{task_id}:cancel")
+        cancelled = client.get(task_cancel_key(task_id))
         if cancelled:
-            client.delete(f"task:{task_id}:cancel")
+            client.delete(task_cancel_key(task_id))
             logger.info("检测到取消标志，终止任务: task_id=%s", task_id)
             raise CancelledError(f"Task {task_id} was cancelled by user")
     except redis.RedisError as exc:
