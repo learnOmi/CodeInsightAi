@@ -123,15 +123,8 @@ class GoParser(LanguageParser):
             ast_node = self._create_struct_node(node, file_path, language, parent_node)
             result.add(ast_node)
 
-        # 函数调用
-        elif node_type == "call_expression":
-            ast_node = self._create_call_node(node, file_path, language, parent_node)
-            result.add(ast_node)
-
         # 导入语句 (P-7 修复：处理 import_declaration，避免重复计数)
         elif node_type == "import_declaration":
-            # Go 的 import 语句可能是单个 import 或分组 import
-            # 只处理 import_spec，跳过 import_spec_list 以避免重复
             for child in node.children:
                 if child.type == "import_spec":
                     ast_node = self._create_import_node(child, file_path, language, parent_node)
@@ -264,7 +257,7 @@ class GoParser(LanguageParser):
                     # selector_expression 包含两个字段：scope 和 name
                     name_node = func_node.child_by_field_name("name")
                     if name_node:
-                        return f"*. {_node_text_to_str(name_node)}"
+                        return f"*.{_node_text_to_str(name_node)}"
                 return _node_text_to_str(func_node)
             return "unknown"
         except Exception:

@@ -5,6 +5,10 @@ import { useFiles } from "@/hooks/use-files";
 import { buildFileTree, countFiles } from "@/utils/tree-utils";
 import { FileTree } from "@/components/file-tree";
 import { StructureList } from "@/components/structure";
+import { CallGraph } from "@/components/call-graph";
+import { VersionManager } from "@/components/VersionManager";
+
+type TabType = "structure" | "callgraph" | "versions";
 
 /** 文件树 + 结构概览页面 */
 export default function FilesPage({
@@ -15,6 +19,7 @@ export default function FilesPage({
   const { repo_id } = use(params);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<TabType>("structure");
 
   const { data: files, isLoading, error } = useFiles(repo_id);
 
@@ -64,20 +69,58 @@ export default function FilesPage({
         </div>
       </div>
 
-      {/* 右侧：结构概览 */}
-      <div className="flex-1 bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden">
-        <div className="border-b border-[var(--border)] px-4 py-3">
-          <h2 className="text-sm font-semibold text-[var(--text-primary)]">
+      {/* 右侧：标签页内容 */}
+      <div className="flex-1 bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden flex flex-col">
+        {/* 标签页头部 */}
+        <div className="border-b border-[var(--border)] flex">
+          <button
+            onClick={() => setActiveTab("structure")}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
+              activeTab === "structure"
+                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            }`}
+          >
             {"代码结构"}
-          </h2>
+          </button>
+          <button
+            onClick={() => setActiveTab("callgraph")}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
+              activeTab === "callgraph"
+                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            }`}
+          >
+            {"调用图"}
+          </button>
+          <button
+            onClick={() => setActiveTab("versions")}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
+              activeTab === "versions"
+                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            }`}
+          >
+            {"版本管理"}
+          </button>
         </div>
-        <div className="overflow-y-auto p-4">
-          {selectedFileId ? (
-            <StructureList fileId={selectedFileId} fileName={selectedFileName} />
-          ) : (
-            <div className="text-center text-[var(--text-muted)] text-sm py-12">
+
+        {/* 标签页内容 */}
+        <div className="flex-1 overflow-hidden">
+          {activeTab === "versions" ? (
+            <div className="h-full overflow-y-auto p-4">
+              <VersionManager repositoryId={repo_id} />
+            </div>
+          ) : !selectedFileId ? (
+            <div className="h-full flex items-center justify-center text-[var(--text-muted)] text-sm">
               {"请从左侧文件树中选择一个文件"}
             </div>
+          ) : activeTab === "structure" ? (
+            <div className="h-full overflow-y-auto p-4">
+              <StructureList fileId={selectedFileId} fileName={selectedFileName} />
+            </div>
+          ) : (
+            <CallGraph fileId={selectedFileId} repositoryId={repo_id} />
           )}
         </div>
       </div>

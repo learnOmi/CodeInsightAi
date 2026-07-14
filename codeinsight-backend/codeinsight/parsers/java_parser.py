@@ -123,11 +123,6 @@ class JavaParser(LanguageParser):
             result.add(ast_node)
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
-        # 方法调用
-        elif node_type == "method_invocation":
-            ast_node = self._create_call_node(node, file_path, language, parent_node)
-            result.add(ast_node)
-
         # 导入语句
         elif node_type == "import_declaration":
             ast_node = self._create_import_node(node, file_path, language, parent_node)

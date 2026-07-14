@@ -49,7 +49,10 @@ export const NODE_TYPE_CONFIG: Record<string, NodeTypeConfig> = {
   variable: { icon: '\uD83D\uDCCC', color: 'bg-gray-100 text-gray-700', label: '变量' },
   import: { icon: '\uD83D\uDD17', color: 'bg-green-100 text-green-700', label: '导入' },
   function_call: { icon: '\uD83D\uDCDE', color: 'bg-indigo-100 text-indigo-700', label: '调用' },
+  call: { icon: '\uD83D\uDCDE', color: 'bg-indigo-100 text-indigo-700', label: '调用' },
   constructor: { icon: '\uD83C\uDFD7\uFE0F', color: 'bg-amber-100 text-amber-700', label: '构造器' },
+  struct: { icon: '\u269B\uFE0F', color: 'bg-lime-100 text-lime-700', label: '结构体' },
+  enum: { icon: '\uD83D\uDCCC', color: 'bg-orange-100 text-orange-700', label: '枚举' },
   default: { icon: '\uD83D\uDCC4', color: 'bg-gray-100 text-gray-600', label: '节点' },
 };
 

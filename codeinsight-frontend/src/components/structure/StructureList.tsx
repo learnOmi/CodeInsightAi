@@ -16,7 +16,17 @@ export function StructureList({ fileId, fileName }: StructureListProps) {
 
   const flatNodes = useMemo(() => {
     if (!nodes) return [];
-    const grouped = groupAstNodes(nodes);
+    // 去重：按 (start_line, start_column, node_type, name) 去重，保留最新记录
+    const seen = new Set<string>();
+    const deduped: typeof nodes = [];
+    for (const node of nodes) {
+      const key = `${node.startLine}_${node.startColumn}_${node.nodeType}_${node.name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(node);
+      }
+    }
+    const grouped = groupAstNodes(deduped);
     return flattenGroupedNodes(grouped);
   }, [nodes]);
 

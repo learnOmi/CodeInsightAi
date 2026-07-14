@@ -6,6 +6,7 @@ type RepositoryCreate = components["schemas"]["RepositoryCreate"];
 type RepositoryUpdate = components["schemas"]["RepositoryUpdate"];
 type AnalysisTask = components["schemas"]["AnalysisTask"];
 type AnalyzeRequest = components["schemas"]["AnalyzeRequest"];
+type AnalysisVersion = components["schemas"]["AnalysisVersion"];
 
 /** 获取仓库列表 */
 export async function getRepositories(): Promise<Repository[]> {
@@ -59,6 +60,25 @@ export async function getTaskStatus(taskId: string): Promise<AnalysisTask> {
 /** 取消任务 */
 export async function cancelTask(taskId: string): Promise<void> {
   return apiFetch(`/api/v1/tasks/${taskId}/cancel`, {
+    method: "POST",
+  });
+}
+
+/** 获取分析版本列表 */
+export async function getVersions(repositoryId: string): Promise<AnalysisVersion[]> {
+  return apiFetch(`/api/v1/repositories/${repositoryId}/versions`);
+}
+
+/** 切换到指定版本 */
+export async function switchVersion(repositoryId: string, version: string): Promise<void> {
+  return apiFetch(`/api/v1/repositories/${repositoryId}/switch-version?version=${encodeURIComponent(version)}`, {
+    method: "POST",
+  });
+}
+
+/** 回滚到指定版本 */
+export async function rollbackVersion(repositoryId: string, version: string): Promise<void> {
+  return apiFetch(`/api/v1/repositories/${repositoryId}/rollback?version=${encodeURIComponent(version)}`, {
     method: "POST",
   });
 }

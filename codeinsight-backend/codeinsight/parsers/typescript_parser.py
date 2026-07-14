@@ -136,11 +136,6 @@ class TypeScriptParser(LanguageParser):
             if node_type == "import_statement":
                 self._extract_import_nodes(node, result, file_path, language, parent_node)
 
-        # 函数调用
-        elif node_type == "call_expression":
-            ast_node = self._create_call_node(node, file_path, language, parent_node)
-            result.add(ast_node)
-
         # 递归处理子节点
         for child in node.children:
             self._extract_nodes(child, result, file_path, language, parent_node)
@@ -331,7 +326,7 @@ class TypeScriptParser(LanguageParser):
                 if func_node.type == "member_access_expression":
                     prop_node = func_node.child_by_field_name("property")
                     if prop_node:
-                        return f"*. {_node_text_to_str(prop_node)}"
+                        return f"*.{_node_text_to_str(prop_node)}"
                 return _node_text_to_str(func_node)
             return "unknown"
         except Exception:

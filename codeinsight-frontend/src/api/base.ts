@@ -17,12 +17,27 @@ export async function apiFetch<T>(
     headers,
   });
 
+  if (response.status === 304) {
+    throw new APIError(304, "资源未修改");
+  }
+
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
     throw new APIError(response.status, errorBody.detail || errorBody.message || "API request failed");
   }
 
-  return response.json();
+  // Handle empty response body (e.g., 204 No Content)
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json") || response.status === 204) {
+    return null as unknown as T;
+  }
+
+  const text = await response.text();
+  if (!text) {
+    return null as unknown as T;
+  }
+
+  return JSON.parse(text);
 }
 
 /** API 错误类 */

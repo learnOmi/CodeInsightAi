@@ -35,13 +35,15 @@ const taskStepLabels: Record<TaskStatus, string> = {
 export function RepoCard({ repository }: RepoCardProps) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitError, setSubmitError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [currentTaskId, setCurrentTaskId] = useState<string>("");
 
   const submitAnalysis = useSubmitAnalysis();
   const cancelTask = useCancelTask();
   const deleteRepository = useDeleteRepository();
 
   const isAnalyzing = repository.status === "analyzing";
-  const taskId = repository.id;
+  const taskId = currentTaskId;
 
   const { data: taskData } = useTaskStatus(
     isAnalyzing ? taskId : "",
@@ -51,11 +53,14 @@ export function RepoCard({ repository }: RepoCardProps) {
   const handleSubmitAnalysis = async () => {
     setSubmitError("");
     try {
-      await submitAnalysis.mutateAsync({ repositoryId: repository.id });
+      const result = await submitAnalysis.mutateAsync({ repositoryId: repository.id });
+      setCurrentTaskId(result.taskId);
     } catch (err) {
       if (err instanceof APIError) {
         if (err.status === 409) {
           setSubmitError("已有分析任务正在进行");
+        } else if (err.status === 304) {
+          setSubmitError("代码内容未变化，无需重复分析");
         } else {
           setSubmitError(err.message);
         }
@@ -72,8 +77,17 @@ export function RepoCard({ repository }: RepoCardProps) {
   };
 
   const handleDelete = async () => {
-    await deleteRepository.mutateAsync(repository.id);
-    setShowConfirm(false);
+    setDeleteError("");
+    try {
+      await deleteRepository.mutateAsync(repository.id);
+      setShowConfirm(false);
+    } catch (err) {
+      if (err instanceof APIError) {
+        setDeleteError(`删除失败: ${err.message}`);
+      } else {
+        setDeleteError("删除失败，请重试");
+      }
+    }
   };
 
   const statusConfig = getAnalysisStatusConfig(repository.status);
@@ -141,6 +155,9 @@ export function RepoCard({ repository }: RepoCardProps) {
 
       {submitError && (
         <div className="text-red-600 text-sm mb-3">{submitError}</div>
+      )}
+      {deleteError && (
+        <div className="text-red-600 text-sm mb-3">{deleteError}</div>
       )}
 
       <div className="flex gap-2">

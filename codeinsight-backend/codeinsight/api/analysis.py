@@ -27,6 +27,9 @@ from codeinsight.constants.redis_keys import (
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import get_db_session
 from codeinsight.repositories import RepositoryDAO
+from codeinsight.repositories.analysis_version import AnalysisVersionDAO
+from codeinsight.repositories.file import FileDAO
+from codeinsight.repositories.file_analysis_snapshot import FileAnalysisSnapshotDAO
 from codeinsight.schemas import (
     AnalysisMode,
     AnalysisProgress,
@@ -216,6 +219,29 @@ async def submit_analysis(
             )
     except redis.RedisError as exc:
         logger.warning("Redis 检查失败，允许继续: %s", exc)
+
+    # 内容变化检测：对比最新完成版本的快照与当前文件
+    version_dao = AnalysisVersionDAO()
+    snapshot_dao = FileAnalysisSnapshotDAO()
+    file_dao = FileDAO()
+
+    latest_completed = await version_dao.get_latest_completed(db, repository_id)
+    if latest_completed is not None:
+        # 获取最新完成版本的快照
+        old_snapshots = await snapshot_dao.get_by_version(db, repository_id, latest_completed.version)
+        old_hash_map = {s.file_id: s.content_hash for s in old_snapshots if s.file_id is not None}
+
+        # 获取当前文件列表
+        current_files = await file_dao.get_by_repository(db, repository_id)
+        current_hash_map = {f.id: f.content_hash for f in current_files}
+
+        # 对比两个哈希映射
+        if old_hash_map == current_hash_map:
+            logger.info("内容无变化，跳过重复分析: repo=%s, version=%s", repository_id, latest_completed.version)
+            raise HTTPException(
+                status_code=304,
+                detail=f"Repository {repository_id} has no content changes since version {latest_completed.version}",
+            )
 
     # 提交 Celery 任务
     celery_result = run_analysis.delay(

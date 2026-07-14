@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END, CompiledStateGraph, StateGraph
 
 from codeinsight.agents.node import (
     AlgorithmNode,
@@ -48,9 +48,9 @@ class AnalysisGraph:
             llm_client: LLM 客户端实例，将被注入到所有分析节点中
         """
         self._llm_client = llm_client
-        self._graph = self._build_graph()
+        self._graph: CompiledStateGraph = self._build_graph()
 
-    def _build_graph(self) -> StateGraph:
+    def _build_graph(self) -> CompiledStateGraph:
         """
         构建 LangGraph 状态图
 

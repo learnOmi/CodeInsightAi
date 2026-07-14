@@ -131,11 +131,6 @@ class PythonParser(LanguageParser):
             ast_node = self._create_import_node(node, file_path, language, parent_node)
             result.add(ast_node)
 
-        # 函数调用
-        elif node_type == "call":
-            ast_node = self._create_call_node(node, file_path, language, parent_node)
-            result.add(ast_node)
-
         # 递归处理子节点
         for child in node.children:
             self._extract_nodes(child, result, file_path, language, parent_node)
@@ -312,7 +307,7 @@ class PythonParser(LanguageParser):
                 if func_node.type == "attribute":
                     method_node = func_node.child_by_field_name("attribute")
                     if method_node:
-                        return f"*. {_node_text_to_str(method_node)}"
+                        return f"*.{_node_text_to_str(method_node)}"
                 return _node_text_to_str(func_node)
             return "unknown"
         except Exception:

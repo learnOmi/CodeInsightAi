@@ -28,12 +28,12 @@ async_session_factory = _get_session_factory()
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """获取数据库会话（FastAPI Depends 兼容）
 
-    异常时自动回滚事务，确保数据一致性。
-    注意：事务提交由业务层负责，此处仅保证异常时 rollback。
+    请求成功时自动提交事务，异常时自动回滚，确保数据一致性。
     """
     async with async_session_factory() as session:
         try:
             yield session
+            await session.commit()
         except Exception:
             await session.rollback()
             raise

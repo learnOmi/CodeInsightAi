@@ -7,7 +7,7 @@ AnalysisVersion ORM 模型
 import uuid
 from datetime import datetime
 
-from sqlalchemy import UUID, CheckConstraint, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import TIMESTAMP, UUID, CheckConstraint, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -33,8 +33,8 @@ class AnalysisVersionModel(Base):
     total_files: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     analyzed_files: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     knowledge_points_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 

@@ -150,6 +150,64 @@ class CallGraphBuilder:
         return index
 
     @staticmethod
+    def _build_function_by_file_index(function_nodes: list[AstNodeModel]) -> dict[UUID, list[AstNodeModel]]:
+        """
+        按文件构建函数索引
+
+        Args:
+            function_nodes: 函数/方法节点列表
+
+        Returns:
+            file_id → [function_node] 映射
+        """
+        index: dict[UUID, list[AstNodeModel]] = {}
+        for node in function_nodes:
+            index.setdefault(node.file_id, []).append(node)
+        # 按 start_line 排序，方便后续查找
+        for file_id in index:
+            index[file_id].sort(key=lambda n: n.start_line)
+        return index
+
+    @staticmethod
+    def _find_enclosing_function(
+        call_node: AstNodeModel,
+        function_by_file_index: dict[UUID, list[AstNodeModel]],
+    ) -> AstNodeModel | None:
+        """
+        找到包含该调用节点的函数/方法
+
+        通过位置匹配：找到同一文件中 start_line <= call.start_line
+        且 end_line >= call.start_line 的函数/方法节点。
+
+        对于嵌套函数，选择最内层（end_line 最小）的函数。
+
+        Args:
+            call_node: call 类型节点
+            function_by_file_index: 按文件组织的函数索引
+
+        Returns:
+            包含该调用的函数/方法节点，或 None
+        """
+        functions = function_by_file_index.get(call_node.file_id, [])
+        if not functions:
+            return None
+
+        call_line = call_node.start_line
+        candidates = []
+
+        for func in functions:
+            if func.start_line <= call_line <= func.end_line:
+                candidates.append(func)
+
+        if not candidates:
+            return None
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        return min(candidates, key=lambda f: f.end_line)
+
+    @staticmethod
     def _match_call_edges(
         call_nodes: list[AstNodeModel],
         function_index: dict[str, list[AstNodeModel]],
@@ -168,6 +226,11 @@ class CallGraphBuilder:
         """
         edges_data = []
 
+        function_nodes = []
+        for nodes in function_index.values():
+            function_nodes.extend(nodes)
+        function_by_file_index = CallGraphBuilder._build_function_by_file_index(function_nodes)
+
         for call_node in call_nodes:
             call_name = call_node.name.strip()
 
@@ -175,12 +238,16 @@ class CallGraphBuilder:
             if not call_name:
                 continue
 
+            # 找到包含该调用的函数/方法节点
+            enclosing_func = CallGraphBuilder._find_enclosing_function(call_node, function_by_file_index)
+            caller_node_id = enclosing_func.id if enclosing_func else call_node.id
+
             # 动态调用：精确匹配动态模式名，不匹配 getattr.x 等对象方法
             if call_name in _DYNAMIC_CALL_NAMES:
                 edges_data.append(
                     {
                         "repository_id": repo_uuid,
-                        "caller_node_id": call_node.id,
+                        "caller_node_id": caller_node_id,
                         "callee_node_id": None,
                         "start_line": call_node.start_line,
                         "start_column": call_node.start_column,
@@ -208,7 +275,7 @@ class CallGraphBuilder:
                     edges_data.append(
                         {
                             "repository_id": repo_uuid,
-                            "caller_node_id": call_node.id,
+                            "caller_node_id": caller_node_id,
                             "callee_node_id": candidate.id,
                             "start_line": call_node.start_line,
                             "start_column": call_node.start_column,
@@ -221,7 +288,7 @@ class CallGraphBuilder:
                 edges_data.append(
                     {
                         "repository_id": repo_uuid,
-                        "caller_node_id": call_node.id,
+                        "caller_node_id": caller_node_id,
                         "callee_node_id": None,
                         "start_line": call_node.start_line,
                         "start_column": call_node.start_column,

@@ -8,6 +8,9 @@ import {
   submitAnalysis,
   getTaskStatus,
   cancelTask,
+  getVersions,
+  switchVersion,
+  rollbackVersion,
 } from "@/api/repositories";
 import type { components } from "@codeinsight/shared";
 
@@ -15,6 +18,7 @@ type RepositoryCreate = components["schemas"]["RepositoryCreate"];
 type RepositoryUpdate = components["schemas"]["RepositoryUpdate"];
 type AnalyzeRequest = components["schemas"]["AnalyzeRequest"];
 type AnalysisTask = components["schemas"]["AnalysisTask"];
+type AnalysisVersion = components["schemas"]["AnalysisVersion"];
 
 export function useRepositories() {
   return useQuery({
@@ -95,6 +99,40 @@ export function useCancelTask() {
     mutationFn: (taskId: string) => cancelTask(taskId),
     onSuccess: (_, taskId) => {
       queryClient.invalidateQueries({ queryKey: ["tasks", taskId] });
+    },
+  });
+}
+
+export function useVersions(repositoryId: string) {
+  return useQuery<AnalysisVersion[]>({
+    queryKey: ["repositories", repositoryId, "versions"],
+    queryFn: () => getVersions(repositoryId),
+    enabled: !!repositoryId,
+  });
+}
+
+export function useSwitchVersion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ repositoryId, version }: { repositoryId: string; version: string }) =>
+      switchVersion(repositoryId, version),
+    onSuccess: (_, { repositoryId }) => {
+      queryClient.invalidateQueries({ queryKey: ["repositories", repositoryId] });
+      queryClient.invalidateQueries({ queryKey: ["repositories", repositoryId, "versions"] });
+    },
+  });
+}
+
+export function useRollbackVersion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ repositoryId, version }: { repositoryId: string; version: string }) =>
+      rollbackVersion(repositoryId, version),
+    onSuccess: (_, { repositoryId }) => {
+      queryClient.invalidateQueries({ queryKey: ["repositories", repositoryId] });
+      queryClient.invalidateQueries({ queryKey: ["repositories", repositoryId, "versions"] });
     },
   });
 }

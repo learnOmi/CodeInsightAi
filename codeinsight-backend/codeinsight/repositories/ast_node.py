@@ -67,37 +67,57 @@ class AstNodeDAO:
 
     async def get_by_file(self, db: AsyncSession, file_id: UUID) -> list[AstNodeModel]:
         """
-        获取指定文件的所有 AST 节点
+        获取指定文件的所有 AST 节点（去重）
+
+        按 (start_line, start_column, node_type, name) 去重，保留最近一次的记录。
 
         Args:
             db: 异步数据库会话
             file_id: 文件 ID
 
         Returns:
-            AstNodeModel 列表
+            AstNodeModel 列表（已去重）
         """
         result = await db.execute(
             select(AstNodeModel)
             .where(AstNodeModel.file_id == file_id)
-            .order_by(AstNodeModel.start_line, AstNodeModel.start_column)
+            .order_by(AstNodeModel.start_line, AstNodeModel.start_column, AstNodeModel.created_at.desc())
         )
-        return list(result.scalars().all())
+        raw = list(result.scalars().all())
+
+        # 按 (start_line, start_column, node_type, name) 去重，保留最后出现的（即最近一次分析的结果）
+        seen: dict[tuple, AstNodeModel] = {}
+        for node in raw:
+            key = (node.start_line, node.start_column, node.node_type, node.name)
+            seen[key] = node  # 后出现的会覆盖先出现的，即保留最新的
+        return list(seen.values())
 
     async def get_by_repository(self, db: AsyncSession, repository_id: UUID) -> list[AstNodeModel]:
         """
-        获取指定仓库的所有 AST 节点
+        获取指定仓库的所有 AST 节点（去重）
+
+        按 (file_id, start_line, start_column, node_type, name) 去重，保留最近一次的记录。
 
         Args:
             db: 异步数据库会话
             repository_id: 仓库 ID
 
         Returns:
-            AstNodeModel 列表
+            AstNodeModel 列表（已去重）
         """
         result = await db.execute(
-            select(AstNodeModel).where(AstNodeModel.repository_id == repository_id).order_by(AstNodeModel.start_line)
+            select(AstNodeModel)
+            .where(AstNodeModel.repository_id == repository_id)
+            .order_by(AstNodeModel.start_line, AstNodeModel.created_at.desc())
         )
-        return list(result.scalars().all())
+        raw = list(result.scalars().all())
+
+        # 按 (file_id, start_line, start_column, node_type, name) 去重，保留最后出现的（即最近一次分析的结果）
+        seen: dict[tuple, AstNodeModel] = {}
+        for node in raw:
+            key = (node.file_id, node.start_line, node.start_column, node.node_type, node.name)
+            seen[key] = node  # 后出现的会覆盖先出现的，即保留最新的
+        return list(seen.values())
 
     async def get_ids_by_repository(self, db: AsyncSession, repository_id: UUID) -> set[UUID]:
         """
