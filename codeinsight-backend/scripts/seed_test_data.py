@@ -5,21 +5,19 @@
 """
 
 import asyncio
-import uuid
-import json
 import os
 import sys
-
+import uuid
 from datetime import datetime, timedelta
+from typing import cast
 
 # 添加项目根目录到 Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from codeinsight.config import settings
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from codeinsight.db.engine import get_engine
-from sqlalchemy.ext.asyncio import async_sessionmaker
-from codeinsight.models import RepositoryModel, FileModel, AstNodeModel
-from sqlalchemy.ext.asyncio import AsyncSession
+from codeinsight.models import AstNodeModel, FileModel, RepositoryModel
 
 # 模拟的测试仓库结构
 TEST_REPOS = [
@@ -93,7 +91,7 @@ def generate_files(repo_name: str) -> list[dict]:
 
 def generate_ast_nodes(repo_name: str, file: dict, repo_id: str, actual_file_id: uuid.UUID) -> list[dict]:
     """为单个文件生成模拟 AST 节点（真实树形结构）"""
-    nodes = []
+    nodes: list[dict] = []
     # 定义每个文件类型的模拟结构
     # parent_name 是父节点的名称（用于 name_to_id 查找），None 表示顶级节点
     structures = {
@@ -174,7 +172,10 @@ def generate_ast_nodes(repo_name: str, file: dict, repo_id: str, actual_file_id:
             use_key = key
             break
 
-    template = structures[lang].get(use_key, structures[lang]["default"])
+    template: list[tuple[str, str, str | None]] = cast(
+        "list[tuple[str, str, str | None]]",
+        structures[lang].get(use_key, structures[lang]["default"]),
+    )
 
     # 建立名称到节点 ID 的映射（用于 parent 查找）
     name_to_id: dict[str, uuid.UUID] = {}
@@ -236,13 +237,12 @@ async def seed_database():
         await session.commit()
         await session.refresh(repos[0])
         await session.refresh(repos[1])
-        repo_ids = [r.id for r in repos]
 
         # 2. 创建文件和 AST 节点
         total_files = 0
         total_nodes = 0
 
-        for repo, repo_info in zip(repos, TEST_REPOS):
+        for repo, repo_info in zip(repos, TEST_REPOS, strict=True):
             files = generate_files(repo_info["name"])
             repo.file_count = len(files)
             total_files += len(files)
@@ -293,7 +293,7 @@ async def seed_database():
             repo.line_count = sum(f["line_count"] for f in files)
             await session.commit()
 
-    print(f"✅ 测试数据填充完成！")
+    print("✅ 测试数据填充完成！")
     print(f"   仓库数: {len(TEST_REPOS)}")
     print(f"   文件数: {total_files}")
     print(f"   AST 节点数: {total_nodes}")
