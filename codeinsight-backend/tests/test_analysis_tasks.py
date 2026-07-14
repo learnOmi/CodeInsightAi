@@ -58,11 +58,23 @@ async def test_submit_analysis_success():
     with (
         patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
         patch("codeinsight.api.analysis.run_analysis") as mock_run,
+        patch("codeinsight.api.analysis.AnalysisVersionDAO") as mock_version_dao,
+        patch("codeinsight.api.analysis.FileAnalysisSnapshotDAO"),
+        patch("codeinsight.api.analysis.FileDAO"),
+        patch("codeinsight.api.analysis.get_redis_client") as mock_get_redis,
+        patch("codeinsight.api.analysis.settings") as mock_settings,
     ):
+        mock_settings.celery_task_always_eager = False
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
         mock_run.delay.return_value = mock_celery_result
+
+        # 内容变化检测：无已完成版本，跳过检测
+        mock_version_dao.return_value.get_latest_completed = AsyncMock(return_value=None)
+
+        # Redis 无活跃任务
+        mock_get_redis.return_value.get.return_value = None
 
         result = await submit_analysis(repo_uuid, mock_db, dao_instance, None)
 
@@ -91,7 +103,13 @@ async def test_submit_analysis_with_request():
     with (
         patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
         patch("codeinsight.api.analysis.run_analysis") as mock_run,
+        patch("codeinsight.api.analysis.AnalysisVersionDAO") as mock_version_dao,
+        patch("codeinsight.api.analysis.FileAnalysisSnapshotDAO"),
+        patch("codeinsight.api.analysis.FileDAO"),
+        patch("codeinsight.api.analysis.get_redis_client") as mock_get_redis,
+        patch("codeinsight.api.analysis.settings") as mock_settings,
     ):
+        mock_settings.celery_task_always_eager = False
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
@@ -99,6 +117,9 @@ async def test_submit_analysis_with_request():
         mock_celery_result = MagicMock()
         mock_celery_result.id = "task-123"
         mock_run.delay.return_value = mock_celery_result
+
+        mock_version_dao.return_value.get_latest_completed = AsyncMock(return_value=None)
+        mock_get_redis.return_value.get.return_value = None
 
         req = AnalyzeRequest(mode=AnalysisMode.FULL, agents=["design_pattern"])
 
@@ -330,12 +351,19 @@ async def test_redis_mapping_on_submit():
     with (
         patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
         patch("codeinsight.api.analysis.run_analysis") as mock_run,
+        patch("codeinsight.api.analysis.AnalysisVersionDAO") as mock_version_dao,
+        patch("codeinsight.api.analysis.FileAnalysisSnapshotDAO"),
+        patch("codeinsight.api.analysis.FileDAO"),
         patch("codeinsight.api.analysis.get_redis_client") as mock_get_redis,
+        patch("codeinsight.api.analysis.settings") as mock_settings,
     ):
+        mock_settings.celery_task_always_eager = False
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
         mock_run.delay.return_value = mock_celery_result
+
+        mock_version_dao.return_value.get_latest_completed = AsyncMock(return_value=None)
 
         mock_redis = mock_get_redis.return_value
         mock_redis.get.return_value = None
@@ -366,17 +394,27 @@ async def test_submit_analysis_rejects_duplicate_active_task():
     with (
         patch("codeinsight.api.analysis.RepositoryDAO") as mock_dao,
         patch("codeinsight.api.analysis.run_analysis") as mock_run,
+        patch("codeinsight.api.analysis.AnalysisVersionDAO") as mock_version_dao,
+        patch("codeinsight.api.analysis.FileAnalysisSnapshotDAO"),
+        patch("codeinsight.api.analysis.FileDAO"),
         patch("codeinsight.api.analysis.get_redis_client") as mock_get_redis,
+        patch("codeinsight.api.analysis.settings") as mock_settings,
     ):
+        mock_settings.celery_task_always_eager = False
         dao_instance = MagicMock()
         dao_instance.get_by_id = AsyncMock(return_value=mock_repo)
         mock_dao.return_value = dao_instance
 
+        mock_version_dao.return_value.get_latest_completed = AsyncMock(return_value=None)
+
         mock_redis = mock_get_redis.return_value
         mock_redis.get.return_value = "existing-task-id"
 
-        with pytest.raises(HTTPException) as exc_info:
-            await submit_analysis(repo_uuid, mock_db, dao_instance, None)
+        # mock AsyncResult to return PENDING state (task still running)
+        with patch("codeinsight.api.analysis.AsyncResult") as mock_async_result:
+            mock_async_result.return_value.state = "PENDING"
+            with pytest.raises(HTTPException) as exc_info:
+                await submit_analysis(repo_uuid, mock_db, dao_instance, None)
         assert exc_info.value.status_code == 409
         mock_run.delay.assert_not_called()
 

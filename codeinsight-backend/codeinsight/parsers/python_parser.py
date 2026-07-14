@@ -131,6 +131,11 @@ class PythonParser(LanguageParser):
             ast_node = self._create_import_node(node, file_path, language, parent_node)
             result.add(ast_node)
 
+        # 函数调用（P-10 修复：_extract_nodes 未处理，导致嵌套调用被跳过）
+        elif node_type == "call":
+            call_node = self._create_call_node(node, file_path, language, parent_node)
+            result.add(call_node)
+
         # 递归处理子节点
         for child in node.children:
             self._extract_nodes(child, result, file_path, language, parent_node)
@@ -262,9 +267,21 @@ class PythonParser(LanguageParser):
         try:
             # import_statement: import module_name
             if node.type == "import_statement":
-                name_node = node.child_by_field_name("module")
+                # 尝试 name 字段（dotted_name）
+                name_node = node.child_by_field_name("name")
                 if name_node:
                     return _node_text_to_str(name_node)
+                # 降级：从 children 中提取 dotted_name
+                for child in node.children:
+                    if child.type == "dotted_name":
+                        return _node_text_to_str(child)
+                # 降级：拼接 identifier 子节点
+                identifiers = []
+                for child in node.children:
+                    if child.type == "identifier":
+                        identifiers.append(_node_text_to_str(child))
+                if identifiers:
+                    return ".".join(identifiers)
 
             # import_from_statement: from module import name
             elif node.type == "import_from_statement":

@@ -17,6 +17,10 @@ export function useAnalysisStatus(repoId: string) {
     enabled: !!repoId,
     staleTime: 30 * 1000, // 30 秒缓存
     refetchInterval: (query) => {
+      // Stop polling on 401 (token expired)
+      if (query.state.error && (query.state.error as any)?.response?.status === 401) {
+        return false;
+      }
       const data = query.state.data;
       // 分析中时每 10 秒轮询，否则停止
       return data?.status === "analyzing" ? 10_000 : undefined;

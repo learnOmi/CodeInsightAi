@@ -27,7 +27,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.analyzers import CallGraphBuilder, ModuleDependencyBuilder
-from codeinsight.constants.redis_keys import task_cancel_key
+from codeinsight.constants.redis_keys import repo_active_task_key, task_cancel_key
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import async_session_factory
 from codeinsight.exceptions import CancelledError
@@ -242,6 +242,15 @@ class AnalysisOrchestrator:
             if repo is not None:
                 repo.status = status
                 await db.commit()
+
+    def _cleanup_redis_task_key(self) -> None:
+        """任务完成后清理 Redis 中的活跃任务标记"""
+        try:
+            client = get_redis_client()
+            client.delete(repo_active_task_key(str(self.repo_uuid)))
+            logger.debug("已清理 Redis 活跃任务标记: repo=%s", self.repo_uuid)
+        except Exception as exc:
+            logger.warning("清理 Redis 活跃任务标记失败: %s", exc)
 
     async def _update_repository_stats(
         self,
@@ -795,21 +804,23 @@ class AnalysisOrchestrator:
             completed_at=completed_at,
         )
         await self._set_repo_status(db, TaskStatus.COMPLETED.value)
+        self._cleanup_redis_task_key()
 
         logger.info("分析任务完成: version=%s, mode=%s", self.version_tag, self.mode)
 
     async def fail(self, db: AsyncSession | None, error_message: str) -> None:
         """标记任务失败"""
-        if self.version_id is None:
-            return
-
-        await self._update_analysis_version(
-            db,
-            TaskStatus.FAILED,
-            completed_at=datetime.now(UTC),
-            error_message=error_message,
-        )
+        if self.version_id is not None:
+            await self._update_analysis_version(
+                db,
+                TaskStatus.FAILED,
+                completed_at=datetime.now(UTC),
+                error_message=error_message,
+            )
+        # 即使 version_id 为 None（版本记录创建前失败），也要更新仓库状态
         await self._set_repo_status(db, TaskStatus.FAILED.value)
+        self._cleanup_redis_task_key()
+        logger.error("分析任务失败: repo=%s, error=%s", self.repo_uuid, error_message)
 
     async def cancel(self, db: AsyncSession | None) -> None:
         """标记任务取消"""
@@ -883,10 +894,11 @@ class AnalysisOrchestrator:
             logger.info("清理失败文件数据: deleted=%d", deleted)
 
     def run(self) -> dict[str, Any]:
-        """执行完整分析流程"""
+        """执行完整分析流程（由 Celery Worker 调用）"""
         try:
             return asyncio.run(self._run_async())
         except CancelledError:
+            self._cleanup_redis_task_key()
             raise
         except Exception as exc:
             asyncio.run(self.fail(None, str(exc)))

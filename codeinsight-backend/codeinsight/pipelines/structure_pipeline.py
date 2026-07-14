@@ -117,7 +117,7 @@ class StructureDataPipeline:
         def _post_insert(repo_uuid: UUID, db_nodes: list[dict]) -> None:
             for node in db_nodes:
                 key = (repo_uuid, node["file_id"], node["start_line"], node["node_type"], node["name"])
-                self._node_uuid_map[key] = node["node_id"]
+                self._node_uuid_map[key] = node["id"]
 
         return await self._ingest_items(
             items=nodes,
@@ -329,8 +329,7 @@ class StructureDataPipeline:
                 "signature": node.get("signature"),
                 "docstring": node.get("docstring"),
             }
-            # 保留 node_id 用于映射
-            db_node["node_id"] = node_id
+            # node_id 即为 id，无需重复注入（避免 AstNodeModel 构造时出现非法参数）
             db_nodes.append(db_node)
         return db_nodes
 

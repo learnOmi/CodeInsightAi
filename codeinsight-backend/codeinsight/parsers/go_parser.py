@@ -130,6 +130,11 @@ class GoParser(LanguageParser):
                     ast_node = self._create_import_node(child, file_path, language, parent_node)
                     result.add(ast_node)
 
+        # 函数调用（P-10 修复：_extract_nodes 未处理，导致嵌套调用被跳过）
+        elif node_type == "call_expression":
+            call_node = self._create_call_node(node, file_path, language, parent_node)
+            result.add(call_node)
+
         # 递归处理子节点
         for child in node.children:
             self._extract_nodes(child, result, file_path, language, parent_node)
@@ -287,10 +292,17 @@ class GoParser(LanguageParser):
     def _extract_import_name(self, node) -> str:
         """从导入节点中提取包名"""
         try:
+            # 有别名导入：import f "fmt"
             name_node = node.child_by_field_name("name")
             if name_node:
                 text = _node_text_to_str(name_node)
                 return text.strip('"').strip("'")
+
+            # 普通导入：import "fmt"（使用 path 字段）
+            path_node = node.child_by_field_name("path")
+            if path_node:
+                return _node_text_to_str(path_node).strip('"').strip("'")
+
             return "unknown"
         except Exception:
             return "unknown"

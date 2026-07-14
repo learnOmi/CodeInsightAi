@@ -4,10 +4,12 @@
 提供仓库的增删改查接口。
 """
 
+import logging
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.auth import get_api_key_dependency
@@ -16,6 +18,8 @@ from codeinsight.db.session import get_db_session
 from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
 from codeinsight.repositories import RepositoryDAO
 from codeinsight.schemas import Repository, RepositoryCreate, RepositoryUpdate
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     dependencies=[Depends(get_api_key_dependency(settings.api_key))],
@@ -41,13 +45,29 @@ async def create_repository(
     """
     添加代码仓库
 
-    添加一个新的代码仓库并开始分析。
+    添加一个新的代码仓库，如果 auto_analyze 为 True 则自动提交分析任务。
     """
+    # 验证路径是否存在且为目录
+    p = Path(request.path)
+    if not p.exists():
+        raise HTTPException(status_code=400, detail=f"路径不存在: {request.path}")
+    if not p.is_dir():
+        raise HTTPException(status_code=400, detail=f"路径不是目录: {request.path}")
+
     # 检查路径是否已存在
     if await dao.exists_by_path(db, request.path):
         raise RepositoryPathExistsError(request.path)
 
     repo = await dao.create(db, request)
+
+    # 创建后自动分析
+    if request.auto_analyze:
+        # 显式提交，确保分析任务（独立 session）能查到仓库记录
+        await db.commit()
+        from codeinsight.api.analysis import _trigger_analysis
+
+        await _trigger_analysis(repo.id, repo)
+
     return repo
 
 

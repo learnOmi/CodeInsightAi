@@ -7,8 +7,9 @@
 """
 
 import logging
+import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 import redis
@@ -31,6 +32,7 @@ from codeinsight.repositories.analysis_version import AnalysisVersionDAO
 from codeinsight.repositories.file import FileDAO
 from codeinsight.repositories.file_analysis_snapshot import FileAnalysisSnapshotDAO
 from codeinsight.schemas import (
+    AgentType,
     AnalysisMode,
     AnalysisProgress,
     AnalysisTask,
@@ -175,36 +177,28 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
     )
 
 
-@router.post("/repositories/{repository_id}/analyze", response_model=AnalysisTask, status_code=202)
-async def submit_analysis(
+async def _trigger_analysis(
     repository_id: UUID,
-    db: DbSession,
-    repo_dao: RepoDaoDep,
-    request: AnalyzeRequest | None = None,
-):
+    repo: Any,
+    mode: AnalysisMode = AnalysisMode.FULL,
+    agents: list[AgentType] | None = None,
+) -> AnalysisTask:
     """
-    提交分析任务
+    提交分析任务的共享逻辑（供 submit_analysis 和 create_repository 复用）
 
-    创建一个异步分析任务并提交到 Celery 队列。
-    返回 202 Accepted 状态码，表示任务已接受但尚未完成。
+    在 eager 模式下直接在当前事件循环中运行 orchestrator，避免
+    ThreadPoolExecutor + asyncio.run() 破坏主事件循环的数据库连接池。
+    在非 eager 模式下提交到 Celery 队列异步执行。
 
     Args:
-        repository_id: 目标仓库 ID
-        request: 可选的分析参数（模式、启用的 Agent 列表）
-        db: 数据库会话
-        repo_dao: RepositoryDAO 实例
+        repository_id: 仓库 ID
+        repo: 仓库模型实例
+        mode: 分析模式
+        agents: 启用的 Agent 列表
 
     Returns:
         AnalysisTask: 包含 task_id、初始状态的响应
     """
-    # 验证仓库存在
-    repo = await repo_dao.get_by_id(db, repository_id)
-    if repo is None:
-        raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
-
-    # 解析请求参数
-    mode = request.mode if request and request.mode else AnalysisMode.FULL
-    agents = request.agents if request and request.agents else None
 
     # 检查是否已有正在运行的任务（防止重复提交）
     try:
@@ -212,38 +206,68 @@ async def submit_analysis(
         existing_task_id = client.get(repo_active_task_key(str(repository_id)))
         if existing_task_id:
             task_id_str = existing_task_id.decode("utf-8") if isinstance(existing_task_id, bytes) else existing_task_id
-            logger.warning("仓库已有活跃任务，拒绝重复提交: repo=%s, existing_task=%s", repository_id, task_id_str)
-            raise HTTPException(
-                status_code=409,
-                detail=f"Repository {repository_id} already has an active task: {task_id_str}",
-            )
+            if not settings.celery_task_always_eager:
+                # 非 eager 模式：检查 Celery 任务状态
+                old_result: AsyncResult = AsyncResult(task_id_str, app=celery_app)
+                if old_result.state in ("SUCCESS", "FAILURE"):
+                    logger.info("旧任务已结束(%s)，清理 Redis key: repo=%s", old_result.state, repository_id)
+                    client.delete(repo_active_task_key(str(repository_id)))
+                else:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Repository {repository_id} already has an active task: {task_id_str}",
+                    )
+            else:
+                # eager 模式：任务同步执行完毕，key 残留即为过期，直接清理
+                logger.info("eager 模式：清理残留任务 key: repo=%s", repository_id)
+                client.delete(repo_active_task_key(str(repository_id)))
     except redis.RedisError as exc:
         logger.warning("Redis 检查失败，允许继续: %s", exc)
 
-    # 内容变化检测：对比最新完成版本的快照与当前文件
-    version_dao = AnalysisVersionDAO()
-    snapshot_dao = FileAnalysisSnapshotDAO()
-    file_dao = FileDAO()
+    if settings.celery_task_always_eager:
+        # Eager 模式：直接在当前事件循环中运行 orchestrator
+        from codeinsight.tasks.analysis_orchestrator import AnalysisOrchestrator
 
-    latest_completed = await version_dao.get_latest_completed(db, repository_id)
-    if latest_completed is not None:
-        # 获取最新完成版本的快照
-        old_snapshots = await snapshot_dao.get_by_version(db, repository_id, latest_completed.version)
-        old_hash_map = {s.file_id: s.content_hash for s in old_snapshots if s.file_id is not None}
-
-        # 获取当前文件列表
-        current_files = await file_dao.get_by_repository(db, repository_id)
-        current_hash_map = {f.id: f.content_hash for f in current_files}
-
-        # 对比两个哈希映射
-        if old_hash_map == current_hash_map:
-            logger.info("内容无变化，跳过重复分析: repo=%s, version=%s", repository_id, latest_completed.version)
-            raise HTTPException(
-                status_code=304,
-                detail=f"Repository {repository_id} has no content changes since version {latest_completed.version}",
+        logger.info("eager 模式：直接执行分析: repo=%s, mode=%s", repository_id, mode.value)
+        orchestrator = AnalysisOrchestrator(
+            repo_uuid=repository_id,
+            mode=mode.value,
+            task_instance=None,
+        )
+        try:
+            result = await orchestrator._run_async()
+            final_status = TaskStatus.COMPLETED
+            error_msg = None
+        except Exception as exc:
+            logger.error(
+                "eager 模式分析失败: repo=%s, type=%s, error=%s",
+                repository_id,
+                type(exc).__name__,
+                exc,
+                exc_info=True,
             )
+            final_status = TaskStatus.FAILED
+            error_msg = f"{type(exc).__name__}: {exc}"
+            result = {}
 
-    # 提交 Celery 任务
+        return AnalysisTask(
+            task_id=f"eager-{uuid.uuid4()}",
+            repository_id=repository_id,
+            status=final_status,
+            mode=mode,
+            progress=AnalysisProgress(
+                current_step=final_status,
+                percent=100.0 if final_status == TaskStatus.COMPLETED else 0.0,
+                files_processed=result.get("files_processed", 0) if isinstance(result, dict) else 0,
+                files_total=int(repo.file_count),
+                knowledge_points_found=result.get("knowledge_points_count", 0) if isinstance(result, dict) else 0,
+            ),
+            submitted_at=_utcnow(),
+            completed_at=_utcnow(),
+            error_message=error_msg,
+        )
+
+    # 非 eager 模式：提交到 Celery 队列
     celery_result = run_analysis.delay(
         repository_id=str(repository_id),
         mode=mode.value,
@@ -263,15 +287,13 @@ async def submit_analysis(
             mode.value,
             ex=settings.redis_task_mapping_ttl,
         )
-        # 记录仓库的活跃任务 ID（用于去重）
         client.set(repo_active_task_key(str(repository_id)), celery_result.id, ex=settings.redis_task_mapping_ttl)
     except redis.RedisError as exc:
         logger.warning("Redis 写入映射失败: %s", exc)
 
     logger.info("分析任务已提交: repo=%s, celery_task=%s", repository_id, celery_result.id)
 
-    # 立即返回初始任务信息
-    task = AnalysisTask(
+    return AnalysisTask(
         task_id=celery_result.id,
         repository_id=repository_id,
         status=TaskStatus.PENDING,
@@ -286,7 +308,50 @@ async def submit_analysis(
         submitted_at=_utcnow(),
     )
 
-    return task
+
+@router.post("/repositories/{repository_id}/analyze", response_model=AnalysisTask, status_code=202)
+async def submit_analysis(
+    repository_id: UUID,
+    db: DbSession,
+    repo_dao: RepoDaoDep,
+    request: AnalyzeRequest | None = None,
+):
+    """
+    提交分析任务
+
+    创建一个异步分析任务并提交到 Celery 队列。
+    返回 202 Accepted 状态码，表示任务已接受但尚未完成。
+    """
+    # 验证仓库存在
+    repo = await repo_dao.get_by_id(db, repository_id)
+    if repo is None:
+        raise HTTPException(status_code=404, detail=f"Repository {repository_id} not found")
+
+    # 解析请求参数
+    mode = request.mode if request and request.mode else AnalysisMode.FULL
+    agents = request.agents if request and request.agents else None
+
+    # 内容变化检测：对比最新完成版本的快照与当前文件
+    version_dao = AnalysisVersionDAO()
+    snapshot_dao = FileAnalysisSnapshotDAO()
+    file_dao = FileDAO()
+
+    latest_completed = await version_dao.get_latest_completed(db, repository_id)
+    if latest_completed is not None:
+        old_snapshots = await snapshot_dao.get_by_version(db, repository_id, latest_completed.version)
+        old_hash_map = {s.file_id: s.content_hash for s in old_snapshots if s.file_id is not None}
+
+        current_files = await file_dao.get_by_repository(db, repository_id)
+        current_hash_map = {f.id: f.content_hash for f in current_files}
+
+        if old_hash_map == current_hash_map:
+            logger.info("内容无变化，跳过重复分析: repo=%s, version=%s", repository_id, latest_completed.version)
+            raise HTTPException(
+                status_code=304,
+                detail=f"Repository {repository_id} has no content changes since version {latest_completed.version}",
+            )
+
+    return await _trigger_analysis(repository_id, repo, mode=mode, agents=agents)
 
 
 @router.get("/tasks/{task_id}", response_model=AnalysisTask)
@@ -330,6 +395,7 @@ async def cancel_task(task_id: str):
     取消分析任务
 
     通过 Celery control.revoke 终止正在执行的 Worker 任务。
+    如果任务已完成或不存在（eager 模式），返回相应提示。
 
     Args:
         task_id: Celery 任务 ID
@@ -344,13 +410,24 @@ async def cancel_task(task_id: str):
 
     # 检查任务是否存在
     try:
-        _ = result.state
+        state = result.state
     except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found") from exc
+        logger.warning("任务不存在或无法查询: task_id=%s, error=%s", task_id, exc)
+        # 尝试从 Redis 查找关联仓库，直接更新仓库状态
+        try:
+            client = get_redis_client()
+            repo_id_raw = client.get(task_repo_key(task_id))
+            if repo_id_raw:
+                repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else str(repo_id_raw)
+                client.delete(repo_active_task_key(repo_id_str))
+                logger.info("任务不存在，已清理 Redis: task_id=%s, repo=%s", task_id, repo_id_str)
+        except redis.RedisError:
+            pass
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found or already completed") from exc
 
     # 如果已经完成或失败，无需取消
-    if result.state in ("SUCCESS", "FAILURE"):
-        return {"message": f"Task {task_id} already {result.state.lower()}"}
+    if state in ("SUCCESS", "FAILURE"):
+        return {"message": f"Task {task_id} already {state.lower()}"}
 
     # 撤销任务（terminate=True 杀死正在执行的工作进程）
     revoked = celery_app.control.revoke(task_id, terminate=True)

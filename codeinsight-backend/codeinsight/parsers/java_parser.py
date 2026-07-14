@@ -133,6 +133,11 @@ class JavaParser(LanguageParser):
             ast_node = self._create_constructor_node(node, file_path, language, parent_node)
             result.add(ast_node)
 
+        # 方法调用（P-10 修复：_extract_nodes 未处理，导致所有调用被跳过）
+        elif node_type == "method_invocation":
+            call_node = self._create_call_node(node, file_path, language, parent_node)
+            result.add(call_node)
+
         # 递归处理子节点
         for child in node.children:
             self._extract_nodes(child, result, file_path, language, parent_node)
@@ -300,10 +305,26 @@ class JavaParser(LanguageParser):
     def _extract_import_name(self, node) -> str:
         """从导入节点中提取模块名"""
         try:
-            # import_declaration: import com.example.Class;
+            # 优先尝试 named field（简单 import 如 import Foo;）
             name_node = node.child_by_field_name("name")
             if name_node:
-                return _node_text_to_str(name_node)
+                name = _node_text_to_str(name_node)
+                if name:
+                    return name
+
+            # 降级：提取 scoped_identifier（如 import org.example.Foo;）
+            for child in node.children:
+                if child.type == "scoped_identifier":
+                    return _node_text_to_str(child)
+
+            # 降级：提取多个 identifier 并拼接
+            identifiers = []
+            for child in node.children:
+                if child.type == "identifier":
+                    identifiers.append(_node_text_to_str(child))
+            if identifiers:
+                return ".".join(identifiers)
+
             return "unknown"
         except Exception:
             return "unknown"

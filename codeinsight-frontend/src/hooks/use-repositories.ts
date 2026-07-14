@@ -12,6 +12,7 @@ import {
   switchVersion,
   rollbackVersion,
 } from "@/api/repositories";
+import { APIError } from "@/api/base";
 import type { components } from "@codeinsight/shared";
 
 type RepositoryCreate = components["schemas"]["RepositoryCreate"];
@@ -88,7 +89,17 @@ export function useTaskStatus(taskId: string, enabled = true) {
     queryKey: ["tasks", taskId],
     queryFn: () => getTaskStatus(taskId),
     enabled: !!taskId && enabled,
-    refetchInterval: 2000,
+    refetchInterval: (query) => {
+      // Stop polling on 401 (token expired)
+      if (query.state.error && (query.state.error as any)?.response?.status === 401) {
+        return false;
+      }
+      // Stop polling when task is completed/failed/cancelled
+      if (query.state.data && ["completed", "failed", "cancelled"].includes(query.state.data.status)) {
+        return false;
+      }
+      return 2000;
+    },
   });
 }
 

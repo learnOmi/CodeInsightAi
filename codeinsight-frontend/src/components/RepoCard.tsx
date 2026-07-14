@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useSubmitAnalysis,
   useCancelTask,
@@ -36,8 +37,10 @@ export function RepoCard({ repository }: RepoCardProps) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [cancelError, setCancelError] = useState("");
   const [currentTaskId, setCurrentTaskId] = useState<string>("");
 
+  const queryClient = useQueryClient();
   const submitAnalysis = useSubmitAnalysis();
   const cancelTask = useCancelTask();
   const deleteRepository = useDeleteRepository();
@@ -54,7 +57,12 @@ export function RepoCard({ repository }: RepoCardProps) {
     setSubmitError("");
     try {
       const result = await submitAnalysis.mutateAsync({ repositoryId: repository.id });
-      setCurrentTaskId(result.taskId);
+      // Eager 模式下分析同步完成，直接刷新仓库列表显示最终状态
+      if (result.status === "completed" || result.status === "failed") {
+        queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      } else {
+        setCurrentTaskId(result.taskId);
+      }
     } catch (err) {
       if (err instanceof APIError) {
         if (err.status === 409) {
@@ -71,8 +79,18 @@ export function RepoCard({ repository }: RepoCardProps) {
   };
 
   const handleCancelTask = async () => {
+    setCancelError("");
     if (taskData?.taskId) {
-      await cancelTask.mutateAsync(taskData.taskId);
+      try {
+        await cancelTask.mutateAsync(taskData.taskId);
+        queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      } catch (err) {
+        if (err instanceof APIError) {
+          setCancelError(err.message);
+        } else {
+          setCancelError("取消失败，请重试");
+        }
+      }
     }
   };
 
@@ -154,9 +172,12 @@ export function RepoCard({ repository }: RepoCardProps) {
       </div>
 
       {submitError && (
-        <div className="text-red-600 text-sm mb-3">{submitError}</div>
-      )}
-      {deleteError && (
+          <div className="text-red-600 text-sm mb-3">{submitError}</div>
+        )}
+        {cancelError && (
+          <div className="text-red-600 text-sm mb-3">{cancelError}</div>
+        )}
+        {deleteError && (
         <div className="text-red-600 text-sm mb-3">{deleteError}</div>
       )}
 

@@ -6,7 +6,7 @@
 """
 
 from dataclasses import dataclass, field
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -194,7 +194,12 @@ async def test_api_create_repository_success():
     mock_dao.create = AsyncMock(return_value=mock_repo)
 
     request = RepositoryCreate(name="New Repo", path="/tmp/new")
-    result = await create_repository(request, mock_db, mock_dao)
+
+    with patch("codeinsight.api.repositories.Path") as mock_path:
+        mock_path.return_value.exists.return_value = True
+        mock_path.return_value.is_dir.return_value = True
+        result = await create_repository(request, mock_db, mock_dao)
+
     assert result.name == "New Repo"
     mock_dao.exists_by_path.assert_called_once_with(mock_db, "/tmp/new")
     mock_dao.create.assert_called_once()
@@ -211,8 +216,11 @@ async def test_api_create_repository_duplicate_path():
 
     request = RepositoryCreate(name="Dup Repo", path="/tmp/dup")
 
-    with pytest.raises(Exception) as exc_info:
-        await create_repository(request, mock_db, mock_dao)
+    with patch("codeinsight.api.repositories.Path") as mock_path:
+        mock_path.return_value.exists.return_value = True
+        mock_path.return_value.is_dir.return_value = True
+        with pytest.raises(Exception) as exc_info:
+            await create_repository(request, mock_db, mock_dao)
     assert "409" in str(exc_info.value) or "already exists" in str(exc_info.value)
 
 

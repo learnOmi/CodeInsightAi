@@ -37,7 +37,6 @@ export function RepoForm({ onClose }: RepoFormProps) {
   const [path, setPath] = useState("");
   const [autoAnalyze, setAutoAnalyze] = useState(true);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [history, setHistory] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -46,7 +45,6 @@ export function RepoForm({ onClose }: RepoFormProps) {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
 
     if (!name.trim()) {
       setError("请输入仓库名称");
@@ -63,16 +61,8 @@ export function RepoForm({ onClose }: RepoFormProps) {
         path: path.trim(),
         autoAnalyze,
       });
-      setSuccess("仓库创建成功");
       savePathHistory(path.trim());
-      setHistory(loadPathHistory());
-      setName("");
-      setPath("");
-      setAutoAnalyze(true);
-      setTimeout(() => {
-        setSuccess("");
-        onClose?.();
-      }, 2000);
+      onClose?.();
     } catch (err) {
       if (err instanceof APIError) {
         if (err.status === 409) {
@@ -89,13 +79,23 @@ export function RepoForm({ onClose }: RepoFormProps) {
   const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // webkitdirectory 模式下，file.path 在部分浏览器不可用，
-      // 使用 file.webkitRelativePath 作为路径（去掉最外层文件夹名）
-      const rawPath = file.webkitRelativePath;
-      // 去掉最外层文件夹名（如 "my-project/src/index.ts" → "my-project"）
-      const normalizedPath = rawPath.split("/")[0];
-      setPath(normalizedPath);
-      // 清空 input value 以便下次重复选择同一目录也能触发 onChange
+      // Chrome/Edge 在 webkitdirectory 模式下提供非标准 file.path 属性
+      const absolutePath = (file as any).path as string | undefined;
+      if (absolutePath) {
+        // 去掉文件名，保留目录的绝对路径
+        const dirPath = absolutePath.replace(/[/\\][^/\\]*$/, "");
+        setPath(dirPath);
+        setError("");
+      } else {
+        // file.path 不可用（Chrome 86+ 已移除），降级为 webkitRelativePath
+        // 这是相对路径，无法获取完整绝对路径，仅作为文件夹名提示
+        const rawPath = file.webkitRelativePath;
+        const parts = rawPath.split("/");
+        // 如果有多级路径（如 "directives/index.js"），第一段是选中文件夹下的子目录名
+        const hint = parts.length > 1 ? parts[0] : rawPath;
+        setPath(hint);
+        setError("⚠ 浏览器未提供完整路径，请手动补充绝对路径前缀");
+      }
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -188,9 +188,6 @@ export function RepoForm({ onClose }: RepoFormProps) {
         </div>
         {error && (
           <div className="text-red-600 text-sm">{error}</div>
-        )}
-        {success && (
-          <div className="text-green-600 text-sm">{success}</div>
         )}
         <div className="flex gap-2">
           <button

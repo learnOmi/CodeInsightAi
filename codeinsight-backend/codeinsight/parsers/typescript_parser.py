@@ -108,10 +108,17 @@ class TypeScriptParser(LanguageParser):
         node_type = node.type
 
         # 函数声明: function name() { }
-        if node_type == "function_declaration" or node_type == "arrow_function":
+        if node_type == "function_declaration":
             ast_node = self._create_function_node(node, file_path, language, parent_node)
             result.add(ast_node)
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
+
+        # 箭头函数：仅当能获取到名称时才提取（匿名回调跳过）
+        elif node_type == "arrow_function":
+            ast_node = self._create_function_node(node, file_path, language, parent_node)
+            if ast_node.name:
+                result.add(ast_node)
+                self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 类声明
         elif node_type == "class_declaration":
@@ -135,6 +142,11 @@ class TypeScriptParser(LanguageParser):
             # import_statement 可能包含多个 import_specifier
             if node_type == "import_statement":
                 self._extract_import_nodes(node, result, file_path, language, parent_node)
+
+        # 调用表达式（P-10 修复：_extract_nodes 未处理，导致嵌套调用被跳过）
+        elif node_type == "call_expression":
+            call_node = self._create_call_node(node, file_path, language, parent_node)
+            result.add(call_node)
 
         # 递归处理子节点
         for child in node.children:
@@ -236,9 +248,21 @@ class TypeScriptParser(LanguageParser):
         language: str,
         parent_node: ASTNode | None = None,
     ) -> ASTNode:
-        """创建函数节点"""
+        """创建函数节点
+
+        对于箭头函数，如果自身没有名称（匿名回调），尝试从父级 variable_declarator 获取名称，
+        例如 `const Foo = () => {}` → name = "Foo"。
+        """
         name_node = node.child_by_field_name("name")
-        name = name_node.text.decode("utf-8") if name_node else "unknown"
+        name = name_node.text.decode("utf-8") if name_node else ""
+
+        # 匿名箭头函数：尝试从父级变量声明中获取名称
+        if not name and node.type == "arrow_function":
+            ts_parent = node.parent
+            if ts_parent is not None and ts_parent.type == "variable_declarator":
+                name_child = ts_parent.child_by_field_name("name")
+                if name_child:
+                    name = name_child.text.decode("utf-8")
 
         return ASTNode(
             node_type="function",

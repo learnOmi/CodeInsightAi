@@ -199,6 +199,10 @@ class GitScanner:
             max_files: 最大文件数量限制，防止内存溢出
         """
         self.repo_path = Path(repo_path).resolve()
+        if not self.repo_path.exists():
+            raise FileNotFoundError(f"仓库路径不存在: {self.repo_path}")
+        if not self.repo_path.is_dir():
+            raise NotADirectoryError(f"仓库路径不是目录: {self.repo_path}")
         self.exclude_dirs = exclude_dirs or self.DEFAULT_EXCLUDE_DIRS
         self.max_line_count = max_line_count
         self.max_files = max_files

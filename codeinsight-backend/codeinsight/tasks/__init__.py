@@ -31,6 +31,8 @@ def make_celery(app_name: str = "codeinsight.tasks") -> Celery:
         enable_utc=True,
         # 开发环境同步执行（直接调用而非走消息队列）
         task_always_eager=settings.celery_task_always_eager,
+        # eager 模式下也存储结果，让前端能轮询到最终状态
+        task_store_eager_result=settings.celery_task_always_eager,
         # 任务超时（分析任务可能耗时较长）
         task_soft_time_limit=3600,  # 1 小时软超时
         task_time_limit=7200,  # 2 小时硬超时
