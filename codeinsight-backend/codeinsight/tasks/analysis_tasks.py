@@ -192,6 +192,10 @@ async def _parse_and_store_ast_incremental(
                             "parent_node_id": parent_id,
                             "file_path": node.file_path,
                             "language": node.language,
+                            # Phase 1 新增：框架感知字段
+                            "tags": getattr(node, "tags", []),
+                            "annotations": getattr(node, "annotations", []),
+                            "qualified_name": getattr(node, "qualified_name", None),
                         }
                     )
                 if nodes_data:

@@ -39,6 +39,9 @@ class ASTNode:
         parent: 父节点
         language: 源文件语言
         file_path: 源文件路径
+        tags: 框架标签列表，如 ["react-component", "react-hook"]
+        annotations: 注解/装饰器列表，如 [{"name":"@Service","args":[]}]
+        qualified_name: 模块限定名，如 "com.example.Service.method"
     """
 
     node_type: str
@@ -51,6 +54,10 @@ class ASTNode:
     parent: ASTNode | None = None
     language: str = ""
     file_path: str = ""
+    # Phase 1 新增：框架感知字段
+    tags: list[str] = field(default_factory=list)
+    annotations: list[dict] = field(default_factory=list)
+    qualified_name: str = ""
 
     def add_child(self, child: ASTNode) -> None:
         """添加子节点"""
@@ -112,6 +119,9 @@ class ASTNode:
             "language": self.language,
             "file_path": self.file_path,
             "children_count": len(self.children),
+            "tags": self.tags,
+            "annotations": self.annotations,
+            "qualified_name": self.qualified_name,
         }
         if include_children and self.children:
             result["children"] = [child.to_dict(include_children=True) for child in self.children]

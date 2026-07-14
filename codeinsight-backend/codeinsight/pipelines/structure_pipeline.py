@@ -328,6 +328,10 @@ class StructureDataPipeline:
                 "language": node["language"],
                 "signature": node.get("signature"),
                 "docstring": node.get("docstring"),
+                # Phase 1 新增：框架感知字段
+                "tags": node.get("tags", []),
+                "annotations": node.get("annotations", []),
+                "qualified_name": node.get("qualified_name"),
             }
             # node_id 即为 id，无需重复注入（避免 AstNodeModel 构造时出现非法参数）
             db_nodes.append(db_node)

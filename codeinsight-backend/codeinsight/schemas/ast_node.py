@@ -34,6 +34,10 @@ class AstNode(BaseModel):
     language: str
     signature: str | None = None
     docstring: str | None = None
+    # Phase 1 新增：框架感知字段
+    tags: list = []
+    annotations: list = []
+    qualified_name: str | None = None
     created_at: datetime
 
     @field_serializer("id", "repository_id", "file_id", "parent_node_id")
@@ -67,3 +71,7 @@ class AstNodeCreate(BaseModel):
     language: str
     signature: str | None = None
     docstring: str | None = None
+    # Phase 1 新增：框架感知字段
+    tags: list = []
+    annotations: list = []
+    qualified_name: str | None = None
