@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { getRepository } from "@/api/repositories";
+import { APIError } from "@/api/base";
 import type { components } from "@codeinsight/shared";
 
 type Repository = components["schemas"]["Repository"];
@@ -18,7 +19,7 @@ export function useAnalysisStatus(repoId: string) {
     staleTime: 30 * 1000, // 30 秒缓存
     refetchInterval: (query) => {
       // Stop polling on 401 (token expired)
-      if (query.state.error && (query.state.error as any)?.response?.status === 401) {
+      if (query.state.error instanceof APIError && query.state.error.status === 401) {
         return false;
       }
       const data = query.state.data;

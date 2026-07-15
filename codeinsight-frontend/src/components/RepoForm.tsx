@@ -80,7 +80,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
     const file = e.target.files?.[0];
     if (file) {
       // Chrome/Edge 在 webkitdirectory 模式下提供非标准 file.path 属性
-      const absolutePath = (file as any).path as string | undefined;
+      const absolutePath = (file as File & { path?: string }).path;
       if (absolutePath) {
         // 去掉文件名，保留目录的绝对路径
         const dirPath = absolutePath.replace(/[/\\][^/\\]*$/, "");

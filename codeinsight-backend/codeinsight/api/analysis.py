@@ -205,7 +205,12 @@ async def _trigger_analysis(
         client = get_redis_client()
         existing_task_id = client.get(repo_active_task_key(str(repository_id)))
         if existing_task_id:
-            task_id_str = existing_task_id.decode("utf-8") if isinstance(existing_task_id, bytes) else existing_task_id
+            if isinstance(existing_task_id, bytes):
+                task_id_str = existing_task_id.decode("utf-8")
+            elif isinstance(existing_task_id, str):
+                task_id_str = existing_task_id
+            else:
+                task_id_str = str(existing_task_id)
             if not settings.celery_task_always_eager:
                 # 非 eager 模式：检查 Celery 任务状态
                 old_result: AsyncResult = AsyncResult(task_id_str, app=celery_app)

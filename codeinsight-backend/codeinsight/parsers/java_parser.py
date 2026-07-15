@@ -60,6 +60,7 @@ class JavaParser(LanguageParser):
         self._language = Language(java_language())
         self._parser = Parser(self._language)
         self._language_name = "java"
+        self._current_package: str = ""
 
     def get_language_name(self) -> str:
         return self._language_name
@@ -83,6 +84,8 @@ class JavaParser(LanguageParser):
             tree = self._parser.parse(content)
             root_node = tree.root_node
 
+            self._current_package = self._extract_package_name(root_node)
+
             nodes = ASTNodeList()
             self._extract_nodes(root_node, nodes, str(file_path), self._language_name)
 
@@ -91,6 +94,68 @@ class JavaParser(LanguageParser):
         except Exception as exc:
             logger.error("解析 Java 文件失败 %s: %s", file_path, exc)
             return ASTNodeList()
+
+    def _extract_package_name(self, root_node) -> str:
+        """
+        从根节点中提取 Java 包名
+
+        Args:
+            root_node: tree-sitter 根节点
+
+        Returns:
+            包名字符串，如 "com.example"，无包声明时返回空字符串
+        """
+        for child in root_node.children:
+            if child.type == "package_declaration":
+                for sub in child.children:
+                    if sub.type == "scoped_identifier":
+                        return _node_text_to_str(sub)
+                parts = []
+                for sub in child.children:
+                    if sub.type == "identifier":
+                        parts.append(_node_text_to_str(sub))
+                if parts:
+                    return ".".join(parts)
+        return ""
+
+    def _compute_qualified_name(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> str:
+        """
+        计算 Java 节点的模块限定名
+
+        Java 格式：
+        - 类/接口: {package}.{ClassName}
+        - 方法/构造器: {package}.{ClassName}.{methodName}
+
+        Args:
+            node: tree-sitter 节点
+            file_path: 文件路径
+            language: 语言名称
+            parent_node: 父 ASTNode
+
+        Returns:
+            qualified_name 字符串
+        """
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else ""
+
+        if node.type in ("class_declaration", "interface_declaration"):
+            if self._current_package:
+                return f"{self._current_package}.{name}"
+            return name or ""
+        elif node.type in ("method_declaration", "constructor_declaration"):
+            parent_name = parent_node.name if parent_node else ""
+            if self._current_package and parent_name:
+                return f"{self._current_package}.{parent_name}.{name}"
+            elif parent_name:
+                return f"{parent_name}.{name}"
+            return name or ""
+        return ""
 
     def _extract_nodes(
         self,
@@ -193,6 +258,8 @@ class JavaParser(LanguageParser):
         """创建类节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="class",
@@ -203,6 +270,8 @@ class JavaParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_method_node(
@@ -215,6 +284,8 @@ class JavaParser(LanguageParser):
         """创建方法节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="method",
@@ -225,6 +296,8 @@ class JavaParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_constructor_node(
@@ -237,6 +310,8 @@ class JavaParser(LanguageParser):
         """创建构造器节点 (P-8 修复：使用类名作为构造函数名称)"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="constructor",
@@ -247,6 +322,8 @@ class JavaParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_call_node(
@@ -339,6 +416,8 @@ class JavaParser(LanguageParser):
         """创建接口节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="interface",
@@ -349,4 +428,6 @@ class JavaParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
