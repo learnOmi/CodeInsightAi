@@ -24,3 +24,24 @@ repos:
         args: ["--ignore-missing-imports", "codeinsight-backend/codeinsight/"]
         files: ^codeinsight-backend/codeinsight/
         always_run: true
+
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: frontend-lint
+        entry: npm
+        language: system
+        args: ["--prefix", "codeinsight-frontend", "run", "lint"]
+        types: [file]
+        files: ^codeinsight-frontend/src/
+        pass_filenames: false
+        always_run: true
+      - id: frontend-typecheck
+        name: frontend-typecheck
+        entry: npm
+        language: system
+        args: ["--prefix", "codeinsight-frontend", "run", "typecheck"]
+        types: [file]
+        files: ^codeinsight-frontend/src/
+        pass_filenames: false
+        always_run: true

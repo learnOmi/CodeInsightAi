@@ -164,6 +164,77 @@ class GoParser(LanguageParser):
             else:
                 self._extract_nodes(child, result, file_path, language, parent_node)
 
+    def _extract_receiver_type(self, node) -> str:
+        """
+        从 method_declaration 节点中提取接收者类型名称
+
+        Go 的 receiver 语法: func (s *Server) MethodName()
+        解析 parameter_list -> parameter_declaration -> type 获取类型名
+
+        Args:
+            node: tree-sitter method_declaration 节点
+
+        Returns:
+            接收者类型名称，如 "Server"；若解析失败则返回 "unknown"
+        """
+        receiver_node = node.child_by_field_name("receiver")
+        if receiver_node is None:
+            return "unknown"
+        # receiver 是 parameter_list，其子节点包含 parameter_declaration
+        for child in receiver_node.children:
+            if child.type == "parameter_declaration":
+                type_node = child.child_by_field_name("type")
+                if type_node is not None:
+                    return self._node_text_to_str(type_node).lstrip("*")
+        return "unknown"
+
+    def _compute_qualified_name(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> str:
+        """
+        计算 Go 节点的模块限定名
+
+        Go 格式：
+        - 函数: {package_path}:{FunctionName}
+        - 方法: {package_path}:{ReceiverType}.{MethodName}
+        - 结构体: {package_path}:{StructName}
+
+        package_path 从文件路径派生，使用文件名（不含扩展名）作为包标识符。
+
+        Args:
+            node: tree-sitter 节点
+            file_path: 文件路径
+            language: 语言名称
+            parent_node: 父 ASTNode
+
+        Returns:
+            qualified_name 字符串
+        """
+        package_path = Path(file_path).stem
+        node_type = node.type
+
+        if node_type == "function_declaration":
+            name_node = node.child_by_field_name("name")
+            func_name = self._node_text_to_str(name_node) if name_node else "unknown"
+            return f"{package_path}:{func_name}"
+
+        if node_type == "method_declaration":
+            receiver_type = self._extract_receiver_type(node)
+            name_node = node.child_by_field_name("name")
+            method_name = self._node_text_to_str(name_node) if name_node else "unknown"
+            return f"{package_path}:{receiver_type}.{method_name}"
+
+        if node_type == "type_spec":
+            name_node = node.child_by_field_name("name")
+            struct_name = self._node_text_to_str(name_node) if name_node else "unknown"
+            return f"{package_path}:{struct_name}"
+
+        return ""
+
     def _create_function_node(
         self,
         node,
@@ -174,6 +245,7 @@ class GoParser(LanguageParser):
         """创建函数节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="function",
@@ -184,6 +256,7 @@ class GoParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            qualified_name=qualified_name,
         )
 
     def _create_method_node(
@@ -196,6 +269,7 @@ class GoParser(LanguageParser):
         """创建方法节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="method",
@@ -206,6 +280,7 @@ class GoParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            qualified_name=qualified_name,
         )
 
     def _create_struct_node(
@@ -218,6 +293,7 @@ class GoParser(LanguageParser):
         """创建结构体节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="struct",
@@ -228,6 +304,7 @@ class GoParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            qualified_name=qualified_name,
         )
 
     def _create_call_node(

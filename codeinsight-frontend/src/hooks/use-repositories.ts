@@ -91,7 +91,7 @@ export function useTaskStatus(taskId: string, enabled = true) {
     enabled: !!taskId && enabled,
     refetchInterval: (query) => {
       // Stop polling on 401 (token expired)
-      if (query.state.error && (query.state.error as any)?.response?.status === 401) {
+      if (query.state.error instanceof APIError && query.state.error.status === 401) {
         return false;
       }
       // Stop polling when task is completed/failed/cancelled

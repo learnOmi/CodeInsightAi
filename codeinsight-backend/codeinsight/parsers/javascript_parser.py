@@ -131,9 +131,70 @@ class JavaScriptParser(LanguageParser):
             call_node = self._create_call_node(node, file_path, language, parent_node)
             result.add(call_node)
 
+        # 对象字面量：提取对象方法（Vue Options API、配置对象等）
+        elif node_type in ("object", "object_literal"):
+            self._extract_object_methods(node, result, file_path, language, parent_node)
+
         # 递归处理子节点
         for child in node.children:
             self._extract_nodes(child, result, file_path, language, parent_node)
+
+    def _extract_object_methods(
+        self,
+        node,
+        result: ASTNodeList,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None,
+    ) -> None:
+        """
+        从 object/object_literal 节点中提取对象方法
+
+        处理两种形式：
+        1. method_definition 直接子节点（JS 简写方法: `{ foo() {} }`）
+        2. pair 子节点（`{ key: function() {} }` 或 `{ key: () => {} }`）
+
+        若 value 为嵌套对象则递归处理。
+        """
+        for child in node.children:
+            # 1. 简写方法：method_definition 直接作为 object 的子节点
+            if child.type == "method_definition":
+                name_node = child.child_by_field_name("name")
+                annotations = self._extract_annotations(child)
+                obj_method = self._create_object_method_node(
+                    node=child,
+                    file_path=file_path,
+                    language=language,
+                    parent_node=parent_node,
+                    key_node=name_node,
+                )
+                obj_method.annotations = annotations
+                obj_method.qualified_name = self._compute_qualified_name(child, file_path, language, parent_node)
+                result.add(obj_method)
+                self._extract_nodes_from_node(child, result, file_path, language, obj_method)
+            # 2. pair 形式：{ key: function/arrow }
+            elif child.type == "pair":
+                key_node = child.child_by_field_name("key")
+                value_node = child.child_by_field_name("value")
+                if value_node is None:
+                    continue
+                if self._is_function_node(value_node):
+                    annotations = self._extract_annotations(child)
+                    obj_method = self._create_object_method_node(
+                        node=value_node,
+                        file_path=file_path,
+                        language=language,
+                        parent_node=parent_node,
+                        key_node=key_node,
+                    )
+                    obj_method.annotations = annotations
+                    obj_method.qualified_name = self._compute_qualified_name(
+                        value_node, file_path, language, parent_node
+                    )
+                    result.add(obj_method)
+                    self._extract_nodes_from_node(value_node, result, file_path, language, obj_method)
+                elif value_node.type in ("object", "object_literal"):
+                    self._extract_object_methods(value_node, result, file_path, language, parent_node)
 
     def _extract_nodes_from_node(
         self,
@@ -233,6 +294,9 @@ class JavaScriptParser(LanguageParser):
                 if name_child:
                     name = name_child.text.decode("utf-8")
 
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
+
         return ASTNode(
             node_type="function",
             name=name,
@@ -242,6 +306,8 @@ class JavaScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_method_node(
@@ -254,6 +320,8 @@ class JavaScriptParser(LanguageParser):
         """创建方法节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="method",
@@ -264,6 +332,8 @@ class JavaScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_class_node(
@@ -276,6 +346,8 @@ class JavaScriptParser(LanguageParser):
         """创建类节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="class",
@@ -286,6 +358,8 @@ class JavaScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_call_node(
@@ -324,3 +398,36 @@ class JavaScriptParser(LanguageParser):
             return "unknown"
         except Exception:
             return "unknown"
+
+    def _compute_qualified_name(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> str:
+        """
+        计算节点的模块限定名
+
+        格式：
+        - 方法：{module_name}:{ClassName}.{methodName}
+        - 顶层函数：{module_name}:{functionName}
+
+        Args:
+            node: tree-sitter 节点
+            file_path: 文件路径
+            language: 语言名称
+            parent_node: 父 ASTNode
+
+        Returns:
+            qualified_name 字符串
+        """
+        module_name = Path(file_path).stem
+
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
+
+        if parent_node is not None and parent_node.node_type == "class":
+            return f"{module_name}:{parent_node.name}.{name}"
+
+        return f"{module_name}:{name}"

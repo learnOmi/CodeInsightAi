@@ -184,6 +184,8 @@ class PythonParser(LanguageParser):
         """创建函数节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="function",
@@ -194,6 +196,8 @@ class PythonParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_method_node(
@@ -206,6 +210,8 @@ class PythonParser(LanguageParser):
         """创建方法节点（类中的函数）"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="method",
@@ -216,6 +222,8 @@ class PythonParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_class_node(
@@ -228,6 +236,8 @@ class PythonParser(LanguageParser):
         """创建类节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="class",
@@ -238,6 +248,8 @@ class PythonParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_import_node(
@@ -382,6 +394,8 @@ class PythonParser(LanguageParser):
         """创建 Protocol 节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="protocol",
@@ -392,6 +406,8 @@ class PythonParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
 
     def _create_enum_node(
@@ -404,6 +420,8 @@ class PythonParser(LanguageParser):
         """创建 Enum 节点"""
         name_node = node.child_by_field_name("name")
         name = name_node.text.decode("utf-8") if name_node else "unknown"
+        annotations = self._extract_annotations(node)
+        qualified_name = self._compute_qualified_name(node, file_path, language, parent_node)
 
         return ASTNode(
             node_type="enum",
@@ -414,4 +432,38 @@ class PythonParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=annotations,
+            qualified_name=qualified_name,
         )
+
+    def _compute_qualified_name(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> str:
+        """
+        计算 Python 节点的模块限定名
+
+        格式：{module}.{ClassName}.{methodName}（方法）
+             {module}.{ClassName}（类）
+             {module}.{functionName}（顶层函数）
+
+        Args:
+            node: tree-sitter 节点
+            file_path: 文件路径
+            language: 语言名称
+            parent_node: 父 ASTNode
+
+        Returns:
+            模块限定名字符串
+        """
+        module = Path(file_path).stem
+        name_node = node.child_by_field_name("name")
+        name = name_node.text.decode("utf-8") if name_node else "unknown"
+
+        if parent_node is not None and parent_node.name:
+            return f"{module}.{parent_node.name}.{name}"
+
+        return f"{module}.{name}"

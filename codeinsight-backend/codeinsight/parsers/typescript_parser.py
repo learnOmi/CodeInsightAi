@@ -148,6 +148,10 @@ class TypeScriptParser(LanguageParser):
             call_node = self._create_call_node(node, file_path, language, parent_node)
             result.add(call_node)
 
+        # 对象字面量：提取对象方法（Vue Options API 等场景）
+        elif node_type in ("object", "object_literal"):
+            self._extract_object_methods(node, result, file_path, language, parent_node)
+
         # 递归处理子节点
         for child in node.children:
             self._extract_nodes(child, result, file_path, language, parent_node)
@@ -196,6 +200,49 @@ class TypeScriptParser(LanguageParser):
                 result.add(call_node)
             else:
                 self._extract_nodes(child, result, file_path, language, parent_node)
+
+    def _extract_object_methods(
+        self,
+        node,
+        result: ASTNodeList,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> None:
+        """
+        从 object/object_literal 节点中提取对象方法
+
+        处理两种形式：
+        1. method_definition 直接子节点（TS/JS 简写方法: `{ foo() {} }`）
+        2. pair 子节点（`{ key: function() {} }` 或 `{ key: () => {} }`）
+
+        同时处理嵌套对象（pair value 为另一个 object）。
+        """
+        for child in node.children:
+            # 1. 简写方法：method_definition 直接作为 object 的子节点
+            if child.type == "method_definition":
+                name_node = child.child_by_field_name("name")
+                annotations = self._extract_annotations(child)
+                obj_method = self._create_object_method_node(child, file_path, language, parent_node, name_node)
+                obj_method.annotations = annotations
+                obj_method.qualified_name = self._compute_qualified_name(child, file_path, language, parent_node)
+                result.add(obj_method)
+            # 2. pair 形式：{ key: function/arrow }
+            elif child.type == "pair":
+                key_node = child.child_by_field_name("key")
+                value_node = child.child_by_field_name("value")
+                if value_node is None:
+                    continue
+                if self._is_function_node(value_node):
+                    annotations = self._extract_annotations(child)
+                    obj_method = self._create_object_method_node(value_node, file_path, language, parent_node, key_node)
+                    obj_method.annotations = annotations
+                    obj_method.qualified_name = self._compute_qualified_name(
+                        value_node, file_path, language, parent_node
+                    )
+                    result.add(obj_method)
+                elif value_node.type in ("object", "object_literal"):
+                    self._extract_object_methods(value_node, result, file_path, language, parent_node)
 
     def _extract_import_nodes(
         self,
@@ -273,6 +320,8 @@ class TypeScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=self._extract_annotations(node),
+            qualified_name=self._compute_qualified_name(node, file_path, language, parent_node),
         )
 
     def _create_method_node(
@@ -295,6 +344,8 @@ class TypeScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=self._extract_annotations(node),
+            qualified_name=self._compute_qualified_name(node, file_path, language, parent_node),
         )
 
     def _create_class_node(
@@ -317,6 +368,8 @@ class TypeScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=self._extract_annotations(node),
+            qualified_name=self._compute_qualified_name(node, file_path, language, parent_node),
         )
 
     def _create_call_node(
@@ -376,6 +429,8 @@ class TypeScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            annotations=self._extract_annotations(node),
+            qualified_name=self._compute_qualified_name(node, file_path, language, parent_node),
         )
 
     def _create_type_alias_node(
@@ -421,3 +476,40 @@ class TypeScriptParser(LanguageParser):
             language=language,
             file_path=file_path,
         )
+
+    def _compute_qualified_name(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> str:
+        """
+        计算 TypeScript 节点的模块限定名
+
+        格式：
+        - 方法：{module}:{ClassName}.{methodName}
+        - 顶层函数：{module}:{functionName}
+        - module 使用文件名（不含扩展名）作为模块名，路径使用正斜杠
+
+        Args:
+            node: tree-sitter 节点
+            file_path: 文件路径
+            language: 语言名称
+            parent_node: 父 ASTNode
+
+        Returns:
+            qualified_name 或空字符串
+        """
+        module_name = Path(file_path).stem
+
+        name_node = node.child_by_field_name("name")
+        name = self._node_text_to_str(name_node) if name_node else ""
+
+        if not name:
+            return ""
+
+        if parent_node and parent_node.node_type == "class":
+            return f"{module_name}:{parent_node.name}.{name}"
+
+        return f"{module_name}:{name}"

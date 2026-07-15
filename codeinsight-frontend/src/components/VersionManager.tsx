@@ -23,7 +23,7 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
     setError("");
     try {
       await switchVersion.mutateAsync({ repositoryId, version });
-    } catch (err) {
+    } catch (_err) {
       setError("切换版本失败，请重试");
     }
   };
@@ -35,7 +35,7 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
       await rollbackVersion.mutateAsync({ repositoryId, version: selectedVersion });
       setShowRollbackConfirm(false);
       setSelectedVersion(null);
-    } catch (err) {
+    } catch (_err) {
       setError("回滚版本失败，请重试");
     }
   };

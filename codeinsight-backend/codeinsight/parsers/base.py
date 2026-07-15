@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from codeinsight.config import settings
 
@@ -402,6 +402,180 @@ class LanguageParser(ABC):
                 self._traverse_and_extract(
                     child, result, file_path, language, parent_node, on_node_found, on_child_traverse
                 )
+
+    # ============================================================
+    # Phase 2 新增：对象方法提取 + 注解/装饰器提取 + qualified_name
+    # ============================================================
+
+    @staticmethod
+    def _node_text_to_str(node) -> str:
+        """安全地将 tree-sitter 节点的 text 属性转换为字符串"""
+        if node is None:
+            return ""
+        text = getattr(node, "text", None)
+        if text is None:
+            return ""
+        return cast(str, text.decode("utf-8"))
+
+    @staticmethod
+    def _is_function_node(node) -> bool:
+        """
+        检查 tree-sitter 节点是否为函数/方法类型
+
+        用于对象方法提取时判断 pair 的值是否为函数。
+        """
+        if node is None:
+            return False
+        return node.type in (
+            "function_declaration",
+            "function_expression",
+            "arrow_function",
+            "method_definition",
+            "function_definition",
+        )
+
+    def _extract_annotations(self, node) -> list[dict]:
+        """
+        从 tree-sitter 节点中提取注解/装饰器
+
+        支持 Java annotation（marker_annotation + annotation）、
+        Python decorator、TS/JS decorator。
+
+        Args:
+            node: tree-sitter 节点（class_declaration, method_declaration 等）
+
+        Returns:
+            [{"name": "@Service", "args": []}, ...]
+        """
+        annotations = []
+        # 1. 通过 modifiers 字段查找（Java: modifiers → marker_annotation / annotation）
+        modifiers = node.child_by_field_name("modifiers")
+        if modifiers:
+            for child in modifiers.children:
+                if child.type in ("annotation", "marker_annotation"):
+                    ann = self._extract_single_annotation(child)
+                    if ann["name"]:
+                        annotations.append(ann)
+        # 2. 遍历直接子节点（TS/JS: decorator 直接作为 class/method 的子节点）
+        for child in node.children:
+            if child.type in ("decorator", "annotation", "marker_annotation"):
+                ann = self._extract_single_annotation(child)
+                if ann["name"]:
+                    annotations.append(ann)
+            elif child.type == "modifiers":
+                # 某些 tree-sitter 版本将 modifiers 作为子节点而非字段
+                for sub in child.children:
+                    if sub.type in ("annotation", "marker_annotation"):
+                        ann = self._extract_single_annotation(sub)
+                        if ann["name"]:
+                            annotations.append(ann)
+        return annotations
+
+    def _extract_single_annotation(self, node) -> dict:
+        """
+        提取单个注解/装饰器信息
+
+        Args:
+            node: tree-sitter annotation/decorator/marker_annotation 节点
+
+        Returns:
+            {"name": "@Service", "args": ["value"]}
+        """
+        name = ""
+        args = []
+        name_node = node.child_by_field_name("name")
+        if name_node:
+            name = self._node_text_to_str(name_node)
+        # 处理 @ 前缀（如 Java 的 @Service）
+        if not name:
+            for child in node.children:
+                if child.type in ("identifier", "scoped_identifier"):
+                    name = self._node_text_to_str(child)
+                    break
+                # TS/JS decorator: @Component(...) → call_expression → identifier
+                elif child.type == "call_expression":
+                    func_node = child.child_by_field_name("function")
+                    if func_node:
+                        name = self._node_text_to_str(func_node)
+                    break
+                # 某些 tree-sitter 版本使用 call 节点
+                elif child.type == "call":
+                    name = self._node_text_to_str(child)
+                    break
+        # 提取参数
+        args_node = node.child_by_field_name("arguments")
+        if args_node:
+            args = self._extract_annotation_args(args_node)
+        return {"name": f"@{name}" if name and not name.startswith("@") else name, "args": args}
+
+    def _extract_annotation_args(self, node) -> list:
+        """提取注解/装饰器参数列表"""
+        if node is None:
+            return []
+        result = []
+        for child in node.children:
+            if child.type in ("(", ")", ",", "{", "}", "[", "]"):
+                continue
+            text = self._node_text_to_str(child)
+            if text:
+                result.append(text)
+        return result
+
+    def _create_object_method_node(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None,
+        key_node,
+    ) -> ASTNode:
+        """
+        创建对象方法节点（node_type = "object_method"）
+
+        用于 Vue Options API、配置对象等场景。
+
+        Args:
+            node: tree-sitter function 节点（pair 的 value）
+            file_path: 文件路径
+            language: 语言名称
+            parent_node: 父 ASTNode
+            key_node: pair 的 key 节点
+
+        Returns:
+            对象方法 ASTNode
+        """
+        key_name = self._node_text_to_str(key_node) if key_node else "unknown"
+        return ASTNode(
+            node_type="object_method",
+            name=key_name,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            start_column=node.start_point[1] + 1,
+            end_column=node.end_point[1] + 1,
+            language=language,
+            file_path=file_path,
+        )
+
+    def _compute_qualified_name(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> str:
+        """
+        计算节点的模块限定名（子类按需覆盖）
+
+        Args:
+            node: tree-sitter 节点
+            file_path: 文件路径
+            language: 语言名称
+            parent_node: 父 ASTNode
+
+        Returns:
+            qualified_name 或空字符串
+        """
+        return ""
 
     # ============================================================
     # 抽象接口
