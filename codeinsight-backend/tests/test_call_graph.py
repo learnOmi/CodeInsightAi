@@ -98,16 +98,22 @@ def test_is_dynamic_call():
 
 
 def test_match_call_edges_exact_match():
-    """测试：精确匹配调用边"""
+    """测试：精确匹配调用边（caller 为调用所在函数）"""
     call_nodes = [
-        FakeAstNode(id="call-1", node_type="call", name="greet", start_line=5, start_column=4),
+        FakeAstNode(id="call-1", node_type="call", name="greet", start_line=5, start_column=4, file_id="file-1"),
     ]
-    function_index = {"greet": [FakeAstNode(id="func-1", node_type="function", name="greet")]}
+    # enclosing function（包含该调用的函数）
+    function_index = {
+        "greet": [
+            FakeAstNode(id="func-1", node_type="function", name="greet", start_line=1, end_line=10, file_id="file-1"),
+        ]
+    }
     repo_uuid = uuid4()
 
     edges = CallGraphBuilder._match_call_edges(call_nodes, function_index, repo_uuid)
     assert len(edges) == 1
-    assert edges[0]["caller_node_id"] == "call-1"
+    # caller 为包含该调用的 enclosing function
+    assert edges[0]["caller_node_id"] == "func-1"
     assert edges[0]["callee_node_id"] == "func-1"
     assert edges[0]["call_type"] == "static"
 
