@@ -46,6 +46,8 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
     ".php": "php",
     # Swift
     ".swift": "swift",
+    # Vue
+    ".vue": "vue",
     # 配置/数据文件（不解析 AST，但可记录）
     ".json": "json",
     ".yaml": "yaml",
@@ -93,6 +95,7 @@ class LanguageDetector:
             "typescript",
             "java",
             "go",
+            "vue",
             "rust",
             "c",
             "cpp",

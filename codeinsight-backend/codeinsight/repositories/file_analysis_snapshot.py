@@ -6,7 +6,7 @@ FileAnalysisSnapshot 数据访问对象
 
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.models import FileAnalysisSnapshotModel
@@ -108,16 +108,22 @@ class FileAnalysisSnapshotDAO:
         Returns:
             版本标签列表（降序）
         """
-        query = select(FileAnalysisSnapshotModel.analysis_version).where(
-            FileAnalysisSnapshotModel.repository_id == repository_id
-        )
-
         if order_by_created:
-            query = query.order_by(FileAnalysisSnapshotModel.created_at.desc())
+            query = (
+                select(FileAnalysisSnapshotModel.analysis_version)
+                .where(FileAnalysisSnapshotModel.repository_id == repository_id)
+                .group_by(FileAnalysisSnapshotModel.analysis_version)
+                .order_by(func.max(FileAnalysisSnapshotModel.created_at).desc())
+            )
         else:
-            query = query.order_by(FileAnalysisSnapshotModel.analysis_version.desc())
+            query = (
+                select(FileAnalysisSnapshotModel.analysis_version)
+                .where(FileAnalysisSnapshotModel.repository_id == repository_id)
+                .distinct()
+                .order_by(FileAnalysisSnapshotModel.analysis_version.desc())
+            )
 
-        result = await db.execute(query.distinct())
+        result = await db.execute(query)
         return list(result.scalars().all())
 
     async def get_by_repository(

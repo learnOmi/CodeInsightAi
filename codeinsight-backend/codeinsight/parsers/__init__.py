@@ -6,5 +6,6 @@ Tree-sitter 封装层
 
 from .base import ASTNode, ASTNodeList, LanguageParser
 from .parser_factory import ParserFactory
+from .vue_parser import VueSfcParser
 
-__all__ = ["ParserFactory", "LanguageParser", "ASTNode", "ASTNodeList"]
+__all__ = ["ParserFactory", "LanguageParser", "ASTNode", "ASTNodeList", "VueSfcParser"]

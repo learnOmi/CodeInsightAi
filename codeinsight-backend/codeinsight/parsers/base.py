@@ -554,6 +554,7 @@ class LanguageParser(ABC):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _compute_qualified_name(

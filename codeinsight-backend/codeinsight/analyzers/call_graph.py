@@ -381,6 +381,7 @@ class CallGraphQuery:
                                 "id": str(callee.id),
                                 "name": callee.name,
                                 "node_type": callee.node_type,
+                                "file_path": callee.file_path,
                             }
                             if callee
                             else None

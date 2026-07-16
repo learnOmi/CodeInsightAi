@@ -14,6 +14,7 @@ import {
 } from "@xyflow/react";
 import Elk from "elkjs";
 import { useAstNodes, useCallEdges } from "@/hooks/use-files";
+import { CallChainPanel } from "./CallChainPanel";
 import "@xyflow/react/dist/style.css";
 
 const ELKConstructor = Elk;
@@ -64,9 +65,28 @@ const elk = new ELKConstructor({
 // 节点 tooltip 描述生成
 function buildNodeTooltip(data: any): string {
   const lines = [`${data.nodeTypeLabel}：${data.label}`];
+  if (!data.isCurrentFile && data.filePath) {
+    lines.push(`文件：${data.filePath}`);
+  }
   if (data.callsMade > 0) lines.push(`调用 ${data.callsMade} 个方法`);
   if (data.callsReceived > 0) lines.push(`被 ${data.callsReceived} 个方法调用`);
   return lines.join(" | ");
+}
+
+/**
+ * 截断文件路径为简短格式
+ * 例如: "src/api/clazz.js" → "…api/clazz.js"
+ */
+function shortFilePath(filePath: string, maxLen = 24): string {
+  if (!filePath || filePath.length <= maxLen) return filePath || "";
+  const parts = filePath.split(/[/\\]/);
+  let result = parts[parts.length - 1];
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const candidate = `${parts[i]}/${result}`;
+    if (candidate.length > maxLen) break;
+    result = candidate;
+  }
+  return `…${result.startsWith("/") || result.startsWith("\\") ? "" : "/"}${result}`;
 }
 
 /**
@@ -75,30 +95,88 @@ function buildNodeTooltip(data: any): string {
 function CallGraphNode({ data, isClass, isMember }: any) {
   const [hovered, setHovered] = useState(false);
 
+  // 调用点节点：极简样式，只作为边连接点
+  if (data.isCallSite) {
+    return (
+      <div
+        className="relative flex items-center justify-center cursor-pointer select-none"
+        style={{
+          width: 80,
+          height: 28,
+          backgroundColor: "rgba(107, 114, 128, 0.08)",
+          border: "1px dashed rgba(107, 114, 128, 0.3)",
+          borderRadius: 4,
+          fontSize: 10,
+          color: "rgba(255, 255, 255, 0.5)",
+          fontWeight: 400,
+        }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <span className="truncate px-1">{data.label}</span>
+        {hovered && (
+          <div
+            className="absolute z-50 bottom-full left-1/2 mb-2 px-2 py-1 text-xs whitespace-nowrap rounded shadow-lg pointer-events-none"
+            style={{ transform: "translateX(-50%)", backgroundColor: "#1f2937", color: "#e5e7eb" }}
+          >
+            {buildNodeTooltip(data)}
+          </div>
+        )}
+        <Handle
+          id="source-0"
+          type="source"
+          position={Position.Bottom}
+          style={{ background: "rgba(107, 114, 128, 0.5)", width: 6, height: 6 }}
+        />
+        <Handle
+          id="target-0"
+          type="target"
+          position={Position.Top}
+          style={{ background: "rgba(107, 114, 128, 0.5)", width: 6, height: 6 }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       className="relative px-3 py-2 text-center font-medium cursor-pointer"
       style={{
-        backgroundColor: isClass ? "rgba(236, 72, 153, 0.15)" : data.color,
-        borderColor: data.borderColor,
+        backgroundColor: data.isCurrentFile
+          ? (isClass ? "rgba(236, 72, 153, 0.15)" : data.color)
+          : "rgba(107, 114, 128, 0.25)",
+        borderColor: data.isCurrentFile ? data.borderColor : "#6b7280",
         borderWidth: isClass ? 2 : isMember ? 2.5 : 2,
-        borderStyle: isClass ? "dashed" : "solid",
+        borderStyle: data.isCurrentFile ? "solid" : "dashed",
         borderRadius: 8,
         color: "#ffffff",
         fontSize: data.label.length > 14 ? 12 : 14,
         fontWeight: isClass ? 700 : 600,
         letterSpacing: data.label.length > 14 ? -0.5 : 0,
+        opacity: data.isCurrentFile ? 1 : 0.85,
         height: NODE_H,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 4,
+        gap: 0,
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <span className="text-xs opacity-75">{data.icon}</span>
-      <span className="truncate">{data.label}</span>
+      <div className="flex items-center gap-1" style={{ marginTop: data.isCurrentFile ? 0 : -4 }}>
+        <span className="text-xs opacity-75">{data.icon}</span>
+        <span className="truncate">{data.label}</span>
+      </div>
+      {/* 非当前文件节点：显示文件路径小标签 */}
+      {!data.isCurrentFile && data.filePath && (
+        <div
+          className="text-[10px] leading-tight truncate max-w-full"
+          style={{ opacity: 0.6, marginTop: 1 }}
+        >
+          {shortFilePath(data.filePath)}
+        </div>
+      )}
       {/* tooltip */}
       {hovered && (
         <div
@@ -150,6 +228,7 @@ const nodeTypes = { callNode: CallGraphNode };
 async function buildGraphData(
   astNodes: any[],
   callEdges: any[],
+  currentFileId?: string,
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
   if (!astNodes.length || !callEdges.length) {
     return { nodes: [], edges: [] };
@@ -161,7 +240,13 @@ async function buildGraphData(
   const nodeMap = new Map<string, any>();
   callableNodes.forEach((n: any) => nodeMap.set(n.id, n));
 
-  // 只保留两端的节点都在 astNodes 中的边
+  // 扩展 nodeMap：当前文件的 call 节点也加入，模块级匿名回调内调用可保留边
+  const currentFileCallNodes = currentFileId
+    ? astNodes.filter((n: any) => n.nodeType === "call" && n.fileId === currentFileId)
+    : [];
+  currentFileCallNodes.forEach((n: any) => nodeMap.set(n.id, n));
+
+  // 只保留两端的节点都在 nodeMap 中的边
   const validEdges = callEdges.filter((e: any) => e.calleeNodeId && nodeMap.has(e.callerNodeId) && nodeMap.has(e.calleeNodeId));
 
   if (validEdges.length === 0) {
@@ -242,6 +327,35 @@ async function buildGraphData(
     const astNode = nodeMap.get(nodeId);
     if (!astNode) continue;
 
+    const isCallNode = astNode.nodeType === "call";
+
+    if (isCallNode) {
+      // 当前文件 call 节点：渲染为极小节点，只作为边连接点
+      graphNodes.push({
+        id: nodeId,
+        type: "callNode",
+        position: { x: Number(child.x) || 0, y: Number(child.y) || 0 },
+        width: 80,
+        height: 28,
+        data: {
+          label: astNode.name,
+          nodeType: "call",
+          nodeTypeLabel: "调用点",
+          icon: "▸",
+          color: "rgba(107, 114, 128, 0.12)",
+          borderColor: "rgba(107, 114, 128, 0.35)",
+          isClass: false,
+          isMember: false,
+          isCurrentFile: true,
+          filePath: astNode.filePath,
+          callsMade: outDegree.get(nodeId) || 0,
+          callsReceived: inDegree.get(nodeId) || 0,
+          isCallSite: true,
+        },
+      });
+      continue;
+    }
+
     const config = NODE_TYPE_CONFIG[astNode.nodeType] || NODE_TYPE_CONFIG.function;
     const isClass = CLASS_TYPES.has(astNode.nodeType);
     const isMember = MEMBER_TYPES.has(astNode.nodeType);
@@ -261,6 +375,8 @@ async function buildGraphData(
         borderColor: config.borderColor,
         isClass,
         isMember,
+        isCurrentFile: astNode.fileId === currentFileId,
+        filePath: astNode.filePath,
         callsMade: outDegree.get(nodeId) || 0,
         callsReceived: inDegree.get(nodeId) || 0,
       },
@@ -304,6 +420,74 @@ async function buildGraphData(
   return { nodes: graphNodes, edges: graphEdges };
 }
 
+/** 图例下拉按钮 */
+function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors px-2 py-1 rounded hover:bg-gray-100"
+      >
+        <span>图例</span>
+        <span className="text-[9px]">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 min-w-[280px]">
+            <div className="space-y-3">
+              {/* 节点类型 */}
+              <div>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">节点类型</p>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                  {Object.entries(NODE_TYPE_CONFIG).map(([type, config]) => (
+                    <span key={type} className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                      <span className="w-2.5 h-2.5 rounded flex-shrink-0" style={{ backgroundColor: config.color }} />
+                      <span>{config.label}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {/* 调用类型 */}
+              <div>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">调用类型</p>
+                <div className="space-y-1">
+                  {["static", "dynamic", "unknown"].map((type) => (
+                    <span key={type} className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                      <span className="w-6 h-0.5 flex-shrink-0" style={{
+                        backgroundColor: CALL_TYPE_STYLES[type].stroke,
+                        ...(CALL_TYPE_STYLES[type].strokeDasharray ? { borderTop: `1px dashed ${CALL_TYPE_STYLES[type].stroke}`, backgroundColor: "transparent" } : {}),
+                      }} />
+                      <span>{type} ({edgeCounts[type] || 0})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {/* 特殊样式 */}
+              <div>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">特殊样式</p>
+                <div className="space-y-1">
+                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <span className="w-2.5 h-2.5 rounded border border-dashed flex-shrink-0" style={{ borderColor: "#6b7280", backgroundColor: "rgba(107,114,128,0.3)" }} />
+                    <span>跨文件节点（灰色虚线）</span>
+                  </span>
+                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <span className="inline-block text-[9px] leading-none px-1 rounded flex-shrink-0" style={{ border: "1px dashed rgba(107,114,128,0.3)", color: "rgba(255,255,255,0.5)", backgroundColor: "rgba(107,114,128,0.08)" }}>
+                      ▸
+                    </span>
+                    <span>调用点（模块级匿名回调内调用）</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
   // 用 file_id 查调用边（仅当前文件的调用）
   const { data: callEdges, isLoading: edgesLoading } = useCallEdges({ file_id: fileId });
@@ -314,6 +498,16 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
   const [graphData, setGraphData] = useState<{ nodes: Node[]; edges: Edge[] } | null>(null);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+  const [selectedNodeForChain, setSelectedNodeForChain] = useState<string | null>(null);
+
+  // 获取选中调用链节点的详细信息
+  const chainNodeData = useMemo(() => {
+    if (!selectedNodeForChain || !graphData) return null;
+    const node = graphData.nodes.find((n) => n.id === selectedNodeForChain);
+    if (!node) return null;
+    const d = node.data as any;
+    return { id: selectedNodeForChain, name: d.label, nodeType: d.nodeType, filePath: d.filePath };
+  }, [selectedNodeForChain, graphData]);
 
   useEffect(() => {
     if (!allAstNodes || !callEdges) {
@@ -339,10 +533,17 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
         deduped.push(node);
       }
     }
-    setTimeout(async () => {
-      const result = await buildGraphData(deduped, callEdges);
-      setGraphData(result);
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const result = await buildGraphData(deduped, callEdges, fileId);
+      if (!cancelled) {
+        setGraphData(result);
+      }
     }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [fileId, allAstNodes, callEdges]);
 
   // useMemo 必须在早期 return 之前调用
@@ -439,39 +640,25 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
       ) : (
         <>
           {/* 顶部工具栏 */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-white/50 backdrop-blur">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-white/50 backdrop-blur flex-shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
               {focusedNodeId && (
-                <span className="text-xs text-[var(--text-muted)]">聚焦模式 — 点击空白区域退出</span>
+                <>
+                  <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">聚焦模式</span>
+                  <button
+                    onClick={() => setSelectedNodeForChain(focusedNodeId)}
+                    className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors font-medium whitespace-nowrap"
+                  >
+                    🔗 查看调用链
+                  </button>
+                  <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">· 点击空白区域退出</span>
+                </>
               )}
-              <span className="text-xs text-[var(--text-muted)]">鼠标悬停节点查看详情 · 悬停边查看调用名</span>
+              {!focusedNodeId && (
+                <span className="text-xs text-[var(--text-muted)]">点击节点查看详情 · 悬停边查看调用名</span>
+              )}
             </div>
-            <div className="flex items-center gap-4 text-xs">
-              <div className="flex items-center gap-2">
-                {Object.entries(NODE_TYPE_CONFIG).map(([type, config]) => (
-                  <span key={type} className="flex items-center gap-1">
-                    <span className="w-3 h-3 rounded" style={{ backgroundColor: config.color }} />
-                    <span className="text-[var(--text-muted)]">{config.label}</span>
-                  </span>
-                ))}
-              </div>
-              <div className="flex items-center gap-2">
-                {["static", "dynamic", "unknown"].map((type) => (
-                  <span key={type} className="flex items-center gap-1">
-                    <span
-                      className="w-4 h-0.5"
-                      style={{
-                        backgroundColor: CALL_TYPE_STYLES[type].stroke,
-                        borderBlockStyle: CALL_TYPE_STYLES[type].strokeDasharray ? "dashed" : "solid",
-                      }}
-                    />
-                    <span className="text-[var(--text-muted)]">
-                      {type} ({edgeCounts[type] || 0})
-                    </span>
-                  </span>
-                ))}
-              </div>
-            </div>
+            <LegendDropdown edgeCounts={edgeCounts} />
           </div>
 
           {/* ReactFlow 图 */}
@@ -501,6 +688,17 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
               />
             </ReactFlow>
           </div>
+
+          {/* 调用链面板 Modal */}
+          {selectedNodeForChain && chainNodeData && (
+            <CallChainPanel
+              nodeId={chainNodeData.id}
+              nodeName={chainNodeData.name}
+              nodeType={chainNodeData.nodeType}
+              filePath={chainNodeData.filePath}
+              onClose={() => setSelectedNodeForChain(null)}
+            />
+          )}
         </>
       )}
     </div>

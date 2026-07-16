@@ -253,6 +253,15 @@ class StructureDataPipeline:
             if not valid_items:
                 return result
 
+            # 清理孤立的 parent_node_id 引用，并按父子关系排序
+            all_ids = {n["id"] for n in valid_items if n.get("id")}
+            for node in valid_items:
+                pid = node.get("parent_node_id")
+                if pid is not None and pid not in all_ids:
+                    node["parent_node_id"] = None
+            referenced_parent_ids = {n["parent_node_id"] for n in valid_items if n.get("parent_node_id")}
+            valid_items.sort(key=lambda n: (0 if n["id"] in referenced_parent_ids else 1, 0))
+
         result.inserted_count = await self._batch_insert(
             valid_items,
             create_many_fn,
@@ -312,7 +321,7 @@ class StructureDataPipeline:
         """
         db_nodes = []
         for node in nodes:
-            node_id = uuid4()
+            node_id = node.get("id", uuid4())
             db_node = {
                 "id": node_id,
                 "repository_id": repo_uuid,

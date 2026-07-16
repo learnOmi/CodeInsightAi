@@ -14,7 +14,7 @@ P2-FixP6 重构（D-1 修复）：
 
 import logging
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import redis
 
@@ -176,11 +176,14 @@ async def _parse_and_store_ast_incremental(
 
                 ast_nodes = parser.parse_file(file_obj.absolute_path)
 
+                # 为所有节点分配 UUID，建立父节点映射
+                node_uuids = {id(node): uuid4() for node in ast_nodes}
                 nodes_data = []
                 for node in ast_nodes:
-                    parent_id = getattr(node, "parent_id", None)
+                    parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
                     nodes_data.append(
                         {
+                            "id": node_uuids[id(node)],
                             "repository_id": repo_uuid,
                             "file_id": file_obj.id,
                             "node_type": node.node_type,
@@ -189,7 +192,7 @@ async def _parse_and_store_ast_incremental(
                             "end_line": node.end_line,
                             "start_column": node.start_column,
                             "end_column": node.end_column,
-                            "parent_node_id": parent_id,
+                            "parent_node_id": parent_node_id,
                             "file_path": node.file_path,
                             "language": node.language,
                             # Phase 1 新增：框架感知字段

@@ -101,10 +101,12 @@ class PythonParser(LanguageParser):
         递归提取 AST 节点
         """
         node_type = node.type
+        current_parent = parent_node
 
         # 函数定义
         if node_type == "function_definition":
             ast_node = self._create_function_node(node, file_path, language, parent_node)
+            current_parent = ast_node
             result.add(ast_node)
             # 递归处理函数体
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
@@ -114,15 +116,18 @@ class PythonParser(LanguageParser):
             # 检查是否为 Protocol
             if self._is_protocol(node):
                 ast_node = self._create_protocol_node(node, file_path, language, parent_node)
+                current_parent = ast_node
                 result.add(ast_node)
                 self._extract_nodes_from_node(node, result, file_path, language, ast_node)
             # 检查是否为 Enum
             elif self._is_enum(node):
                 ast_node = self._create_enum_node(node, file_path, language, parent_node)
+                current_parent = ast_node
                 result.add(ast_node)
                 self._extract_nodes_from_node(node, result, file_path, language, ast_node)
             else:
                 ast_node = self._create_class_node(node, file_path, language, parent_node)
+                current_parent = ast_node
                 result.add(ast_node)
                 self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
@@ -134,11 +139,12 @@ class PythonParser(LanguageParser):
         # 函数调用（P-10 修复：_extract_nodes 未处理，导致嵌套调用被跳过）
         elif node_type == "call":
             call_node = self._create_call_node(node, file_path, language, parent_node)
+            current_parent = call_node
             result.add(call_node)
 
         # 递归处理子节点
         for child in node.children:
-            self._extract_nodes(child, result, file_path, language, parent_node)
+            self._extract_nodes(child, result, file_path, language, current_parent)
 
     def _extract_nodes_from_node(
         self,
@@ -198,6 +204,7 @@ class PythonParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_method_node(
@@ -224,6 +231,7 @@ class PythonParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_class_node(
@@ -250,6 +258,7 @@ class PythonParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_import_node(
@@ -272,6 +281,7 @@ class PythonParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _extract_import_name(self, node) -> str:
@@ -324,6 +334,7 @@ class PythonParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _extract_call_name(self, node) -> str:
@@ -408,6 +419,7 @@ class PythonParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_enum_node(
@@ -434,6 +446,7 @@ class PythonParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _compute_qualified_name(

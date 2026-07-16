@@ -17,6 +17,7 @@ P2-FixP7（共享 Session）:
 """
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from collections.abc import Callable
@@ -497,11 +498,14 @@ class AnalysisOrchestrator:
                     if file_id is None:
                         continue
 
+                    # 为所有节点分配 UUID，建立父节点映射
+                    node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
                     nodes_data = []
                     for node in ast_nodes:
-                        parent_id = getattr(node, "parent_id", None)
+                        parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
                         nodes_data.append(
                             {
+                                "id": node_uuids[id(node)],
                                 "repository_id": self.repo_uuid,
                                 "file_id": file_id,
                                 "node_type": node.node_type,
@@ -510,7 +514,7 @@ class AnalysisOrchestrator:
                                 "end_line": node.end_line,
                                 "start_column": node.start_column,
                                 "end_column": node.end_column,
-                                "parent_node_id": parent_id,
+                                "parent_node_id": parent_node_id,
                                 "file_path": node.file_path,
                                 "language": node.language,
                                 # Phase 1 新增：框架感知字段
@@ -550,11 +554,14 @@ class AnalysisOrchestrator:
                     if file_id is None:
                         continue
 
+                    # 为所有节点分配 UUID，建立父节点映射
+                    node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
                     nodes_data = []
                     for node in ast_nodes:
-                        parent_id = getattr(node, "parent_id", None)
+                        parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
                         nodes_data.append(
                             {
+                                "id": node_uuids[id(node)],
                                 "repository_id": self.repo_uuid,
                                 "file_id": file_id,
                                 "node_type": node.node_type,
@@ -563,7 +570,7 @@ class AnalysisOrchestrator:
                                 "end_line": node.end_line,
                                 "start_column": node.start_column,
                                 "end_column": node.end_column,
-                                "parent_node_id": parent_id,
+                                "parent_node_id": parent_node_id,
                                 "file_path": node.file_path,
                                 "language": node.language,
                                 # Phase 1 新增：框架感知字段
@@ -605,9 +612,11 @@ class AnalysisOrchestrator:
                         continue
 
                     ast_nodes = parser.parse_file(file_obj.absolute_path)
+                    # 为 parser 输出的 ASTNode 对象生成 UUID 映射（用于 parent_node_id 关联）
+                    node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
                     nodes_data = []
                     for node in ast_nodes:
-                        parent_id = getattr(node, "parent_id", None)
+                        parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
                         nodes_data.append(
                             {
                                 "repository_id": self.repo_uuid,
@@ -618,7 +627,7 @@ class AnalysisOrchestrator:
                                 "end_line": node.end_line,
                                 "start_column": node.start_column,
                                 "end_column": node.end_column,
-                                "parent_node_id": parent_id,
+                                "parent_node_id": parent_node_id,
                                 "file_path": node.file_path,
                                 "language": node.language,
                                 # Phase 1 新增：框架感知字段
@@ -785,8 +794,8 @@ class AnalysisOrchestrator:
             await db.commit()
 
     async def save_snapshot(self, db: AsyncSession | None = None) -> None:
-        """保存分析快照（增量模式）"""
-        if self.incremental_diff is None:
+        """保存分析快照"""
+        if self.incremental_diff is None and self.mode != AnalysisMode.FULL.value:
             return
 
         try:
@@ -804,8 +813,11 @@ class AnalysisOrchestrator:
                 count = await snapshot_manager.save_snapshot(self.repo_uuid, self.version_tag, files)
                 await db.commit()
                 logger.info("快照保存完成: repo=%s, version=%s, files=%d", self.repo_uuid, self.version_tag, count)
-        except Exception as exc:
-            logger.warning("快照保存失败: %s", exc)
+        except Exception:
+            logger.warning("快照保存失败", exc_info=True)
+            if db is not None:
+                with contextlib.suppress(Exception):
+                    await db.rollback()
 
     async def complete(self, db: AsyncSession | None, knowledge_points_count: int = 0) -> None:
         """标记任务完成"""
@@ -908,6 +920,24 @@ class AnalysisOrchestrator:
             file_dao = FileDAO()
             deleted = await file_dao.delete_by_repository(db, self.repo_uuid)
             logger.info("清理失败文件数据: deleted=%d", deleted)
+
+        elif failed_status == TaskStatus.FAILED.value:
+            # 失败状态：清理所有可能残留的数据
+            ast_dao = AstNodeDAO()
+            deleted_ast = await ast_dao.delete_by_repository(db, self.repo_uuid)
+            call_edge_dao = CallEdgeDAO()
+            module_dep_dao = ModuleDependencyDAO()
+            deleted_edges = await call_edge_dao.delete_by_repository(db, self.repo_uuid)
+            deleted_deps = await module_dep_dao.delete_by_repository(db, self.repo_uuid)
+            file_dao = FileDAO()
+            deleted_files = await file_dao.delete_by_repository(db, self.repo_uuid)
+            logger.info(
+                "清理失败仓库全部数据: ast=%d, edges=%d, deps=%d, files=%d",
+                deleted_ast,
+                deleted_edges,
+                deleted_deps,
+                deleted_files,
+            )
 
     def run(self) -> dict[str, Any]:
         """执行完整分析流程（由 Celery Worker 调用）"""
@@ -1019,8 +1049,9 @@ class AnalysisOrchestrator:
                         await self.build_structures(shared_db, progress_callback=structures_progress)
                     elif self.files_to_parse:
                         await self.build_structures_incremental(shared_db, progress_callback=structures_progress)
-                except Exception as exc:
-                    logger.warning("结构分析失败: %s", exc)
+                except Exception:
+                    logger.exception("结构分析失败")
+                    await shared_db.rollback()
 
             # Step 5: AI 分析（Phase 3）
             if skip_to_step != "ai":

@@ -40,7 +40,7 @@ async def list_files(
     db: DbSession,
     dao: FileDaoDep,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 20,
+    page_size: Annotated[int, Query(ge=1, le=500, description="每页数量")] = 100,
 ):
     """
     获取文件列表（分页）

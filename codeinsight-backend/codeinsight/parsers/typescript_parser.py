@@ -7,6 +7,7 @@ TypeScript 语言解析器
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -16,20 +17,33 @@ logger = logging.getLogger(__name__)
 
 TREE_SITTER_AVAILABLE = False
 _import_error = None
+_tsx_available = False
+_tsx_language: Callable[[], bytes] | None = None
 
 try:
     from tree_sitter import Language, Parser
-    from tree_sitter_typescript import language_typescript as typescript_language
+
+    # 优先尝试 tree-sitter-tsx（支持 JSX/TSX 语法）
+    try:
+        from tree_sitter_tsx import language as tsx_language
+
+        _tsx_available = True
+        _tsx_language = tsx_language
+        logger.info("tree-sitter-tsx 导入成功（支持 JSX/TSX 解析）")
+    except ImportError:
+        from tree_sitter_typescript import language_typescript as tsx_language
+
+        _tsx_available = False
+        _tsx_language = tsx_language
+        logger.info("tree-sitter-tsx 不可用，降级为 tree-sitter-typescript（不支持 JSX 解析）")
 
     TREE_SITTER_AVAILABLE = True
-    logger.info("tree-sitter-typescript 导入成功")
 except ImportError as exc:
     TREE_SITTER_AVAILABLE = False
     _import_error = exc
     logger.error("tree-sitter-typescript 导入失败: %s", exc)
     Language = None  # type: ignore[assignment,misc]
     Parser = None  # type: ignore[assignment,misc]
-    typescript_language = None  # type: ignore[assignment,misc]
 
 
 def _node_text_to_str(node) -> str:
@@ -59,9 +73,34 @@ class TypeScriptParser(LanguageParser):
             raise ImportError(
                 f"tree-sitter 不可用，请安装 tree-sitter 和 tree-sitter-typescript. Error: {_import_error}"
             )
-        self._language = Language(typescript_language())
+        assert _tsx_language is not None
+        self._language = Language(_tsx_language())
         self._parser = Parser(self._language)
         self._language_name = "typescript"
+        self._tsx_available = _tsx_available
+
+    def parse_content(self, content: str) -> ASTNodeList:
+        """
+        解析字符串内容（用于 Vue SFC 等场景）
+
+        Args:
+            content: TypeScript/JavaScript 代码字符串
+
+        Returns:
+            ASTNodeList 包含所有提取的节点
+        """
+        try:
+            tree = self._parser.parse(content.encode("utf-8"))
+            root_node = tree.root_node
+
+            nodes = ASTNodeList()
+            self._extract_nodes(root_node, nodes, "<content>", self._language_name)
+
+            return nodes
+
+        except Exception as exc:
+            logger.error("解析内容失败: %s", exc)
+            return ASTNodeList()
 
     def get_language_name(self) -> str:
         return self._language_name
@@ -106,11 +145,13 @@ class TypeScriptParser(LanguageParser):
         递归提取 AST 节点
         """
         node_type = node.type
+        current_parent = parent_node
 
         # 函数声明: function name() { }
         if node_type == "function_declaration":
             ast_node = self._create_function_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 箭头函数：仅当能获取到名称时才提取（匿名回调跳过）
@@ -118,18 +159,21 @@ class TypeScriptParser(LanguageParser):
             ast_node = self._create_function_node(node, file_path, language, parent_node)
             if ast_node.name:
                 result.add(ast_node)
+                current_parent = ast_node
                 self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 类声明
         elif node_type == "class_declaration":
             ast_node = self._create_class_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 接口声明
         elif node_type == "interface_declaration":
             ast_node = self._create_interface_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 类型别名
@@ -147,14 +191,22 @@ class TypeScriptParser(LanguageParser):
         elif node_type == "call_expression":
             call_node = self._create_call_node(node, file_path, language, parent_node)
             result.add(call_node)
+            current_parent = call_node
 
         # 对象字面量：提取对象方法（Vue Options API 等场景）
         elif node_type in ("object", "object_literal"):
             self._extract_object_methods(node, result, file_path, language, parent_node)
 
+        # JSX 元素：提取 JSX 组件（React 场景）
+        elif node_type in ("jsx_element", "jsx_self_closing_element"):
+            jsx_node = self._create_jsx_node(node, file_path, language, parent_node)
+            if jsx_node.name:
+                result.add(jsx_node)
+                current_parent = jsx_node
+
         # 递归处理子节点
         for child in node.children:
-            self._extract_nodes(child, result, file_path, language, parent_node)
+            self._extract_nodes(child, result, file_path, language, current_parent)
 
     def _extract_nodes_from_node(
         self,
@@ -322,6 +374,7 @@ class TypeScriptParser(LanguageParser):
             file_path=file_path,
             annotations=self._extract_annotations(node),
             qualified_name=self._compute_qualified_name(node, file_path, language, parent_node),
+            parent=parent_node,
         )
 
     def _create_method_node(
@@ -346,6 +399,7 @@ class TypeScriptParser(LanguageParser):
             file_path=file_path,
             annotations=self._extract_annotations(node),
             qualified_name=self._compute_qualified_name(node, file_path, language, parent_node),
+            parent=parent_node,
         )
 
     def _create_class_node(
@@ -370,6 +424,7 @@ class TypeScriptParser(LanguageParser):
             file_path=file_path,
             annotations=self._extract_annotations(node),
             qualified_name=self._compute_qualified_name(node, file_path, language, parent_node),
+            parent=parent_node,
         )
 
     def _create_call_node(
@@ -391,6 +446,7 @@ class TypeScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _extract_call_name(self, node) -> str:
@@ -399,11 +455,12 @@ class TypeScriptParser(LanguageParser):
             # 简单调用: func()
             func_node = node.child_by_field_name("function")
             if func_node:
-                # 方法调用: obj.method()
+                # 方法调用: obj.method() — 提取为 "obj.method"
                 if func_node.type == "member_access_expression":
                     prop_node = func_node.child_by_field_name("property")
-                    if prop_node:
-                        return f"*.{_node_text_to_str(prop_node)}"
+                    prop_name = _node_text_to_str(prop_node) if prop_node else ""
+                    if prop_name:
+                        return f"*.{prop_name}"
                 return _node_text_to_str(func_node)
             return "unknown"
         except Exception:
@@ -431,6 +488,7 @@ class TypeScriptParser(LanguageParser):
             file_path=file_path,
             annotations=self._extract_annotations(node),
             qualified_name=self._compute_qualified_name(node, file_path, language, parent_node),
+            parent=parent_node,
         )
 
     def _create_type_alias_node(
@@ -453,6 +511,7 @@ class TypeScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _create_interface_method_node(
@@ -475,6 +534,44 @@ class TypeScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
+        )
+
+    def _create_jsx_node(
+        self,
+        node,
+        file_path: str,
+        language: str,
+        parent_node: ASTNode | None = None,
+    ) -> ASTNode:
+        """创建 JSX 元素节点"""
+        name = ""
+        # jsx_element: <div>...</div> 或 <Component>...</Component>
+        # jsx_self_closing_element: <div /> 或 <Component />
+        for child in node.children:
+            if child.type == "jsx_opening_element" or child.type == "jsx_self_closing_element":
+                for sub in child.children:
+                    if sub.type == "identifier":
+                        name = self._node_text_to_str(sub)
+                        break
+                    elif sub.type == "member_expression":
+                        # 处理 <Some.Component /> 形式
+                        prop_node = sub.child_by_field_name("property")
+                        if prop_node:
+                            name = self._node_text_to_str(prop_node)
+                        break
+                break
+
+        return ASTNode(
+            node_type="jsx_element",
+            name=name,
+            start_line=node.start_point[0] + 1,
+            end_line=node.end_point[0] + 1,
+            start_column=node.start_point[1] + 1,
+            end_column=node.end_point[1] + 1,
+            language=language,
+            file_path=file_path,
+            parent=parent_node,
         )
 
     def _compute_qualified_name(

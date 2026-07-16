@@ -26,7 +26,9 @@ export function buildFileTree(files: FileItem[]): TreeNode[] {
   const root: TreeNode = { path: "", name: "", children: [], isDirectory: true };
 
   for (const file of safeFiles) {
-    const parts = file.path.split("/").filter(Boolean);
+    // 统一分隔符：兼容 Windows 反斜杠路径
+    const normalizedPath = file.path.replace(/\\/g, "/");
+    const parts = normalizedPath.split("/").filter(Boolean);
     let current = root;
 
     // 逐层遍历目录部分

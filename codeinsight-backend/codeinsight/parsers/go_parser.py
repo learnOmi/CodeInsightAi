@@ -105,17 +105,20 @@ class GoParser(LanguageParser):
         递归提取 AST 节点
         """
         node_type = node.type
+        current_parent = parent_node
 
         # 函数声明: func name() { }
         if node_type == "function_declaration":
             ast_node = self._create_function_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 方法声明: func (r ReceiverType) MethodName()
         elif node_type == "method_declaration":
             ast_node = self._create_method_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 结构体类型: type Name struct { }
@@ -134,10 +137,11 @@ class GoParser(LanguageParser):
         elif node_type == "call_expression":
             call_node = self._create_call_node(node, file_path, language, parent_node)
             result.add(call_node)
+            current_parent = call_node
 
         # 递归处理子节点
         for child in node.children:
-            self._extract_nodes(child, result, file_path, language, parent_node)
+            self._extract_nodes(child, result, file_path, language, current_parent)
 
     def _extract_nodes_from_node(
         self,
@@ -257,6 +261,7 @@ class GoParser(LanguageParser):
             language=language,
             file_path=file_path,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_method_node(
@@ -281,6 +286,7 @@ class GoParser(LanguageParser):
             language=language,
             file_path=file_path,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_struct_node(
@@ -305,6 +311,7 @@ class GoParser(LanguageParser):
             language=language,
             file_path=file_path,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_call_node(
@@ -326,6 +333,7 @@ class GoParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _extract_call_name(self, node) -> str:
@@ -364,6 +372,7 @@ class GoParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _extract_import_name(self, node) -> str:

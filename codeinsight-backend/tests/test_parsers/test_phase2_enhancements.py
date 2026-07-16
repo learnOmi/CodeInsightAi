@@ -20,7 +20,6 @@ from codeinsight.parsers.javascript_parser import JavaScriptParser
 from codeinsight.parsers.python_parser import PythonParser
 from codeinsight.parsers.typescript_parser import TypeScriptParser
 
-
 # ============================================================
 # Fixtures
 # ============================================================

@@ -169,23 +169,27 @@ class JavaParser(LanguageParser):
         递归提取 AST 节点
         """
         node_type = node.type
+        current_parent = parent_node
 
         # 类定义
         if node_type == "class_declaration":
             ast_node = self._create_class_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 接口定义
         elif node_type == "interface_declaration":
             ast_node = self._create_interface_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 方法声明
         elif node_type == "method_declaration":
             ast_node = self._create_method_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 导入语句
@@ -202,10 +206,11 @@ class JavaParser(LanguageParser):
         elif node_type == "method_invocation":
             call_node = self._create_call_node(node, file_path, language, parent_node)
             result.add(call_node)
+            current_parent = call_node
 
         # 递归处理子节点
         for child in node.children:
-            self._extract_nodes(child, result, file_path, language, parent_node)
+            self._extract_nodes(child, result, file_path, language, current_parent)
 
     def _extract_nodes_from_node(
         self,
@@ -272,6 +277,7 @@ class JavaParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_method_node(
@@ -298,6 +304,7 @@ class JavaParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_constructor_node(
@@ -324,6 +331,7 @@ class JavaParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_call_node(
@@ -345,6 +353,7 @@ class JavaParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _extract_call_name(self, node) -> str:
@@ -354,6 +363,12 @@ class JavaParser(LanguageParser):
             name_node = node.child_by_field_name("name")
             if name_node:
                 return _node_text_to_str(name_node)
+            # 对象方法调用 — 检查是否有 object 前缀
+            obj_node = node.child_by_field_name("object")
+            if obj_node:
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    return f"*.{_node_text_to_str(name_node)}"
             return "unknown"
         except Exception:
             return "unknown"
@@ -377,6 +392,7 @@ class JavaParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _extract_import_name(self, node) -> str:
@@ -430,4 +446,5 @@ class JavaParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )

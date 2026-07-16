@@ -102,11 +102,13 @@ class JavaScriptParser(LanguageParser):
         递归提取 AST 节点
         """
         node_type = node.type
+        current_parent = parent_node
 
         # 函数声明: function name() { }
         if node_type == "function_declaration":
             ast_node = self._create_function_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 函数表达式 / 箭头函数：仅当能获取到名称时才提取（匿名回调跳过）
@@ -114,12 +116,14 @@ class JavaScriptParser(LanguageParser):
             ast_node = self._create_function_node(node, file_path, language, parent_node)
             if ast_node.name:
                 result.add(ast_node)
+                current_parent = ast_node
                 self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 类声明
         elif node_type == "class_declaration":
             ast_node = self._create_class_node(node, file_path, language, parent_node)
             result.add(ast_node)
+            current_parent = ast_node
             self._extract_nodes_from_node(node, result, file_path, language, ast_node)
 
         # 导入语句
@@ -130,6 +134,7 @@ class JavaScriptParser(LanguageParser):
         elif node_type == "call_expression":
             call_node = self._create_call_node(node, file_path, language, parent_node)
             result.add(call_node)
+            current_parent = call_node
 
         # 对象字面量：提取对象方法（Vue Options API、配置对象等）
         elif node_type in ("object", "object_literal"):
@@ -137,7 +142,7 @@ class JavaScriptParser(LanguageParser):
 
         # 递归处理子节点
         for child in node.children:
-            self._extract_nodes(child, result, file_path, language, parent_node)
+            self._extract_nodes(child, result, file_path, language, current_parent)
 
     def _extract_object_methods(
         self,
@@ -308,6 +313,7 @@ class JavaScriptParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_method_node(
@@ -334,6 +340,7 @@ class JavaScriptParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_class_node(
@@ -360,6 +367,7 @@ class JavaScriptParser(LanguageParser):
             file_path=file_path,
             annotations=annotations,
             qualified_name=qualified_name,
+            parent=parent_node,
         )
 
     def _create_call_node(
@@ -381,6 +389,7 @@ class JavaScriptParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            parent=parent_node,
         )
 
     def _extract_call_name(self, node) -> str:
@@ -389,11 +398,12 @@ class JavaScriptParser(LanguageParser):
             # 简单调用: func()
             func_node = node.child_by_field_name("function")
             if func_node:
-                # 方法调用: obj.method()
+                # 方法调用: obj.method() — 提取为 "obj.method"
                 if func_node.type == "member_expression":
                     prop_node = func_node.child_by_field_name("property")
-                    if prop_node:
-                        return f"*.{_node_text_to_str(prop_node)}"
+                    prop_name = _node_text_to_str(prop_node) if prop_node else ""
+                    if prop_name:
+                        return f"*.{prop_name}"
                 return _node_text_to_str(func_node)
             return "unknown"
         except Exception:

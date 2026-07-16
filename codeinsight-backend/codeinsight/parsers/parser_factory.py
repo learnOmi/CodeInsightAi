@@ -39,6 +39,7 @@ def _create_parser_for_language(language: str) -> LanguageParser | None:
         from .javascript_parser import JavaScriptParser
         from .python_parser import PythonParser
         from .typescript_parser import TypeScriptParser
+        from .vue_parser import VueSfcParser
 
         parser_map = {
             "python": PythonParser,
@@ -46,6 +47,7 @@ def _create_parser_for_language(language: str) -> LanguageParser | None:
             "javascript": JavaScriptParser,
             "java": JavaParser,
             "go": GoParser,
+            "vue": VueSfcParser,
         }
 
         parser_class = parser_map.get(language)
