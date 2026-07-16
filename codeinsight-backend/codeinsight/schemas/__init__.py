@@ -13,9 +13,11 @@ from .analysis import (
     AnalyzeRequest,
     TaskStatus,
 )
+from .api_route import ApiRoute, ApiRouteCreate
 from .ast_node import AstNode, AstNodeCreate
 from .call_edge import CallEdge, CallEdgeCreate
 from .file import File, FileCreate, FileUpdate
+from .framework_pattern import FrameworkPattern, FrameworkPatternCreate
 from .knowledge import (
     CallChainNode,
     CodeSnippet,
@@ -51,6 +53,12 @@ __all__ = [
     # call_edge
     "CallEdge",
     "CallEdgeCreate",
+    # api_route
+    "ApiRoute",
+    "ApiRouteCreate",
+    # framework_pattern
+    "FrameworkPattern",
+    "FrameworkPatternCreate",
     # module_dependency
     "ModuleDependency",
     "ModuleDependencyCreate",

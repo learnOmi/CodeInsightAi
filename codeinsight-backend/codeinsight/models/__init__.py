@@ -5,10 +5,12 @@ ORM 模型模块
 """
 
 from .analysis_version import AnalysisVersionModel
+from .api_route import ApiRouteModel
 from .ast_node import AstNodeModel
 from .call_edge import CallEdgeModel
 from .file import FileModel
 from .file_analysis_snapshot import FileAnalysisSnapshotModel
+from .framework_pattern import FrameworkPatternModel
 from .knowledge_point import KnowledgePointModel
 from .module_dependency import ModuleDependencyModel
 from .repository import RepositoryModel, RepositoryStatus
@@ -23,4 +25,6 @@ __all__ = [
     "ModuleDependencyModel",
     "KnowledgePointModel",
     "AnalysisVersionModel",
+    "ApiRouteModel",
+    "FrameworkPatternModel",
 ]

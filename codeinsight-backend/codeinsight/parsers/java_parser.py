@@ -341,8 +341,14 @@ class JavaParser(LanguageParser):
         language: str,
         parent_node: ASTNode | None = None,
     ) -> ASTNode:
-        """创建调用节点"""
+        """创建调用节点
+
+        对于对象方法调用，将对象变量名 + 方法名存入 qualified_name，
+        供 CallGraphBuilder 进行基于命名约定的候选消歧。
+        例如: tokenUserInfoDto.getUserId() → qualified_name="tokenUserInfoDto.getUserId"
+        """
         name = self._extract_call_name(node)
+        qualified_name = self._extract_call_qualified_name(node)
 
         return ASTNode(
             node_type="call",
@@ -353,25 +359,48 @@ class JavaParser(LanguageParser):
             end_column=node.end_point[1] + 1,
             language=language,
             file_path=file_path,
+            qualified_name=qualified_name,
             parent=parent_node,
         )
 
     def _extract_call_name(self, node) -> str:
-        """从调用节点中提取被调用方法名"""
+        """从调用节点中提取被调用方法名
+
+        对于对象方法调用（obj.method()），返回 "*.method" 格式，
+        与 Python/JS/TS parser 保持一致，使 CallGraphBuilder 能正确区分
+        对象方法调用和自由函数调用，避免同名方法误匹配。
+        """
         try:
-            # method_invocation: obj.method() 或 method()
+            obj_node = node.child_by_field_name("object")
             name_node = node.child_by_field_name("name")
             if name_node:
-                return _node_text_to_str(name_node)
-            # 对象方法调用 — 检查是否有 object 前缀
-            obj_node = node.child_by_field_name("object")
-            if obj_node:
-                name_node = node.child_by_field_name("name")
-                if name_node:
+                if obj_node:
+                    # 对象方法调用: obj.method() → "*.method"
                     return f"*.{_node_text_to_str(name_node)}"
+                # 自由函数调用: method() → "method"
+                return _node_text_to_str(name_node)
             return "unknown"
         except Exception:
             return "unknown"
+
+    def _extract_call_qualified_name(self, node) -> str:
+        """提取调用的限定名（对象变量名.方法名）
+
+        用于 CallGraphBuilder 的候选消歧。
+        例如: tokenUserInfoDto.getUserId() → "tokenUserInfoDto.getUserId"
+              this.userInfoService.updateUserInfoByUserId() → "this.userInfoService.updateUserInfoByUserId"
+              getTokenUserInfoDto(request) → ""（无对象前缀）
+        """
+        try:
+            obj_node = node.child_by_field_name("object")
+            name_node = node.child_by_field_name("name")
+            if obj_node and name_node:
+                obj_text = _node_text_to_str(obj_node)
+                method_text = _node_text_to_str(name_node)
+                return f"{obj_text}.{method_text}"
+            return ""
+        except Exception:
+            return ""
 
     def _create_import_node(
         self,

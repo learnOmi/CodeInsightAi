@@ -1,14 +1,29 @@
 import { useQuery } from "@tanstack/react-query";
-import { getFiles, getFile } from "@/api/files";
+import { getAllFiles, getFiles, getFile } from "@/api/files";
+import type { FileItem } from "@/api/files";
 import { getAstNodes } from "@/api/ast-nodes";
 import { getCallEdges, getCallees, getCallers, getCallChain } from "@/api/call-edges";
+
+export type { FileItem };
 
 /**
  * 文件列表数据钩子
  *
- * 获取指定仓库的文件列表，支持分页。
+ * 获取指定仓库的所有文件（自动分页加载全部），用于构建完整文件树。
  */
-export function useFiles(repoId: string, page: number = 1, pageSize: number = 100) {
+export function useFiles(repoId: string) {
+  return useQuery({
+    queryKey: ["files", repoId, "all"],
+    queryFn: () => getAllFiles(repoId),
+    enabled: !!repoId,
+    staleTime: 5 * 60 * 1000, // 5 分钟缓存
+  });
+}
+
+/**
+ * 分页文件列表钩子（用于需要分页的场景）
+ */
+export function useFilesPaged(repoId: string, page: number = 1, pageSize: number = 100) {
   return useQuery({
     queryKey: ["files", repoId, page, pageSize],
     queryFn: () => getFiles(repoId, page, pageSize),

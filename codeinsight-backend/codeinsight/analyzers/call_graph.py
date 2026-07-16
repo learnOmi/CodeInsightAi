@@ -208,6 +208,59 @@ class CallGraphBuilder:
         return min(candidates, key=lambda f: f.end_line)
 
     @staticmethod
+    def _disambiguate_candidates(
+        call_node: AstNodeModel,
+        candidates: list[AstNodeModel],
+    ) -> list[AstNodeModel]:
+        """
+        多候选消歧：利用对象变量名推断类名，缩小候选范围
+
+        当 *.method 调用匹配到多个同名方法时，通过 call 节点的
+        qualified_name（如 "tokenUserInfoDto.getUserId"）提取对象变量名，
+        按命名约定推断类名（camelCase → PascalCase），过滤候选方法。
+
+        Args:
+            call_node: call 类型节点（含 qualified_name）
+            candidates: 所有同名候选方法列表
+
+        Returns:
+            消歧后的候选列表（若无法消歧则返回原列表）
+        """
+        if len(candidates) <= 1:
+            return candidates
+
+        # 从 qualified_name 提取对象变量名
+        qname = call_node.qualified_name or ""
+        if not qname or "." not in qname:
+            return candidates
+
+        # qualified_name 格式: "objVar.methodName" 或 "this.field.methodName"
+        # 取第一个 "." 前的部分作为对象变量名
+        parts = qname.split(".")
+        if len(parts) < 2:
+            return candidates
+
+        obj_var = parts[0].strip()
+        # 处理 this.field.method → 取 field
+        if obj_var == "this" and len(parts) >= 3:
+            obj_var = parts[1].strip()
+
+        if not obj_var:
+            return candidates
+
+        # 按命名约定推断类名：camelCase → PascalCase
+        # tokenUserInfoDto → TokenUserInfoDto
+        guessed_class = obj_var[0].upper() + obj_var[1:]
+
+        # 过滤候选：qualified_name 中包含推断的类名
+        filtered = [c for c in candidates if c.qualified_name and guessed_class in c.qualified_name]
+
+        if filtered:
+            return filtered
+
+        return candidates
+
+    @staticmethod
     def _match_call_edges(
         call_nodes: list[AstNodeModel],
         function_index: dict[str, list[AstNodeModel]],
@@ -260,7 +313,10 @@ class CallGraphBuilder:
             # 方法调用：name.method 格式
             if call_name.startswith("*."):
                 method_name = call_name[2:]  # 去掉 "*."
-                candidates = function_index.get(method_name, [])
+                all_candidates = function_index.get(method_name, [])
+                # 多候选消歧：利用 call 节点的 qualified_name（对象变量名.方法名）
+                # 推断可能的类名，缩小候选范围
+                candidates = CallGraphBuilder._disambiguate_candidates(call_node, all_candidates)
             # 构造器调用：new ClassName
             elif call_name.startswith("new "):
                 class_name = call_name[4:]  # 去掉 "new "

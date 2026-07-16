@@ -27,7 +27,14 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeinsight.analyzers import CallGraphBuilder, ModuleDependencyBuilder
+from codeinsight.analyzers import (
+    CallGraphBuilder,
+    FrameworkDetector,
+    FrameworkTagger,
+    MiddlewareAnalyzer,
+    ModuleDependencyBuilder,
+    RouteExtractor,
+)
 from codeinsight.constants.redis_keys import repo_active_task_key, task_cancel_key
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import async_session_factory
@@ -37,9 +44,11 @@ from codeinsight.parsers import ParserFactory
 from codeinsight.pipelines.structure_pipeline import StructureDataPipeline
 from codeinsight.repositories import (
     AnalysisVersionDAO,
+    ApiRouteDAO,
     AstNodeDAO,
     CallEdgeDAO,
     FileDAO,
+    FrameworkPatternDAO,
     ModuleDependencyDAO,
     RepositoryDAO,
 )
@@ -142,6 +151,12 @@ class AnalysisOrchestrator:
         self.ast_node_dao = ast_node_dao or AstNodeDAO()
         self.call_edge_dao = call_edge_dao or CallEdgeDAO()
         self.module_dep_dao = module_dep_dao or ModuleDependencyDAO()
+        self.api_route_dao = ApiRouteDAO()
+        self.framework_pattern_dao = FrameworkPatternDAO()
+        self.framework_tagger = FrameworkTagger()
+        self.framework_detector = FrameworkDetector()
+        self.route_extractor = RouteExtractor(self.api_route_dao)
+        self.middleware_analyzer = MiddlewareAnalyzer()
 
     # ================================================================
     # 私有数据库辅助方法（共享 session 支持）
@@ -494,6 +509,8 @@ class AnalysisOrchestrator:
                         continue
 
                     ast_nodes = parser.parse_file(scanned_file.absolute_path)
+                    # 在入库前应用框架标签，确保 tags 字段被持久化到数据库
+                    self.framework_tagger.tag_all(ast_nodes)
                     file_id = file_id_map.get(scanned_file.path)
                     if file_id is None:
                         continue
@@ -550,6 +567,8 @@ class AnalysisOrchestrator:
                         continue
 
                     ast_nodes = parser.parse_file(scanned_file.absolute_path)
+                    # 在入库前应用框架标签，确保 tags 字段被持久化到数据库
+                    self.framework_tagger.tag_all(ast_nodes)
                     file_id = file_id_map.get(scanned_file.path)
                     if file_id is None:
                         continue
@@ -612,6 +631,8 @@ class AnalysisOrchestrator:
                         continue
 
                     ast_nodes = parser.parse_file(file_obj.absolute_path)
+                    # 在入库前应用框架标签，确保 tags 字段被持久化到数据库
+                    self.framework_tagger.tag_all(ast_nodes)
                     # 为 parser 输出的 ASTNode 对象生成 UUID 映射（用于 parent_node_id 关联）
                     node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
                     nodes_data = []
@@ -662,6 +683,8 @@ class AnalysisOrchestrator:
                         continue
 
                     ast_nodes = parser.parse_file(file_obj.absolute_path)
+                    # 在入库前应用框架标签，确保 tags 字段被持久化到数据库
+                    self.framework_tagger.tag_all(ast_nodes)
                     nodes_data = []
                     for node in ast_nodes:
                         parent_id = getattr(node, "parent_id", None)
@@ -793,6 +816,169 @@ class AnalysisOrchestrator:
 
             await db.commit()
 
+    async def detect_frameworks_and_routes(self, db: AsyncSession | None = None) -> None:
+        """
+        Step 4.5: 框架检测 + API 路由提取 + 中间件链分析
+
+        在结构分析完成后执行，从 AST 节点中提取框架信息、API 路由和中间件链。
+        """
+        if db is not None:
+            await self._detect_frameworks_and_routes_inner(db)
+            await db.commit()
+            return
+
+        async with async_session_factory() as db:
+            await self._detect_frameworks_and_routes_inner(db)
+            await db.commit()
+
+    async def _detect_frameworks_and_routes_inner(self, db: AsyncSession) -> None:
+        """框架检测 + 路由提取内部逻辑（不含 commit）"""
+        try:
+            # 清理旧数据（RouteExtractor.build 内部也会清理 api_routes，此处仅清理 framework_patterns）
+            await self.framework_pattern_dao.delete_by_repository(db, self.repo_uuid)
+
+            # API 路由提取
+            route_count = await self.route_extractor.build(self.repo_uuid, db=db)
+            if route_count > 0:
+                logger.info("API 路由提取完成: routes=%d", route_count)
+
+            # 中间件链分析（结果附加到路由的 middlewares 字段）
+            middlewares = await self.middleware_analyzer.analyze(self.repo_uuid, db)
+            if middlewares:
+                logger.info("中间件链分析完成: middlewares=%d", len(middlewares))
+                # 将中间件链写入对应仓库的 api_routes 记录
+                await self._attach_middlewares_to_routes(db, middlewares)
+
+            # 框架检测（文件级 + AST 级 + 扩展名级）
+            await self._run_framework_detection(db)
+
+        except Exception:
+            logger.exception("框架检测和路由提取失败")
+            await db.rollback()
+
+    async def _attach_middlewares_to_routes(self, db: AsyncSession, middlewares: list[dict[str, Any]]) -> None:
+        """
+        将中间件链附加到仓库的 api_routes 记录
+
+        Express/Koa 中间件是全局的（app.use 适用于所有路由），
+        因此将中间件列表写入该仓库所有路由的 middlewares 字段。
+
+        Args:
+            db: 数据库会话
+            middlewares: 中间件信息列表
+        """
+        from sqlalchemy import update
+
+        from codeinsight.models import ApiRouteModel
+
+        await db.execute(
+            update(ApiRouteModel).where(ApiRouteModel.repository_id == self.repo_uuid).values(middlewares=middlewares)
+        )
+        await db.flush()
+
+    async def _run_framework_detection(self, db: AsyncSession) -> None:
+        """
+        运行框架检测并写入 framework_patterns 表
+
+        异常向上传播由 _detect_frameworks_and_routes_inner 统一处理，
+        避免嵌套 rollback 撤销已写入的路由数据。
+        """
+        # 文件级检测
+        repo_path_str = await self._get_repo_path(db)
+        if not repo_path_str:
+            logger.warning("框架检测: 仓库路径为空，跳过")
+            return
+
+        from pathlib import Path
+
+        repo_path = Path(repo_path_str)
+
+        # 文件级检测
+        file_level_results = self.framework_detector.detect_file_level(repo_path)
+
+        # AST 级检测：从数据库查询节点标签和注解
+        ast_level_results = await self._detect_frameworks_ast_level(db)
+
+        # 合并结果（文件级 + AST 级）
+        all_frameworks: dict[str, dict[str, Any]] = {}
+
+        for result in file_level_results:
+            fw_name = result.framework
+            if fw_name not in all_frameworks:
+                all_frameworks[fw_name] = {
+                    "framework": fw_name,
+                    "category": result.category,
+                    "confidence": 0.0,
+                    "evidence": {},
+                }
+            all_frameworks[fw_name]["confidence"] += result.confidence
+            all_frameworks[fw_name]["evidence"]["file_level"] = result.evidence
+
+        for result in ast_level_results:
+            fw_name = result.framework
+            if fw_name not in all_frameworks:
+                all_frameworks[fw_name] = {
+                    "framework": fw_name,
+                    "category": result.category,
+                    "confidence": 0.0,
+                    "evidence": {},
+                }
+            all_frameworks[fw_name]["confidence"] += result.confidence
+            all_frameworks[fw_name]["evidence"]["ast_level"] = result.evidence
+
+        # 写入 framework_patterns 表
+        if all_frameworks:
+            patterns_data = []
+            for fw_data in all_frameworks.values():
+                fw_data["repository_id"] = self.repo_uuid
+                if self.version_id:
+                    fw_data["analysis_version_id"] = self.version_id
+                fw_data["confidence"] = min(fw_data["confidence"], 1.0)
+                patterns_data.append(fw_data)
+
+            await self.framework_pattern_dao.create_many(db, patterns_data)
+            logger.info(
+                "框架检测完成: repo=%s, frameworks=%s",
+                self.repo_uuid,
+                [p["framework"] for p in patterns_data],
+            )
+
+    async def _detect_frameworks_ast_level(self, db: AsyncSession) -> list:
+        """
+        AST 级框架检测：从数据库查询节点标签和注解
+
+        Args:
+            db: 数据库会话
+
+        Returns:
+            框架检测结果列表
+        """
+        from codeinsight.parsers.base import ASTNode, ASTNodeList
+
+        # 查询所有节点
+        nodes = await self.ast_node_dao.get_by_repository(db, self.repo_uuid)
+
+        # 转换为 ASTNodeList 供 FrameworkDetector 使用
+        ast_nodes = ASTNodeList()
+        for node_model in nodes:
+            ast_node = ASTNode(
+                node_type=node_model.node_type,
+                name=node_model.name,
+                start_line=node_model.start_line,
+                end_line=node_model.end_line,
+                start_column=node_model.start_column,
+                end_column=node_model.end_column,
+                language=node_model.language,
+                file_path=node_model.file_path,
+                tags=node_model.tags or [],
+                annotations=node_model.annotations or [],
+                qualified_name=node_model.qualified_name or "",
+            )
+            ast_nodes.add(ast_node)
+
+        # tags 已在解析阶段由 FrameworkTagger 打好并入库，此处直接用于框架检测
+        return self.framework_detector.detect_ast_level(ast_nodes)
+
     async def save_snapshot(self, db: AsyncSession | None = None) -> None:
         """保存分析快照"""
         if self.incremental_diff is None and self.mode != AnalysisMode.FULL.value:
@@ -914,7 +1100,16 @@ class AnalysisOrchestrator:
             module_dep_dao = ModuleDependencyDAO()
             deleted_edges = await call_edge_dao.delete_by_repository(db, self.repo_uuid)
             deleted_deps = await module_dep_dao.delete_by_repository(db, self.repo_uuid)
-            logger.info("清理失败结构数据: edges=%d, deps=%d", deleted_edges, deleted_deps)
+            # 同时清理框架检测和路由数据
+            deleted_routes = await self.api_route_dao.delete_by_repository(db, self.repo_uuid)
+            deleted_patterns = await self.framework_pattern_dao.delete_by_repository(db, self.repo_uuid)
+            logger.info(
+                "清理失败结构数据: edges=%d, deps=%d, routes=%d, patterns=%d",
+                deleted_edges,
+                deleted_deps,
+                deleted_routes,
+                deleted_patterns,
+            )
 
         elif failed_status == TaskStatus.PENDING.value:
             file_dao = FileDAO()
@@ -929,13 +1124,17 @@ class AnalysisOrchestrator:
             module_dep_dao = ModuleDependencyDAO()
             deleted_edges = await call_edge_dao.delete_by_repository(db, self.repo_uuid)
             deleted_deps = await module_dep_dao.delete_by_repository(db, self.repo_uuid)
+            deleted_routes = await self.api_route_dao.delete_by_repository(db, self.repo_uuid)
+            deleted_patterns = await self.framework_pattern_dao.delete_by_repository(db, self.repo_uuid)
             file_dao = FileDAO()
             deleted_files = await file_dao.delete_by_repository(db, self.repo_uuid)
             logger.info(
-                "清理失败仓库全部数据: ast=%d, edges=%d, deps=%d, files=%d",
+                "清理失败仓库全部数据: ast=%d, edges=%d, deps=%d, routes=%d, patterns=%d, files=%d",
                 deleted_ast,
                 deleted_edges,
                 deleted_deps,
+                deleted_routes,
+                deleted_patterns,
                 deleted_files,
             )
 
@@ -1052,6 +1251,11 @@ class AnalysisOrchestrator:
                 except Exception:
                     logger.exception("结构分析失败")
                     await shared_db.rollback()
+
+            # Step 4.5: 框架检测 + API 路由提取 + 中间件链分析
+            if skip_to_step != "frameworks":
+                self.progress_manager.update(TaskStatus.ANALYZING_STRUCTURES, 55.0, self.total_files, self.total_files)
+                await self.detect_frameworks_and_routes(shared_db)
 
             # Step 5: AI 分析（Phase 3）
             if skip_to_step != "ai":
