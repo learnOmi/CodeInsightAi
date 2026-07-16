@@ -16,6 +16,7 @@ from .analysis import (
 from .api_route import ApiRoute, ApiRouteCreate
 from .ast_node import AstNode, AstNodeCreate
 from .call_edge import CallEdge, CallEdgeCreate
+from .external_dependency import ExternalDependency, ExternalDependencyCreate
 from .file import File, FileCreate, FileUpdate
 from .framework_pattern import FrameworkPattern, FrameworkPatternCreate
 from .knowledge import (
@@ -59,6 +60,9 @@ __all__ = [
     # framework_pattern
     "FrameworkPattern",
     "FrameworkPatternCreate",
+    # external_dependency
+    "ExternalDependency",
+    "ExternalDependencyCreate",
     # module_dependency
     "ModuleDependency",
     "ModuleDependencyCreate",

@@ -22,6 +22,21 @@ READ_BUFFER_SIZE = 64 * 1024
 DEFAULT_MAX_LINE_COUNT = 10000
 DEFAULT_MAX_FILES = 50000
 
+# Phase 5: 依赖声明文件名集合（这些文件需要被扫描，尽管不是源代码文件）
+DEPENDENCY_DECLARATION_FILES: frozenset[str] = frozenset(
+    {
+        "package.json",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+        "requirements.txt",
+        "pyproject.toml",
+        "Pipfile",
+        "go.mod",
+        "Cargo.toml",
+    }
+)
+
 
 @dataclass
 class ScannedFile:
@@ -263,7 +278,10 @@ class GitScanner:
 
                     language = language_detector.detect(file_path)
 
-                    if not language_detector.is_source_file(file_path):
+                    # Phase 5: 依赖声明文件即使不是源代码文件也需要扫描
+                    is_dep_file = file_path.name in DEPENDENCY_DECLARATION_FILES
+
+                    if not is_dep_file and not language_detector.is_source_file(file_path):
                         skipped_count += 1
                         continue
 

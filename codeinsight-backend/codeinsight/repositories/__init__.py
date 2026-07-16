@@ -8,6 +8,7 @@ from codeinsight.repositories.analysis_version import AnalysisVersionDAO
 from codeinsight.repositories.api_route import ApiRouteDAO
 from codeinsight.repositories.ast_node import AstNodeDAO
 from codeinsight.repositories.call_edge import CallEdgeDAO
+from codeinsight.repositories.external_dependency import ExternalDependencyDAO
 from codeinsight.repositories.file import FileDAO
 from codeinsight.repositories.file_analysis_snapshot import FileAnalysisSnapshotDAO
 from codeinsight.repositories.framework_pattern import FrameworkPatternDAO
@@ -26,4 +27,5 @@ __all__ = [
     "AnalysisVersionDAO",
     "ApiRouteDAO",
     "FrameworkPatternDAO",
+    "ExternalDependencyDAO",
 ]

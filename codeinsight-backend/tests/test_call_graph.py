@@ -22,6 +22,7 @@ class FakeAstNode:
     file_id: str = ""
     node_type: str = "function"
     name: str = ""
+    qualified_name: str | None = None
     start_line: int = 1
     end_line: int = 10
     start_column: int = 0
@@ -31,7 +32,12 @@ class FakeAstNode:
     language: str = "python"
     signature: str | None = None
     docstring: str | None = None
+    tags: list = None
     created_at: str = "2026-07-09T00:00:00Z"
+
+    def __post_init__(self):
+        if self.tags is None:
+            self.tags = []
 
 
 @dataclass
@@ -110,7 +116,8 @@ def test_match_call_edges_exact_match():
     }
     repo_uuid = uuid4()
 
-    edges = CallGraphBuilder._match_call_edges(call_nodes, function_index, repo_uuid)
+    builder = CallGraphBuilder()
+    edges = builder._match_call_edges(call_nodes, function_index, {}, {}, {}, repo_uuid)
     assert len(edges) == 1
     # caller 为包含该调用的 enclosing function
     assert edges[0]["caller_node_id"] == "func-1"
@@ -126,7 +133,8 @@ def test_match_call_edges_method_call():
     function_index = {"sayHello": [FakeAstNode(id="method-1", node_type="method", name="sayHello")]}
     repo_uuid = uuid4()
 
-    edges = CallGraphBuilder._match_call_edges(call_nodes, function_index, repo_uuid)
+    builder = CallGraphBuilder()
+    edges = builder._match_call_edges(call_nodes, function_index, {}, {}, {}, repo_uuid)
     assert len(edges) == 1
     assert edges[0]["callee_node_id"] == "method-1"
     assert edges[0]["call_type"] == "static"
@@ -140,7 +148,8 @@ def test_match_call_edges_constructor_call():
     function_index = {"Greeter": [FakeAstNode(id="ctor-1", node_type="constructor", name="Greeter")]}
     repo_uuid = uuid4()
 
-    edges = CallGraphBuilder._match_call_edges(call_nodes, function_index, repo_uuid)
+    builder = CallGraphBuilder()
+    edges = builder._match_call_edges(call_nodes, function_index, {}, {}, {}, repo_uuid)
     assert len(edges) == 1
     assert edges[0]["callee_node_id"] == "ctor-1"
     assert edges[0]["call_type"] == "static"
@@ -159,7 +168,8 @@ def test_match_call_edges_overload():
     }
     repo_uuid = uuid4()
 
-    edges = CallGraphBuilder._match_call_edges(call_nodes, function_index, repo_uuid)
+    builder = CallGraphBuilder()
+    edges = builder._match_call_edges(call_nodes, function_index, {}, {}, {}, repo_uuid)
     assert len(edges) == 2  # 两个重载各创建一条边
 
 
@@ -171,7 +181,8 @@ def test_match_call_edges_dynamic():
     function_index = {}
     repo_uuid = uuid4()
 
-    edges = CallGraphBuilder._match_call_edges(call_nodes, function_index, repo_uuid)
+    builder = CallGraphBuilder()
+    edges = builder._match_call_edges(call_nodes, function_index, {}, {}, {}, repo_uuid)
     assert len(edges) == 1
     assert edges[0]["callee_node_id"] is None
     assert edges[0]["call_type"] == "dynamic"
@@ -185,7 +196,8 @@ def test_match_call_edges_unknown():
     function_index = {}  # 没有匹配的函数
     repo_uuid = uuid4()
 
-    edges = CallGraphBuilder._match_call_edges(call_nodes, function_index, repo_uuid)
+    builder = CallGraphBuilder()
+    edges = builder._match_call_edges(call_nodes, function_index, {}, {}, {}, repo_uuid)
     assert len(edges) == 1
     assert edges[0]["callee_node_id"] is None
     assert edges[0]["call_type"] == "unknown"
@@ -212,6 +224,9 @@ async def test_build_creates_edges():
     builder.call_edge_dao = MagicMock()
     builder.call_edge_dao.delete_by_repository = AsyncMock(return_value=0)
     builder.call_edge_dao.create_many = AsyncMock(return_value=[FakeCallEdge()])
+    # Mock 外部依赖 DAO（Phase 5 新增）
+    builder.ext_dep_dao = MagicMock()
+    builder.ext_dep_dao.get_by_repository = AsyncMock(return_value=[])
 
     # 提供 mock db session
     mock_db = AsyncMock()

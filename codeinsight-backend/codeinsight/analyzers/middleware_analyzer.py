@@ -23,15 +23,110 @@ from codeinsight.models import AstNodeModel
 
 logger = logging.getLogger(__name__)
 
-# 中间件相关调用模式
-MIDDLEWARE_CALL_PATTERNS: set[str] = {
-    "*.use",
-}
-
 # Spring WebMvcConfigurer 方法名
 SPRING_INTERCEPTOR_METHODS: set[str] = {
     "addInterceptors",
 }
+
+
+class MiddlewarePatternRegistry:
+    """
+    中间件模式注册表
+
+    集中管理可注册的中间件识别与类型推断模式：
+    1. 调用模式（call patterns）：识别中间件注册调用，如 "*.use"
+    2. 类型模式（type patterns）：根据中间件名子串推断类型，如 "auth" → "authentication"
+
+    新增中间件框架支持只需调用 register / register_call_pattern 注册新模式，
+    无需修改 MiddlewareAnalyzer 内部分支逻辑。
+    """
+
+    # 默认中间件调用模式
+    DEFAULT_CALL_PATTERNS: set[str] = {
+        "*.use",
+    }
+
+    # 默认中间件类型推断映射
+    DEFAULT_TYPE_PATTERNS: dict[str, str] = {
+        "auth": "authentication",
+        "login": "authentication",
+        "token": "authentication",
+        "jwt": "authentication",
+        "session": "authentication",
+        "rate": "rate_limiting",
+        "limit": "rate_limiting",
+        "throttle": "rate_limiting",
+        "log": "logging",
+        "logger": "logging",
+        "cors": "cors",
+        "csrf": "security",
+        "security": "security",
+        "helmet": "security",
+        "compress": "compression",
+        "gzip": "compression",
+        "body": "body_parser",
+        "json": "body_parser",
+        "urlencoded": "body_parser",
+        "static": "static_files",
+        "cookie": "cookie",
+    }
+
+    def __init__(self) -> None:
+        self._call_patterns: set[str] = set(self.DEFAULT_CALL_PATTERNS)
+        self._type_patterns: dict[str, str] = dict(self.DEFAULT_TYPE_PATTERNS)
+
+    def register(self, call_pattern: str, middleware_type: str) -> None:
+        """
+        注册中间件类型推断模式
+
+        用于根据中间件名子串推断其类型。若 call_pattern 已存在则覆盖原映射。
+
+        Args:
+            call_pattern: 中间件名匹配模式（子串匹配，如 "auth"、"jwt"）
+            middleware_type: 匹配时返回的中间件类型（如 "authentication"）
+        """
+        self._type_patterns[call_pattern] = middleware_type
+
+    def register_call_pattern(self, pattern: str) -> None:
+        """
+        注册中间件调用识别模式
+
+        用于识别形如 app.use(middleware) 的中间件注册调用。
+
+        Args:
+            pattern: 调用名模式（如 "*.use"）
+        """
+        self._call_patterns.add(pattern)
+
+    def matches_call(self, call_name: str) -> bool:
+        """
+        检查调用名是否匹配已注册的中间件调用模式
+
+        Args:
+            call_name: call 节点的调用名
+
+        Returns:
+            是否为中间件注册调用
+        """
+        return call_name in self._call_patterns
+
+    def infer_type(self, name: str) -> str:
+        """
+        根据中间件名推断类型
+
+        遍历已注册的类型模式，返回首个匹配的类型；未匹配返回 "generic"。
+
+        Args:
+            name: 中间件函数名
+
+        Returns:
+            中间件类型
+        """
+        name_lower = name.lower()
+        for pattern, middleware_type in self._type_patterns.items():
+            if pattern in name_lower:
+                return middleware_type
+        return "generic"
 
 
 class MiddlewareInfo:
@@ -78,35 +173,36 @@ class MiddlewareAnalyzer:
     1. Express/Koa: 查找 app.use(middleware) 调用，按行号排序
     2. Spring: 查找 addInterceptors 方法，提取拦截器注册
     3. 根据命名模式推断中间件类型
+
+    通过 MiddlewarePatternRegistry 支持外部注册新的中间件模式，
+    无需修改 analyze 内部分支逻辑。
     """
 
-    # 中间件类型推断映射
-    MIDDLEWARE_TYPE_PATTERNS: dict[str, str] = {
-        "auth": "authentication",
-        "login": "authentication",
-        "token": "authentication",
-        "jwt": "authentication",
-        "session": "authentication",
-        "rate": "rate_limiting",
-        "limit": "rate_limiting",
-        "throttle": "rate_limiting",
-        "log": "logging",
-        "logger": "logging",
-        "cors": "cors",
-        "csrf": "security",
-        "security": "security",
-        "helmet": "security",
-        "compress": "compression",
-        "gzip": "compression",
-        "body": "body_parser",
-        "json": "body_parser",
-        "urlencoded": "body_parser",
-        "static": "static_files",
-        "cookie": "cookie",
-    }
-
     def __init__(self) -> None:
-        pass
+        self._registry = MiddlewarePatternRegistry()
+
+    def register(self, call_pattern: str, middleware_type: str) -> None:
+        """
+        注册中间件类型推断模式（委托给注册表）
+
+        供外部注册新的中间件类型推断模式，无需修改分析器内部逻辑。
+
+        Args:
+            call_pattern: 中间件名匹配模式（子串匹配，如 "auth"）
+            middleware_type: 匹配时返回的中间件类型（如 "authentication"）
+        """
+        self._registry.register(call_pattern, middleware_type)
+
+    def register_call_pattern(self, pattern: str) -> None:
+        """
+        注册中间件调用识别模式（委托给注册表）
+
+        供外部注册新的中间件调用识别模式（如新的框架 app.use 等价调用）。
+
+        Args:
+            pattern: 调用名模式（如 "*.use"）
+        """
+        self._registry.register_call_pattern(pattern)
 
     async def analyze(
         self,
@@ -167,7 +263,7 @@ class MiddlewareAnalyzer:
         for node in call_nodes:
             call_name = node.name.split("(")[0].strip()
 
-            if call_name in MIDDLEWARE_CALL_PATTERNS:
+            if self._registry.matches_call(call_name):
                 # 提取中间件名：从 qualified_name 或 name 中提取
                 middleware_name = self._extract_middleware_name(node)
                 middleware_type = self._infer_middleware_type(middleware_name)
@@ -252,16 +348,12 @@ class MiddlewareAnalyzer:
         """
         根据中间件名推断类型
 
+        委托给 MiddlewarePatternRegistry，从已注册的类型模式中查找匹配项。
+
         Args:
             name: 中间件函数名
 
         Returns:
             中间件类型
         """
-        name_lower = name.lower()
-
-        for pattern, middleware_type in self.MIDDLEWARE_TYPE_PATTERNS.items():
-            if pattern in name_lower:
-                return middleware_type
-
-        return "generic"
+        return self._registry.infer_type(name)

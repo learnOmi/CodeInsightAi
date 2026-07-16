@@ -209,7 +209,7 @@ def test_match_dependencies_absolute_import():
     repo_uuid = uuid4()
     builder = ModuleDependencyBuilder()
 
-    deps = builder._match_dependencies(import_nodes, file_index, prefix_index, file_index_reverse, repo_uuid)
+    deps = builder._match_dependencies(import_nodes, file_index, prefix_index, file_index_reverse, {}, repo_uuid)
     assert len(deps) == 1
     assert deps[0]["import_type"] == "absolute"
 
@@ -227,7 +227,7 @@ def test_match_dependencies_external_import():
     repo_uuid = uuid4()
     builder = ModuleDependencyBuilder()
 
-    deps = builder._match_dependencies(import_nodes, file_index, prefix_index, file_index_reverse, repo_uuid)
+    deps = builder._match_dependencies(import_nodes, file_index, prefix_index, file_index_reverse, {}, repo_uuid)
     assert len(deps) == 1
     assert deps[0]["import_type"] == "external"
     assert deps[0]["imported_file_id"] is None
@@ -255,6 +255,9 @@ async def test_build_creates_dependencies():
     builder.dep_dao = MagicMock()
     builder.dep_dao.delete_by_repository = AsyncMock(return_value=0)
     builder.dep_dao.create_many = AsyncMock(return_value=[])
+    # Mock 外部依赖 DAO（Phase 5 新增）
+    builder.ext_dep_dao = MagicMock()
+    builder.ext_dep_dao.get_by_repository = AsyncMock(return_value=[])
 
     with patch("codeinsight.analyzers.module_graph.async_session_factory") as mock_session_factory:
         mock_session = AsyncMock()

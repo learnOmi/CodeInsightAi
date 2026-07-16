@@ -8,6 +8,7 @@ from .analysis_version import AnalysisVersionModel
 from .api_route import ApiRouteModel
 from .ast_node import AstNodeModel
 from .call_edge import CallEdgeModel
+from .external_dependency import ExternalDependencyModel
 from .file import FileModel
 from .file_analysis_snapshot import FileAnalysisSnapshotModel
 from .framework_pattern import FrameworkPatternModel
@@ -27,4 +28,5 @@ __all__ = [
     "AnalysisVersionModel",
     "ApiRouteModel",
     "FrameworkPatternModel",
+    "ExternalDependencyModel",
 ]

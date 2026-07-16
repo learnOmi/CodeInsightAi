@@ -11,7 +11,19 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from codeinsight.api import analysis, ast_nodes, call_edges, files, knowledge, repositories, search, versions
+from codeinsight.api import (
+    analysis,
+    ast_nodes,
+    call_edges,
+    dependencies,
+    files,
+    frameworks,
+    knowledge,
+    repositories,
+    routes,
+    search,
+    versions,
+)
 from codeinsight.config import settings
 from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
 
@@ -109,6 +121,9 @@ def create_app() -> FastAPI:
     app.include_router(files.router, prefix="/api/v1/files", tags=["文件管理"])
     app.include_router(ast_nodes.router, prefix="/api/v1/ast-nodes", tags=["AST 节点"])
     app.include_router(call_edges.router, prefix="/api/v1", tags=["调用图"])
+    app.include_router(dependencies.router, prefix="/api/v1", tags=["外部依赖"])
+    app.include_router(frameworks.router, prefix="/api/v1", tags=["框架检测"])
+    app.include_router(routes.router, prefix="/api/v1", tags=["API 路由"])
 
     # 健康检查端点（S-1 修复：不返回敏感错误信息，防止信息泄露）
     # 注意：健康检查端点不加认证，因为需要被负载均衡器等基础设施访问

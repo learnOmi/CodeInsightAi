@@ -8,9 +8,11 @@
 - FrameworkDetector: 框架检测引擎
 - RouteExtractor: API 路由提取
 - MiddlewareAnalyzer: 中间件链分析
+- DependencyParser: 外部依赖声明解析
 """
 
 from codeinsight.analyzers.call_graph import CallGraphBuilder
+from codeinsight.analyzers.dependency_parser import DependencyParser
 from codeinsight.analyzers.framework_detector import FrameworkDetector
 from codeinsight.analyzers.framework_tagger import FrameworkTagger
 from codeinsight.analyzers.middleware_analyzer import MiddlewareAnalyzer
@@ -24,4 +26,5 @@ __all__ = [
     "FrameworkDetector",
     "RouteExtractor",
     "MiddlewareAnalyzer",
+    "DependencyParser",
 ]

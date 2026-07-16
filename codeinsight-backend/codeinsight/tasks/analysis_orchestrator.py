@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.analyzers import (
     CallGraphBuilder,
+    DependencyParser,
     FrameworkDetector,
     FrameworkTagger,
     MiddlewareAnalyzer,
@@ -47,6 +48,7 @@ from codeinsight.repositories import (
     ApiRouteDAO,
     AstNodeDAO,
     CallEdgeDAO,
+    ExternalDependencyDAO,
     FileDAO,
     FrameworkPatternDAO,
     ModuleDependencyDAO,
@@ -153,10 +155,14 @@ class AnalysisOrchestrator:
         self.module_dep_dao = module_dep_dao or ModuleDependencyDAO()
         self.api_route_dao = ApiRouteDAO()
         self.framework_pattern_dao = FrameworkPatternDAO()
+        self.external_dependency_dao = ExternalDependencyDAO()
         self.framework_tagger = FrameworkTagger()
         self.framework_detector = FrameworkDetector()
         self.route_extractor = RouteExtractor(self.api_route_dao)
         self.middleware_analyzer = MiddlewareAnalyzer()
+        self.dependency_parser = DependencyParser()
+        self.module_dep_builder = ModuleDependencyBuilder(self.external_dependency_dao)
+        self.call_graph_builder = CallGraphBuilder(ext_dep_dao=self.external_dependency_dao)
 
     # ================================================================
     # 私有数据库辅助方法（共享 session 支持）
@@ -727,14 +733,12 @@ class AnalysisOrchestrator:
 
             pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
 
-            call_graph_builder = CallGraphBuilder()
-            call_edges = await call_graph_builder.build_data(self.repo_uuid, db=db)
+            call_edges = await self.call_graph_builder.build_data(self.repo_uuid, db=db)
             if call_edges:
                 edge_result = await pipeline.ingest_call_edges(self.repo_uuid, call_edges)
                 logger.info("调用图构建完成: edges=%d", edge_result.inserted_count)
 
-            module_dep_builder = ModuleDependencyBuilder()
-            deps = await module_dep_builder.build_data(self.repo_uuid, db=db)
+            deps = await self.module_dep_builder.build_data(self.repo_uuid, db=db)
             if deps:
                 dep_result = await pipeline.ingest_module_deps(self.repo_uuid, deps)
                 logger.info("模块依赖图构建完成: dependencies=%d", dep_result.inserted_count)
@@ -748,14 +752,12 @@ class AnalysisOrchestrator:
 
             pipeline = StructureDataPipeline(db=db, progress_callback=progress_callback)
 
-            call_graph_builder = CallGraphBuilder()
-            call_edges = await call_graph_builder.build_data(self.repo_uuid, db=db)
+            call_edges = await self.call_graph_builder.build_data(self.repo_uuid, db=db)
             if call_edges:
                 edge_result = await pipeline.ingest_call_edges(self.repo_uuid, call_edges)
                 logger.info("调用图构建完成: edges=%d", edge_result.inserted_count)
 
-            module_dep_builder = ModuleDependencyBuilder()
-            deps = await module_dep_builder.build_data(self.repo_uuid, db=db)
+            deps = await self.module_dep_builder.build_data(self.repo_uuid, db=db)
             if deps:
                 dep_result = await pipeline.ingest_module_deps(self.repo_uuid, deps)
                 logger.info("模块依赖图构建完成: dependencies=%d", dep_result.inserted_count)
@@ -780,14 +782,12 @@ class AnalysisOrchestrator:
             deleted_deps = await self.module_dep_dao.delete_by_file_ids(db, self.repo_uuid, file_ids)
             logger.info("增量结构分析: 删除旧边 edges=%d, deps=%d", deleted_edges, deleted_deps)
 
-            call_graph_builder = CallGraphBuilder()
-            call_edges = await call_graph_builder.build_data_for_files(self.repo_uuid, db=db, file_ids=file_ids)
+            call_edges = await self.call_graph_builder.build_data_for_files(self.repo_uuid, db=db, file_ids=file_ids)
             if call_edges:
                 edge_result = await pipeline.ingest_call_edges(self.repo_uuid, call_edges)
                 logger.info("增量调用图构建完成: edges=%d", edge_result.inserted_count)
 
-            module_dep_builder = ModuleDependencyBuilder()
-            deps = await module_dep_builder.build_data_for_files(self.repo_uuid, file_paths=file_paths, db=db)
+            deps = await self.module_dep_builder.build_data_for_files(self.repo_uuid, file_paths=file_paths, db=db)
             if deps:
                 dep_result = await pipeline.ingest_module_deps(self.repo_uuid, deps)
                 logger.info("增量模块依赖图构建完成: dependencies=%d", dep_result.inserted_count)
@@ -802,14 +802,12 @@ class AnalysisOrchestrator:
             deleted_deps = await self.module_dep_dao.delete_by_file_ids(db, self.repo_uuid, file_ids)
             logger.info("增量结构分析: 删除旧边 edges=%d, deps=%d", deleted_edges, deleted_deps)
 
-            call_graph_builder = CallGraphBuilder()
-            call_edges = await call_graph_builder.build_data_for_files(self.repo_uuid, db=db, file_ids=file_ids)
+            call_edges = await self.call_graph_builder.build_data_for_files(self.repo_uuid, db=db, file_ids=file_ids)
             if call_edges:
                 edge_result = await pipeline.ingest_call_edges(self.repo_uuid, call_edges)
                 logger.info("增量调用图构建完成: edges=%d", edge_result.inserted_count)
 
-            module_dep_builder = ModuleDependencyBuilder()
-            deps = await module_dep_builder.build_data_for_files(self.repo_uuid, file_paths=file_paths, db=db)
+            deps = await self.module_dep_builder.build_data_for_files(self.repo_uuid, file_paths=file_paths, db=db)
             if deps:
                 dep_result = await pipeline.ingest_module_deps(self.repo_uuid, deps)
                 logger.info("增量模块依赖图构建完成: dependencies=%d", dep_result.inserted_count)
@@ -832,10 +830,16 @@ class AnalysisOrchestrator:
             await db.commit()
 
     async def _detect_frameworks_and_routes_inner(self, db: AsyncSession) -> None:
-        """框架检测 + 路由提取内部逻辑（不含 commit）"""
+        """框架检测 + 路由提取 + 依赖解析内部逻辑（不含 commit）"""
         try:
-            # 清理旧数据（RouteExtractor.build 内部也会清理 api_routes，此处仅清理 framework_patterns）
+            # 清理旧数据
             await self.framework_pattern_dao.delete_by_repository(db, self.repo_uuid)
+            await self.external_dependency_dao.delete_by_repository(db, self.repo_uuid)
+
+            # Phase 5: 外部依赖解析（在框架检测之前，提供依赖级证据）
+            dep_count = await self._parse_external_dependencies(db)
+            if dep_count > 0:
+                logger.info("外部依赖解析完成: dependencies=%d", dep_count)
 
             # API 路由提取
             route_count = await self.route_extractor.build(self.repo_uuid, db=db)
@@ -875,6 +879,140 @@ class AnalysisOrchestrator:
             update(ApiRouteModel).where(ApiRouteModel.repository_id == self.repo_uuid).values(middlewares=middlewares)
         )
         await db.flush()
+
+    def _find_dep_files_upward(self, start_path: str) -> list:
+        """
+        从起始路径向上查找依赖声明文件
+
+        当用户只扫描了 src/ 等子目录时，依赖声明文件（package.json、pom.xml 等）
+        可能在上级目录中。向上查找最多 5 级。
+
+        Args:
+            start_path: 起始路径（通常是仓库扫描路径）
+
+        Returns:
+            找到的依赖声明文件路径列表
+        """
+        from pathlib import Path as _Path
+
+        from codeinsight.analyzers.dependency_parser import DEPENDENCY_FILE_PATTERNS
+
+        dep_files: list = []
+        current = _Path(start_path).resolve()
+        max_levels = 5
+
+        for _ in range(max_levels):
+            if not current.exists():
+                break
+
+            for filename in DEPENDENCY_FILE_PATTERNS:
+                candidate = current / filename
+                if candidate.is_file():
+                    dep_files.append(candidate)
+
+            # 如果找到了文件，停止向上查找（假设项目根目录有这些文件）
+            if dep_files:
+                break
+
+            parent = current.parent
+            if parent == current:
+                break
+            current = parent
+
+        return dep_files
+
+    async def _parse_external_dependencies(self, db: AsyncSession) -> int:
+        """
+        解析外部依赖声明文件并写入 external_dependencies 表
+
+        Phase 5: 扫描仓库中的依赖声明文件（pom.xml、package.json、requirements.txt 等），
+        解析依赖信息并写入数据库。
+
+        Args:
+            db: 数据库会话
+
+        Returns:
+            解析到的依赖数量
+        """
+        repo_path_str = await self._get_repo_path(db)
+        if not repo_path_str:
+            logger.warning("外部依赖解析: 仓库路径为空，跳过")
+            return 0
+
+        from pathlib import Path
+
+        repo_path = Path(repo_path_str)
+        all_deps: list[dict] = []
+
+        # 从 files 表中获取依赖声明文件
+        files = await self.file_dao.get_by_repository(db, self.repo_uuid)
+        dep_files = []
+
+        from codeinsight.analyzers.dependency_parser import DEPENDENCY_FILE_PATTERNS
+
+        for f in files:
+            filename = Path(f.path).name
+            if filename in DEPENDENCY_FILE_PATTERNS:
+                dep_files.append(repo_path / f.path)
+
+        logger.info(
+            "外部依赖解析: 总文件数=%d, 找到依赖文件=%d, 依赖文件列表=%s",
+            len(files),
+            len(dep_files),
+            [str(f.name) for f in dep_files],
+        )
+
+        if not dep_files:
+            # Phase 5: 如果 files 表中没有依赖声明文件，
+            # 尝试从仓库路径向上查找（用户可能只扫描了 src/ 子目录）
+            dep_files = self._find_dep_files_upward(str(repo_path))
+            if dep_files:
+                logger.info(
+                    "从仓库路径向上找到 %d 个依赖声明文件: %s",
+                    len(dep_files),
+                    [f.name for f in dep_files],
+                )
+
+        if not dep_files:
+            logger.info("未找到依赖声明文件，跳过外部依赖解析")
+            return 0
+
+        logger.info("找到 %d 个依赖声明文件", len(dep_files))
+
+        # 解析每个依赖文件
+        for dep_file in dep_files:
+            try:
+                entries = self.dependency_parser.parse_file(dep_file)
+                for entry in entries:
+                    dep_data = entry.to_dict()
+                    dep_data["repository_id"] = self.repo_uuid
+                    dep_data["analysis_version_id"] = self.version_id
+                    # 转换为相对路径
+                    try:
+                        rel_path = str(dep_file.relative_to(repo_path))
+                        dep_data["declaration_file"] = rel_path
+                    except ValueError:
+                        dep_data["declaration_file"] = str(dep_file)
+                    all_deps.append(dep_data)
+            except Exception as exc:
+                logger.warning("解析依赖文件失败: %s, 错误=%s", dep_file, exc)
+
+        # 写入数据库
+        if all_deps:
+            # 去重：相同 ecosystem + group_name + artifact_name 只保留一个
+            seen: set[tuple[str, str | None, str]] = set()
+            unique_deps = []
+            for dep in all_deps:
+                key = (dep["ecosystem"], dep.get("group_name"), dep["artifact_name"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_deps.append(dep)
+
+            await self.external_dependency_dao.create_many(db, unique_deps)
+            logger.info("外部依赖写入完成: %d 个依赖（去重前 %d 个）", len(unique_deps), len(all_deps))
+            return len(unique_deps)
+
+        return 0
 
     async def _run_framework_detection(self, db: AsyncSession) -> None:
         """
