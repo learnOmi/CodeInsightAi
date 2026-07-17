@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useAstNodes } from "@/hooks/use-files";
 import { groupAstNodes, flattenGroupedNodes } from "@/utils/structure-utils";
 import { FrameworkBadge } from "@/components/common/FrameworkBadge";
 import { NodeBadge } from "./NodeBadge";
+import type { NavigableProps } from "@/components/analysis/NavTrailBar";
 
 export interface FlatNode {
   id: string;
@@ -18,14 +19,16 @@ export interface FlatNode {
   tags?: unknown[];
 }
 
-interface StructureListProps {
+interface StructureListProps extends NavigableProps {
   fileId: string;
   fileName: string;
+  highlightNodeId?: string;
 }
 
 /** 代码结构概览列表 */
-export function StructureList({ fileId, fileName }: StructureListProps) {
+export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }: StructureListProps) {
   const { data: nodes, isLoading, error } = useAstNodes({ file_id: fileId });
+  const nodeRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const flatNodes = useMemo(() => {
     if (!nodes) return [];
@@ -42,6 +45,15 @@ export function StructureList({ fileId, fileName }: StructureListProps) {
     const grouped = groupAstNodes(deduped);
     return flattenGroupedNodes(grouped);
   }, [nodes]);
+
+  useEffect(() => {
+    if (highlightNodeId && flatNodes.length > 0) {
+      const nodeElement = nodeRefs.current.get(highlightNodeId);
+      if (nodeElement) {
+        nodeElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  }, [highlightNodeId, flatNodes]);
 
   if (isLoading) {
     return (
@@ -85,6 +97,9 @@ export function StructureList({ fileId, fileName }: StructureListProps) {
                 node={node}
                 tags={tags}
                 hasDetails={!!hasDetails}
+                onNavigate={onNavigate}
+                setRef={(el) => { if (el) nodeRefs.current.set(node.id, el); }}
+                isHighlighted={highlightNodeId === node.id}
               />
             );
           })}
@@ -99,17 +114,26 @@ function StructureNode({
   node,
   tags,
   hasDetails,
+  onNavigate,
+  setRef,
+  isHighlighted,
 }: {
   node: FlatNode;
   tags: string[];
   hasDetails: boolean;
+  onNavigate?: NavigableProps["onNavigate"];
+  setRef?: (el: HTMLDivElement) => void;
+  isHighlighted?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <li>
       <div
-        className="flex items-center gap-2 py-1 px-2 rounded hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+        ref={setRef}
+        className={`flex items-center gap-2 py-1 px-2 rounded hover:bg-[var(--bg-hover)] transition-colors cursor-pointer ${
+          isHighlighted ? "bg-blue-100 ring-1 ring-blue-400" : ""
+        }`}
         style={{ paddingLeft: `${node.depth * 20 + 8}px` }}
         onClick={() => hasDetails && setExpanded(!expanded)}
       >
@@ -118,6 +142,18 @@ function StructureNode({
         <span className="ml-auto text-xs text-[var(--text-muted)] font-mono flex-shrink-0">
           L{node.startLine}-{node.endLine}
         </span>
+        {(node.nodeType === "function" || node.nodeType === "method") && onNavigate && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onNavigate({ component: "callgraph", nodeId: node.id, label: node.name, detail: "调用图" });
+            }}
+            className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors flex-shrink-0"
+            title="查看调用图"
+          >
+            ⊙调用图
+          </button>
+        )}
         {hasDetails && (
           <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0">
             {expanded ? "▲" : "▼"}

@@ -26,6 +26,7 @@ import Elk from "elkjs";
 import { useAstNodes, useCallEdges } from "@/hooks/use-files";
 import { CallChainPanel } from "./CallChainPanel";
 import "@xyflow/react/dist/style.css";
+import type { NavigableProps } from "@/components/analysis/NavTrailBar";
 
 const NODE_ENTER_DURATION = 0.28;
 const NODE_EXIT_DURATION = 0.22;
@@ -33,9 +34,10 @@ const NODE_POSITION_TRANSITION = 350;
 
 const ELKConstructor = Elk;
 
-interface CallGraphProps {
+interface CallGraphProps extends NavigableProps {
   fileId: string;
   repositoryId: string;
+  highlightNodeId?: string;
 }
 
 // 节点类型配色
@@ -74,10 +76,10 @@ const MAX_HANDLES = 6;
 const elk = new ELKConstructor({
   defaultLayoutOptions: {
     "elk.algorithms.layered": "true",
-    "elk.layered.spacing.nodeNodeBetweenLayers": "70",
-    "elk.layered.spacing.nodeNodeWithinLayers": "30",
-    "elk.layered.spacing.edgeNodeBetweenLayers": "20",
-    "elk.spacing.nodeNode": "20",
+    "elk.layered.spacing.nodeNodeBetweenLayers": "80",
+    "elk.layered.spacing.nodeNodeWithinLayers": "45",
+    "elk.layered.spacing.edgeNodeBetweenLayers": "25",
+    "elk.spacing.nodeNode": "30",
     "elk.direction": "DOWN",
     "elk.unflatten": "true",
     "elk.layered.unflatten.maxDegree": "1",
@@ -85,9 +87,9 @@ const elk = new ELKConstructor({
     "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
     "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
     "elk.layered.nodePlacement.bk.fixedAlignment": "BALANCED",
-    "elk.layered.compaction.postCompaction.strategy": "EDGE_LENGTH",
-    "elk.aspectRatio": "1.6",
-    "elk.padding": "[top=20,left=20,bottom=20,right=20]",
+    "elk.layered.compaction.postCompaction.strategy": "NONE",
+    "elk.aspectRatio": "1.4",
+    "elk.padding": "[top=40,left=40,bottom=40,right=40]",
   },
 });
 
@@ -135,33 +137,55 @@ function ToggleButton({
   pendingCount,
   expandedCount,
   onClick,
+  loading,
 }: {
   direction: "down" | "up";
   pendingCount: number;
   expandedCount: number;
   onClick: (e: React.MouseEvent) => void;
+  loading?: boolean;
 }) {
-  if (pendingCount === 0 && expandedCount === 0) return null;
+  const isUpWithNoData = direction === "up" && pendingCount === 0 && expandedCount === 0;
+  if (!isUpWithNoData && !loading && pendingCount === 0 && expandedCount === 0) return null;
 
   const isExpanded = expandedCount > 0 && pendingCount === 0;
   const isPartial = pendingCount > 0 && expandedCount > 0;
-  const color = isExpanded ? "#ef4444" : isPartial ? "#f59e0b" : "#3b82f6";
+  const color = isExpanded ? "#ef4444" : isPartial ? "#f59e0b" : loading ? "#6b7280" : "#3b82f6";
   const icon = direction === "down" ? "▼" : "▲";
-  const title = direction === "down"
-    ? (isExpanded
-      ? `已展开 ${expandedCount} 个外部调用，点击折叠（原路按步折叠）`
-      : `待展开 ${pendingCount} 个外部调用${expandedCount > 0 ? `（已展开 ${expandedCount}）` : ""}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）`)
-    : (isExpanded
-      ? `已展开 ${expandedCount} 个外部调用者，点击折叠（原路按步折叠）`
-      : `待展开 ${pendingCount} 个外部调用者${expandedCount > 0 ? `（已展开 ${expandedCount}）` : ""}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）`);
+  let displayCount: string | number = isExpanded ? expandedCount : pendingCount;
+  if (isUpWithNoData && !loading) {
+    displayCount = "?";
+  } else if (loading) {
+    displayCount = "…";
+  }
+  let title: string;
+  if (direction === "down") {
+    if (isExpanded) {
+      title = `已展开 ${expandedCount} 个外部调用，点击折叠（原路按步折叠）`;
+    } else {
+      const extra = expandedCount > 0 ? `（已展开 ${expandedCount}）` : "";
+      title = `待展开 ${pendingCount} 个外部调用${extra}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）`;
+    }
+  } else {
+    if (isExpanded) {
+      title = `已展开 ${expandedCount} 个外部调用者，点击折叠（原路按步折叠）`;
+    } else if (loading) {
+      title = "加载中...";
+    } else if (isUpWithNoData) {
+      title = "点击加载外部调用者（需 API 调用）";
+    } else {
+      const extra = expandedCount > 0 ? `（已展开 ${expandedCount}）` : "";
+      title = `待展开 ${pendingCount} 个外部调用者${extra}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）`;
+    }
+  }
 
   return (
     <div
       onClick={(e) => {
         e.stopPropagation();
-        onClick(e);
+        if (!loading) onClick(e);
       }}
-      className="absolute flex items-center justify-center rounded-full text-[9px] font-bold cursor-pointer hover:scale-110 transition-transform z-20"
+      className={`absolute flex items-center justify-center rounded-full text-[9px] font-bold ${loading ? "cursor-wait" : "cursor-pointer hover:scale-110"} transition-transform z-20`}
       style={{
         backgroundColor: color,
         color: "#ffffff",
@@ -176,7 +200,7 @@ function ToggleButton({
     >
       <span style={{ fontSize: 8, lineHeight: 1 }}>{icon}</span>
       <span style={{ fontSize: 8, lineHeight: 1, marginLeft: 1 }}>
-        {isExpanded ? expandedCount : pendingCount}
+        {displayCount}
       </span>
     </div>
   );
@@ -288,6 +312,7 @@ function CallGraphNode({ data, selected }: any) {
         pendingCount={data.pendingBwd || 0}
         expandedCount={data.expandedBwdCount || 0}
         onClick={data.onToggleBwd}
+        loading={data.bwdLoading}
       />
 
       <div className="flex items-center gap-1" style={{ marginTop: data.isCurrentFile ? 0 : -4 }}>
@@ -301,6 +326,20 @@ function CallGraphNode({ data, selected }: any) {
           style={{ opacity: 0.6, marginTop: 1 }}
         >
           {shortFilePath(data.filePath)}
+        </div>
+      )}
+      {data.onNavigate && (
+        <div className="flex gap-1 mt-0.5">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onNavigate({ component: "structure", nodeId: data.label, label: data.label, detail: "代码结构" });
+            }}
+            className="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+            title="查看代码结构"
+          >
+            ◆结构
+          </button>
         </div>
       )}
       {/* tooltip */}
@@ -358,6 +397,7 @@ async function buildGraphData(
   astNodes: any[],
   callEdges: any[],
   currentFileId?: string,
+  onNavigate?: NavigableProps["onNavigate"],
 ): Promise<{
   nodes: Node[];
   edges: Edge[];
@@ -494,6 +534,7 @@ async function buildGraphData(
           pendingBwd: 0,
           expandedFwdCount: 0,
           expandedBwdCount: 0,
+          onNavigate,
         },
       });
       continue;
@@ -526,6 +567,7 @@ async function buildGraphData(
         pendingBwd: 0,
         expandedFwdCount: 0,
         expandedBwdCount: 0,
+        onNavigate,
       },
     });
   }
@@ -641,7 +683,7 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
   );
 }
 
-export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
+export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }: CallGraphProps) {
   // 用 file_id 查调用边（仅当前文件的调用）
   const { data: callEdges, isLoading: edgesLoading } = useCallEdges({ file_id: fileId });
   // 用 repository_id 查所有 AST 节点
@@ -673,6 +715,7 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
   const [expandedFwdByNode, setExpandedFwdByNode] = useState<Map<string, Set<string>>>(new Map());
   const [expandedBwdByNode, setExpandedBwdByNode] = useState<Map<string, Set<string>>>(new Map());
   const [exitingNodeIds, setExitingNodeIds] = useState<Set<string>>(new Set());
+  const [bwdLoadingSet, setBwdLoadingSet] = useState<Set<string>>(new Set());
   const pendingFwdByNodeRef = useRef<Map<string, string[]>>(new Map());
   const pendingBwdByNodeRef = useRef<Map<string, string[]>>(new Map());
   const [externalCallerNodes, setExternalCallerNodes] = useState<Map<string, any>>(new Map());
@@ -728,7 +771,7 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
     }
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const result = await buildGraphData(deduped, callEdges, fileId);
+      const result = await buildGraphData(deduped, callEdges, fileId, onNavigate);
       if (!cancelled && isMountedRef.current) {
         setGraphData(result);
         // 初始化 pendingFwdByNode：每个 caller 的全部外部 callee 都视为待展开
@@ -746,7 +789,16 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [fileId, allAstNodes, callEdges]);
+  }, [fileId, allAstNodes, callEdges, onNavigate]);
+
+  useEffect(() => {
+    if (highlightNodeId && graphData) {
+      const exists = graphData.nodes.some((n) => n.id === highlightNodeId);
+      if (exists) {
+        setFocusedNodeId(highlightNodeId);
+      }
+    }
+  }, [highlightNodeId, graphData]);
 
   /**
    * 递归折叠 fwd 子树：移除 nodeId 的所有 fwd 后代（包括后代的后代）
@@ -917,6 +969,7 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
     // 首次：调用 API 获取外部 caller
     if (!externalCallersLoadedRef.current.has(nodeId)) {
       externalCallersLoadedRef.current.add(nodeId);
+      setBwdLoadingSet((prev) => new Set(prev).add(nodeId));
       try {
         const { getCallers } = await import("@/api/call-edges");
         const callers = await getCallers(nodeId).catch((e) => {
@@ -977,10 +1030,31 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
             }
             return next;
           });
+        } else if (isMountedRef.current) {
+          // 没有外部调用者，也需要触发重渲染让按钮消失
+          setBwdLoadingSet((prev) => {
+            const next = new Set(prev);
+            next.delete(nodeId);
+            return next;
+          });
+        }
+        if (isMountedRef.current && externalCallers.length > 0) {
+          setBwdLoadingSet((prev) => {
+            const next = new Set(prev);
+            next.delete(nodeId);
+            return next;
+          });
         }
       } catch (e) {
         console.error("toggleBwd fetch error:", e);
         externalCallersLoadedRef.current.delete(nodeId);
+        if (isMountedRef.current) {
+          setBwdLoadingSet((prev) => {
+            const next = new Set(prev);
+            next.delete(nodeId);
+            return next;
+          });
+        }
         setGlobalError("获取外部调用者失败");
         return;
       }
@@ -1124,6 +1198,7 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
         const pendingBwd = pendingBwdByNode.get(node.id) || 0;
         const expandedFwdCount = expandedFwdCountByNode.get(node.id) || 0;
         const expandedBwdCount = expandedBwdCountByNode.get(node.id) || 0;
+        const bwdLoading = bwdLoadingSet.has(node.id);
         const isExiting = exitingNodeIds.has(node.id);
         visibleNodes.push({
           ...node,
@@ -1134,6 +1209,7 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
             pendingBwd,
             expandedFwdCount,
             expandedBwdCount,
+            bwdLoading,
             isExiting,
             onToggleFwd: (e: React.MouseEvent) => {
               e.stopPropagation();
@@ -1232,6 +1308,7 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
               pendingBwd: pendingBwdByNode.get(id) || 0,
               expandedFwdCount: expandedFwdCountByNode.get(id) || 0,
               expandedBwdCount: expandedBwdCountByNode.get(id) || 0,
+              bwdLoading: bwdLoadingSet.has(id),
               isExiting,
               onToggleFwd: (e: React.MouseEvent) => {
                 e.stopPropagation();
@@ -1261,7 +1338,7 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
     }
 
     return { nodes: visibleNodes, edges: visibleEdges };
-  }, [graphData, focusedNodeId, expandedFwdByNode, expandedBwdByNode, exitingNodeIds, externalCallerNodes, externalCallerEdges, toggleFwd, toggleBwd]);
+  }, [graphData, focusedNodeId, expandedFwdByNode, expandedBwdByNode, exitingNodeIds, externalCallerNodes, externalCallerEdges, toggleFwd, toggleBwd, bwdLoadingSet]);
 
   // 边 hover 事件
   const onEdgeMouseEnter = useCallback((_: React.MouseEvent, edge: Edge) => {
@@ -1489,6 +1566,7 @@ export function CallGraph({ fileId, repositoryId }: CallGraphProps) {
               nodeType={chainNodeData.nodeType}
               filePath={chainNodeData.filePath}
               onClose={() => setSelectedNodeForChain(null)}
+              onNavigate={onNavigate}
             />
           )}
         </>

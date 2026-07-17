@@ -1,20 +1,14 @@
 "use client";
 
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
-import {
-  Background,
-  ReactFlow,
-  Handle,
-  Position,
-  type Edge,
-  type Node,
-  type NodeTypes,
-} from "@xyflow/react";
 import { useModuleDependencies } from "@/hooks/use-analysis-results";
 import { useFiles, type FileItem } from "@/hooks/use-files";
 import "@xyflow/react/dist/style.css";
+import type { NavigableProps } from "@/components/analysis/NavTrailBar";
+import { Handle, Position, ReactFlow, Background, type Node, type Edge, type NodeTypes } from "@xyflow/react";
 
-interface ModuleDependencyGraphProps {
+// ─── Props ───────────────────────────────────────
+interface ModuleDependencyGraphProps extends NavigableProps {
   repositoryId: string;
 }
 
@@ -29,7 +23,9 @@ interface ExploreNodeData {
   label: string;
   nodeType: "file" | "internal" | "external";
   fullPath?: string;
-  [key: string]: unknown;
+  nodeId?: string;
+  resolvable?: boolean;
+  onNavigate?: (entry: { component?: string; fileId?: string; label: string; detail?: string }) => void;
 }
 
 const NODE_W = 160;
@@ -88,13 +84,45 @@ function ExploreNode({ data }: { data: ExploreNodeData }) {
       <div className="text-[10px] mt-0.5 opacity-60" style={{ color: "var(--text-muted)" }}>
         {c.label}
       </div>
+      {data.onNavigate && (
+        <div className="flex gap-1 mt-1.5">
+          {data.resolvable === false ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400" title="无法解析到具体文件">
+              无法解析
+            </span>
+          ) : (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onNavigate!({ component: "callgraph", fileId: data.nodeId, label: data.label, detail: "调用图" });
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
+                title="查看调用图"
+              >
+                ⊙调用图
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onNavigate!({ component: "structure", fileId: data.nodeId, label: data.label, detail: "代码结构" });
+                }}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+                title="查看代码结构"
+              >
+                ◆结构
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 const nodeTypes: NodeTypes = { exploreNode: ExploreNode };
 
-export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphProps) {
+export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDependencyGraphProps) {
   const { data: deps, isLoading, error } = useModuleDependencies(repositoryId);
   const { data: files } = useFiles(repositoryId);
 
@@ -109,6 +137,69 @@ export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphPro
     files?.forEach((f) => map.set(f.id, f));
     return map;
   }, [files]);
+
+  const filePathToIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    files?.forEach((f) => map.set(f.path, f.id));
+    return map;
+  }, [files]);
+
+  const fileSuffixToIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    files?.forEach((f) => {
+      const normalized = f.path.replace(/\\/g, "/");
+      map.set(normalized, f.id);
+      const segments = normalized.split("/");
+      for (let i = 1; i < segments.length; i++) {
+        const suffix = segments.slice(i).join("/");
+        if (!map.has(suffix)) {
+          map.set(suffix, f.id);
+        }
+      }
+    });
+    return map;
+  }, [files]);
+
+  const resolveInternalPath = useCallback((importPath: string): string | undefined => {
+    let relPath = importPath;
+    const aliasPrefixes = ["@/", "~/", "@app/", "@src/"];
+    for (const prefix of aliasPrefixes) {
+      if (relPath.startsWith(prefix)) {
+        relPath = relPath.slice(prefix.length);
+        break;
+      }
+    }
+    if (relPath.startsWith("./") || relPath.startsWith("../")) {
+      relPath = relPath.replace(/^\.\//, "").replace(/^\.\.\//, "");
+    }
+    const exts = [".ts", ".tsx", ".vue", ".js", ".jsx", ".mjs", ".cjs",
+                  "/index.ts", "/index.tsx", "/index.vue", "/index.js", "/index.jsx"];
+    const hasExt = exts.some(ext => relPath.endsWith(ext));
+    const candidates: string[] = [];
+    if (hasExt) {
+      candidates.push(relPath);
+    } else {
+      for (const ext of exts) {
+        candidates.push(relPath + ext);
+      }
+    }
+    for (const candidate of candidates) {
+      if (filePathToIdMap.has(candidate)) {
+        return filePathToIdMap.get(candidate);
+      }
+    }
+    for (const candidate of candidates) {
+      if (fileSuffixToIdMap.has(candidate)) {
+        return fileSuffixToIdMap.get(candidate);
+      }
+      const srcCandidate = "src/" + candidate;
+      if (fileSuffixToIdMap.has(srcCandidate)) {
+        return fileSuffixToIdMap.get(srcCandidate);
+      }
+    }
+    console.warn("[ModuleDependencyGraph] 无法解析内部路径:", importPath, "已尝试候选:", candidates, "文件路径样本:", Array.from(filePathToIdMap.keys()).slice(0, 5));
+    return undefined;
+  }, [filePathToIdMap, fileSuffixToIdMap]);
 
   const { nodeMap, allNodes, hotNodes, stats } = useMemo(() => {
     if (!deps || !Array.isArray(deps) || deps.length === 0) {
@@ -202,6 +293,17 @@ export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphPro
     const rfNodes: Node[] = [];
     const rfEdges: Edge[] = [];
 
+    let centerNavNodeId = selectedNodeId;
+    let centerResolvable = true;
+    if (centerNode.type === "internal") {
+      const resolved = resolveInternalPath(selectedNodeId);
+      if (resolved) {
+        centerNavNodeId = resolved;
+      } else {
+        centerResolvable = false;
+      }
+    }
+
     rfNodes.push({
       id: selectedNodeId,
       type: "exploreNode",
@@ -212,7 +314,10 @@ export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphPro
         label: centerNode.name,
         nodeType: centerNode.type,
         fullPath: centerNode.fullPath,
-      } as ExploreNodeData,
+        nodeId: centerNavNodeId,
+        resolvable: centerResolvable,
+        onNavigate,
+      } as unknown as Record<string, unknown>,
     });
 
     const neighbors = new Map<string, { type: "imports" | "importedBy"; name: string; nodeType: "file" | "internal" | "external"; fullPath?: string }>();
@@ -236,6 +341,18 @@ export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphPro
     const importedByNeighbors = neighborList.filter(([, info]) => info.type === "importedBy");
 
     const layoutNode = (neighborId: string, info: typeof neighborList[0][1], x: number, y: number) => {
+      let navNodeId = neighborId;
+      let resolvable = true;
+      if (info.nodeType === "internal") {
+        const resolved = resolveInternalPath(neighborId);
+        if (resolved) {
+          navNodeId = resolved;
+        } else {
+          resolvable = false;
+        }
+      } else if (info.nodeType === "external") {
+        resolvable = false;
+      }
       rfNodes.push({
         id: neighborId,
         type: "exploreNode",
@@ -246,7 +363,10 @@ export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphPro
           label: info.name,
           nodeType: info.nodeType,
           fullPath: info.fullPath,
-        } as ExploreNodeData,
+          nodeId: navNodeId,
+          resolvable,
+          onNavigate,
+        } as unknown as Record<string, unknown>,
       });
 
       const edgeDir = info.type === "imports" ? { source: selectedNodeId, target: neighborId } : { source: neighborId, target: selectedNodeId };
@@ -264,7 +384,7 @@ export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphPro
     };
 
     const maxPerSide = Math.max(importNeighbors.length, importedByNeighbors.length);
-    const verticalGap = Math.max(60, 400 / maxPerSide);
+    const verticalGap = Math.max(85, 400 / maxPerSide);
     const startY = 280 - ((maxPerSide - 1) * verticalGap) / 2;
 
     importNeighbors.forEach(([neighborId, info], i) => {
@@ -276,7 +396,7 @@ export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphPro
     });
 
     return { nodes: rfNodes, edges: rfEdges };
-  }, [selectedNodeId, nodeMap, forwardEdges, reverseEdges]);
+  }, [selectedNodeId, nodeMap, forwardEdges, reverseEdges, onNavigate, resolveInternalPath]);
 
   const handleSelectNode = useCallback((nodeId: string) => {
     if (selectedNodeId) {
@@ -441,7 +561,7 @@ export function ModuleDependencyGraph({ repositoryId }: ModuleDependencyGraphPro
         </div>
       )}
 
-      <div className="h-[500px] bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden relative">
+      <div className="h-[calc(100vh-450px)] min-h-[600px] bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden relative">
         {selectedNodeId ? (
           <>
             <ReactFlow

@@ -14,6 +14,7 @@ import {
 } from "@xyflow/react";
 import Elk from "elkjs";
 import "@xyflow/react/dist/style.css";
+import type { NavigableProps } from "@/components/analysis/NavTrailBar";
 
 const ELKConstructor = Elk;
 
@@ -39,7 +40,7 @@ const CALL_TYPE_COLORS: Record<string, string> = {
 };
 
 const NODE_W = 140;
-const NODE_H = 56;
+const NODE_H = 64;
 /** 每次展开节点的子节点上限 */
 const MAX_NODES_PER_EXPANSION = 8;
 /** 整张图的总节点数上限，防止无限展开导致性能问题 */
@@ -67,7 +68,7 @@ const elk = new ELKConstructor({
   },
 });
 
-interface CallChainPanelProps {
+interface CallChainPanelProps extends NavigableProps {
   nodeId: string; nodeName: string; nodeType: string;
   filePath?: string; onClose: () => void;
 }
@@ -99,7 +100,7 @@ interface RawNode {
   error?: string;
 }
 
-function makeRfNode(r: RawNode, isRoot: boolean, pos: { x: number; y: number }): Node {
+function makeRfNode(r: RawNode, isRoot: boolean, pos: { x: number; y: number }, onNavigate?: NavigableProps["onNavigate"]): Node {
   return {
     id: r.id, type: "chainNode", position: pos,
     style: {
@@ -113,6 +114,7 @@ function makeRfNode(r: RawNode, isRoot: boolean, pos: { x: number; y: number }):
       pendingBwd: r.pendingBwd || 0,
       error: r.error,
       isExiting: false,
+      onNavigate,
     },
   };
 }
@@ -174,6 +176,20 @@ function ChainNodeComponent({ data, selected }: any) {
 
       <Handle id="source" type="source" position={Position.Bottom} style={{ background: cfg.color }} />
       <Handle id="target" type="target" position={Position.Top} style={{ background: cfg.color }} />
+      {data.onNavigate && (
+        <div className="flex gap-1 mt-0.5">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onNavigate({ component: "structure", nodeId: data.label, label: data.label, detail: "代码结构" });
+            }}
+            className="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+            title="查看代码结构"
+          >
+            ◆结构
+          </button>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -237,7 +253,7 @@ const edgeTypes = { chainEdge: ChainEdgeComponent };
 const defaultEdgeOptions = { type: "smoothstep" };
 
 /* ============ 主面板 ============ */
-export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose }: CallChainPanelProps) {
+export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose, onNavigate }: CallChainPanelProps) {
   const [rfNodes, setRfNodes] = useState<Map<string, Node>>(new Map());
   const [rfEdgesState, setRfEdgesState] = useState<Map<string, Edge>>(new Map());
   const [rfInstance, setRfInstance] = useState<any>(null);
@@ -267,7 +283,7 @@ export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose }
     rfEdges.current = new Map();
     pendingRef.current = new Map();
     setGlobalError(null);
-    setRfNodes(new Map([[nodeId, makeRfNode(rootRaw, true, { x: 0, y: 0 })]]));
+    setRfNodes(new Map([[nodeId, makeRfNode(rootRaw, true, { x: 0, y: 0 }, onNavigate)]]));
     setRfEdgesState(new Map());
     setTimeout(() => loadChildren(nodeId), 50);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -445,7 +461,7 @@ export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose }
         setRfNodes((prev) => {
           const next = new Map(prev);
           for (const nr of newRaws) {
-            next.set(nr.id, makeRfNode(nr, false, posMap.get(nr.id) || { x: 0, y: 0 }));
+            next.set(nr.id, makeRfNode(nr, false, posMap.get(nr.id) || { x: 0, y: 0 }, onNavigate));
           }
           for (const [id, oldNode] of next) {
             const pos = posMap.get(id);
@@ -469,7 +485,7 @@ export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose }
         error: error instanceof Error ? error.message : "加载失败",
       });
     }
-  }, [rfInstance, syncNode, computeLayout]);
+  }, [rfInstance, syncNode, computeLayout, onNavigate]);
 
   /**
    * 加载更多：从 pendingRef 中取出剩余项，按 LOAD_MORE_BATCH 批量追加。
@@ -552,7 +568,7 @@ export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose }
       setRfNodes((prev) => {
         const next = new Map(prev);
         for (const nr of newRaws) {
-          next.set(nr.id, makeRfNode(nr, false, posMap.get(nr.id) || { x: 0, y: 0 }));
+          next.set(nr.id, makeRfNode(nr, false, posMap.get(nr.id) || { x: 0, y: 0 }, onNavigate));
         }
         for (const [id, oldNode] of next) {
           const pos = posMap.get(id);
@@ -568,7 +584,7 @@ export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose }
         }
       }, 150);
     }
-  }, [rfInstance, syncNode, computeLayout]);
+  }, [rfInstance, syncNode, computeLayout, onNavigate]);
 
   /**
    * 收起某节点的子树：移除该节点下游（forward 方向）的所有非 root 节点。

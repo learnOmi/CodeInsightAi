@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, memo } from "react";
+import React, { useState, memo } from "react";
 import { cn } from "@/utils";
 import { getFileIcon } from "@codeinsight/shared";
 import type { TreeNode } from "@/utils/tree-utils";
+import type { NavigableProps } from "@/components/analysis/NavTrailBar";
 
 interface TreeNodeProps {
   node: TreeNode;
   level: number;
   selectedFileId?: string;
   onSelectFile: (fileId: string, filePath: string) => void;
+  onNavigate?: NavigableProps["onNavigate"];
 }
 
 /** 单个树节点（目录或文件） */
@@ -18,15 +20,32 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
   level,
   selectedFileId,
   onSelectFile,
+  onNavigate,
 }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(level < 2); // 默认展开前两层
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleClick = () => {
+    setContextMenu(null);
     if (node.isDirectory) {
       setExpanded((prev) => !prev);
     } else if (node.id) {
       onSelectFile(node.id, node.path);
     }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!node.isDirectory && node.id && onNavigate) {
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    }
+  };
+
+  const handleMenuAction = (component: "structure" | "callgraph") => {
+    if (node.id) {
+      onNavigate!({ component, fileId: node.id, label: node.name, detail: component === "structure" ? "代码结构" : "调用图" });
+    }
+    setContextMenu(null);
   };
 
   const isSelected = !node.isDirectory && node.id === selectedFileId;
@@ -35,6 +54,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
     <div>
       <div
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         className={cn(
           "flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer text-sm transition-colors",
           "hover:bg-[var(--bg-hover)]",
@@ -45,7 +65,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
         {/* 展开/折叠箭头 */}
         {node.isDirectory ? (
           <span className="text-[var(--text-muted)] text-xs w-3 flex-shrink-0">
-            {expanded ? "\u25BE" : "\u25B8"}
+            {expanded ? "▾" : "▸"}
           </span>
         ) : (
           <span className="w-3 flex-shrink-0" />
@@ -53,7 +73,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
 
         {/* 图标 */}
         <span className="flex-shrink-0">
-          {node.isDirectory ? (expanded ? "\uD83D\uDCC2" : "\uD83D\uDCC1") : getFileIcon(node.name)}
+          {node.isDirectory ? (expanded ? "📂" : "📁") : getFileIcon(node.name)}
         </span>
 
         {/* 名称 */}
@@ -77,9 +97,33 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
               level={level + 1}
               selectedFileId={selectedFileId}
               onSelectFile={onSelectFile}
+              onNavigate={onNavigate}
             />
           ))}
         </div>
+      )}
+
+      {contextMenu && (
+        <>
+          <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} />
+          <div
+            className="fixed z-50 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl py-1 min-w-[140px]"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button
+              onClick={() => handleMenuAction("structure")}
+              className="w-full text-left px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              ◆ 查看代码结构
+            </button>
+            <button
+              onClick={() => handleMenuAction("callgraph")}
+              className="w-full text-left px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            >
+              ⊙ 查看调用图
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
@@ -89,10 +133,11 @@ interface FileTreeProps {
   nodes: TreeNode[];
   selectedFileId?: string;
   onSelectFile: (fileId: string, filePath: string) => void;
+  onNavigate?: NavigableProps["onNavigate"];
 }
 
 /** 文件树视图 */
-export function FileTree({ nodes, selectedFileId, onSelectFile }: FileTreeProps) {
+export function FileTree({ nodes, selectedFileId, onSelectFile, onNavigate }: FileTreeProps) {
   if (nodes.length === 0) {
     return (
       <div className="text-center text-[var(--text-muted)] text-sm py-8">
@@ -110,6 +155,7 @@ export function FileTree({ nodes, selectedFileId, onSelectFile }: FileTreeProps)
           level={0}
           selectedFileId={selectedFileId}
           onSelectFile={onSelectFile}
+          onNavigate={onNavigate}
         />
       ))}
     </div>

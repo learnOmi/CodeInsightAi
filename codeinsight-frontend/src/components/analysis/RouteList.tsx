@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useRoutes } from "@/hooks/use-analysis-results";
+import { useFiles } from "@/hooks/use-files";
 import type { ApiRoute } from "@/api/routes";
 import { MiddlewareChain } from "./MiddlewareChain";
 import { cn } from "@/utils";
+import type { NavigableProps } from "./NavTrailBar";
 
-interface RouteListProps {
+interface RouteListProps extends NavigableProps {
   repositoryId: string;
 }
 
@@ -157,9 +159,10 @@ function RouteSkeleton() {
 }
 
 /** 单行路由（可点击展开中间件链） */
-function RouteRow({ route }: { route: ApiRoute }) {
+function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onNavigate?: NavigableProps["onNavigate"]; filePathToIdMap: Map<string, string> }) {
   const [expanded, setExpanded] = useState(false);
   const hasMiddlewares = (route.middlewares?.length ?? 0) > 0;
+  const fileId = route.handlerFile ? filePathToIdMap.get(route.handlerFile) : undefined;
 
   return (
     <li>
@@ -178,6 +181,18 @@ function RouteRow({ route }: { route: ApiRoute }) {
           {route.framework}
         </span>
         <MiddlewareBadge count={route.middlewares?.length ?? 0} />
+        {fileId && onNavigate && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onNavigate({ component: "callgraph", fileId: fileId, label: route.handlerFile, detail: "调用图" });
+            }}
+            className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors flex-shrink-0"
+            title="查看调用图"
+          >
+            ⊙调用图
+          </button>
+        )}
         {hasMiddlewares && (
           <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0">
             {expanded ? "▲" : "▼"}
@@ -201,7 +216,7 @@ function RouteRow({ route }: { route: ApiRoute }) {
  * 展示仓库下解析出的 API 路由，支持按 HTTP 方法、框架、路径模式过滤。
  * @param repositoryId 仓库 ID
  */
-export function RouteList({ repositoryId }: RouteListProps) {
+export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
   const [httpMethod, setHttpMethod] = useState("");
   const [framework, setFramework] = useState("");
   const [pathPattern, setPathPattern] = useState("");
@@ -224,6 +239,14 @@ export function RouteList({ repositoryId }: RouteListProps) {
     () => (allRoutesForFrameworks ? collectFrameworks(allRoutesForFrameworks) : []),
     [allRoutesForFrameworks]
   );
+
+  const { data: files } = useFiles(repositoryId);
+
+  const filePathToIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    files?.forEach((f) => map.set(f.path, f.id));
+    return map;
+  }, [files]);
 
   if (isLoading) {
     return (
@@ -270,7 +293,7 @@ export function RouteList({ repositoryId }: RouteListProps) {
       ) : (
         <ul className="space-y-0.5">
           {routes.map((route) => (
-            <RouteRow key={route.id} route={route} />
+            <RouteRow key={route.id} route={route} onNavigate={onNavigate} filePathToIdMap={filePathToIdMap} />
           ))}
         </ul>
       )}
