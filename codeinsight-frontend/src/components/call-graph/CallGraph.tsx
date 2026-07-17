@@ -723,6 +723,12 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
   const externalCallersLoadedRef = useRef<Set<string>>(new Set());
   const isMountedRef = useRef(true);
   const exitTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const graphDataRef = useRef<{
+    nodes: Node[];
+    edges: Edge[];
+    externalCalleesByCaller: Map<string, string[]>;
+    astNodeMap: Map<string, any>;
+  } | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -774,6 +780,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       const result = await buildGraphData(deduped, callEdges, fileId, onNavigate);
       if (!cancelled && isMountedRef.current) {
         setGraphData(result);
+        graphDataRef.current = result;
         // 初始化 pendingFwdByNode：每个 caller 的全部外部 callee 都视为待展开
         pendingFwdByNodeRef.current = new Map(result.externalCalleesByCaller);
         setExpandedFwdByNode(new Map());
@@ -977,13 +984,11 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
           return [];
         }) as any[];
 
-        // 后端返回 snake_case 字段：edge_id, call_name, call_type, caller { id, name, node_type, file_path }
-        // 过滤掉当前文件内的 caller（已在图中显示）
+    // 外部 caller：使用 ref 获取最新的 astNodeMap，避免闭包陈旧导致误过滤
         const externalCallers = callers.filter((item: any) => {
           const caller = item.caller;
           if (!caller) return false;
-          // 外部 caller：不在当前 graphData 节点中（即不在当前文件内）
-          return !graphData?.astNodeMap.has(caller.id);
+          return !graphDataRef.current?.astNodeMap.has(caller.id);
         });
 
         // 存入 pendingBwdByNodeRef
@@ -1030,20 +1035,6 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
             }
             return next;
           });
-        } else if (isMountedRef.current) {
-          // 没有外部调用者，也需要触发重渲染让按钮消失
-          setBwdLoadingSet((prev) => {
-            const next = new Set(prev);
-            next.delete(nodeId);
-            return next;
-          });
-        }
-        if (isMountedRef.current && externalCallers.length > 0) {
-          setBwdLoadingSet((prev) => {
-            const next = new Set(prev);
-            next.delete(nodeId);
-            return next;
-          });
         }
       } catch (e) {
         console.error("toggleBwd fetch error:", e);
@@ -1057,6 +1048,15 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         }
         setGlobalError("获取外部调用者失败");
         return;
+      } finally {
+        // 无论成功还是失败（包括外部 caller 为空），都清除加载状态
+        if (isMountedRef.current) {
+          setBwdLoadingSet((prev) => {
+            const next = new Set(prev);
+            next.delete(nodeId);
+            return next;
+          });
+        }
       }
     }
 
