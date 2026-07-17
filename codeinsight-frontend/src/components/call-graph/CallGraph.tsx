@@ -138,14 +138,19 @@ function ToggleButton({
   expandedCount,
   onClick,
   loading,
+  bwdChecked,
 }: {
   direction: "down" | "up";
   pendingCount: number;
   expandedCount: number;
   onClick: (e: React.MouseEvent) => void;
   loading?: boolean;
+  bwdChecked?: boolean;
 }) {
-  const isUpWithNoData = direction === "up" && pendingCount === 0 && expandedCount === 0;
+  const isUpWithNoData = direction === "up" && pendingCount === 0 && expandedCount === 0 && !bwdChecked;
+  // 已检查过但无外部调用者 → 隐藏按钮
+  const isEmptyChecked = direction === "up" && bwdChecked && pendingCount === 0 && expandedCount === 0;
+  if (isEmptyChecked) return null;
   if (!isUpWithNoData && !loading && pendingCount === 0 && expandedCount === 0) return null;
 
   const isExpanded = expandedCount > 0 && pendingCount === 0;
@@ -183,7 +188,7 @@ function ToggleButton({
     <div
       onClick={(e) => {
         e.stopPropagation();
-        if (!loading) onClick(e);
+        if (typeof onClick === "function" && !loading) onClick(e);
       }}
       className={`absolute flex items-center justify-center rounded-full text-[9px] font-bold ${loading ? "cursor-wait" : "cursor-pointer hover:scale-110"} transition-transform z-20`}
       style={{
@@ -299,21 +304,26 @@ function CallGraphNode({ data, selected }: any) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* ▼ 向下展开/折叠按钮（callee 方向） */}
-      <ToggleButton
-        direction="down"
-        pendingCount={data.pendingFwd || 0}
-        expandedCount={data.expandedFwdCount || 0}
-        onClick={data.onToggleFwd}
-      />
-      {/* ▲ 向上展开/折叠按钮（caller 方向） */}
-      <ToggleButton
-        direction="up"
-        pendingCount={data.pendingBwd || 0}
-        expandedCount={data.expandedBwdCount || 0}
-        onClick={data.onToggleBwd}
-        loading={data.bwdLoading}
-      />
+      {!data.isFocusedMode && (
+        <>
+          {/* ▼ 向下展开/折叠按钮（callee 方向） */}
+          <ToggleButton
+            direction="down"
+            pendingCount={data.pendingFwd || 0}
+            expandedCount={data.expandedFwdCount || 0}
+            onClick={data.onToggleFwd}
+          />
+          {/* ▲ 向上展开/折叠按钮（caller 方向） */}
+          <ToggleButton
+            direction="up"
+            pendingCount={data.pendingBwd || 0}
+            expandedCount={data.expandedBwdCount || 0}
+            onClick={data.onToggleBwd}
+            loading={data.bwdLoading}
+            bwdChecked={data.bwdChecked}
+          />
+        </>
+      )}
 
       <div className="flex items-center gap-1" style={{ marginTop: data.isCurrentFile ? 0 : -4 }}>
         <span className="text-xs opacity-75">{data.icon}</span>
@@ -402,10 +412,11 @@ async function buildGraphData(
   nodes: Node[];
   edges: Edge[];
   externalCalleesByCaller: Map<string, string[]>;
+  externalCallersByCallee: Map<string, string[]>;
   astNodeMap: Map<string, any>;
 }> {
   if (!astNodes.length || !callEdges.length) {
-    return { nodes: [], edges: [], externalCalleesByCaller: new Map(), astNodeMap: new Map() };
+    return { nodes: [], edges: [], externalCalleesByCaller: new Map(), externalCallersByCallee: new Map(), astNodeMap: new Map() };
   }
 
   const callableTypes = new Set(["function", "method", "constructor", "class", "interface", "enum", "struct"]);
@@ -424,7 +435,7 @@ async function buildGraphData(
   const validEdges = callEdges.filter((e: any) => e.calleeNodeId && nodeMap.has(e.callerNodeId) && nodeMap.has(e.calleeNodeId));
 
   if (validEdges.length === 0) {
-    return { nodes: [], edges: [], externalCalleesByCaller: new Map(), astNodeMap: nodeMap };
+    return { nodes: [], edges: [], externalCalleesByCaller: new Map(), externalCallersByCallee: new Map(), astNodeMap: nodeMap };
   }
 
   // === 按 (caller, callee) 合并重复边 ===
@@ -458,6 +469,8 @@ async function buildGraphData(
 
   // === 构建外部 callee 索引：每个 caller 节点对应的外部 callee id 列表 ===
   const externalCalleesByCaller = new Map<string, string[]>();
+  // === 构建外部 caller 索引：每个 callee 节点对应的外部 caller id 列表（用于向上展开计数）===
+  const externalCallersByCallee = new Map<string, string[]>();
   for (const edge of uniqueEdges) {
     const callerNode = nodeMap.get(edge.callerNodeId);
     const calleeNode = nodeMap.get(edge.calleeNodeId);
@@ -469,6 +482,16 @@ async function buildGraphData(
       if (!list.includes(edge.calleeNodeId)) {
         list.push(edge.calleeNodeId);
         externalCalleesByCaller.set(edge.callerNodeId, list);
+      }
+    }
+
+    // 外部 caller：caller 不在当前文件，callee 在当前文件
+    const isExternalCaller = callerNode.fileId !== currentFileId;
+    if (isExternalCaller) {
+      const list = externalCallersByCallee.get(edge.calleeNodeId) || [];
+      if (!list.includes(edge.callerNodeId)) {
+        list.push(edge.callerNodeId);
+        externalCallersByCallee.set(edge.calleeNodeId, list);
       }
     }
   }
@@ -605,7 +628,7 @@ async function buildGraphData(
     });
   }
 
-  return { nodes: graphNodes, edges: graphEdges, externalCalleesByCaller, astNodeMap: nodeMap };
+  return { nodes: graphNodes, edges: graphEdges, externalCalleesByCaller, externalCallersByCallee, astNodeMap: nodeMap };
 }
 
 /** 图例下拉按钮 */
@@ -707,26 +730,32 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
    * - expandedFwdByNode: 每个节点已展开的外部 callee 集合（向下）
    * - expandedBwdByNode: 每个节点已展开的外部 caller 集合（向上）
    * - pendingFwdByNodeRef: 每个节点的待展开外部 callee 队列（基于已有数据）
-   * - pendingBwdByNodeRef: 每个节点的待展开外部 caller 队列（API 获取）
+   * - pendingBwdByNode: 每个节点的待展开外部 caller 队列（API 获取）
    * - externalCallerNodes: API 获取的外部 caller 节点数据
    * - externalCallerEdges: API 获取的外部 caller 边
-   * - externalCallersLoadedRef: 已通过 API 获取外部 caller 的节点集合
+   * - externalCallersLoadedSet: 已通过 API 获取外部 caller 的节点集合
    */
   const [expandedFwdByNode, setExpandedFwdByNode] = useState<Map<string, Set<string>>>(new Map());
   const [expandedBwdByNode, setExpandedBwdByNode] = useState<Map<string, Set<string>>>(new Map());
   const [exitingNodeIds, setExitingNodeIds] = useState<Set<string>>(new Set());
   const [bwdLoadingSet, setBwdLoadingSet] = useState<Set<string>>(new Set());
+  const [pendingBwdByNode, setPendingBwdByNode] = useState<Map<string, string[]>>(new Map());
+  // Nodes that have already been API-checked for bwd (regardless of result)
+  const bwdCheckedSetRef = useRef<Set<string>>(new Set());
   const pendingFwdByNodeRef = useRef<Map<string, string[]>>(new Map());
-  const pendingBwdByNodeRef = useRef<Map<string, string[]>>(new Map());
+  // 预计算的外部 caller 索引（来自现有边数据），用于立即给出向上展开计数
+  const prebuiltBwdByNodeRef = useRef<Map<string, string[]>>(new Map());
+  // API 获取的外部 caller 数据（用于实际展开节点渲染）
+  const apiBwdByNodeRef = useRef<Map<string, string[]>>(new Map());
   const [externalCallerNodes, setExternalCallerNodes] = useState<Map<string, any>>(new Map());
   const [externalCallerEdges, setExternalCallerEdges] = useState<Map<string, Edge>>(new Map());
-  const externalCallersLoadedRef = useRef<Set<string>>(new Set());
   const isMountedRef = useRef(true);
   const exitTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const graphDataRef = useRef<{
     nodes: Node[];
     edges: Edge[];
     externalCalleesByCaller: Map<string, string[]>;
+    externalCallersByCallee: Map<string, string[]>;
     astNodeMap: Map<string, any>;
   } | null>(null);
 
@@ -751,11 +780,10 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       setHoveredEdgeId(null);
       setExpandedFwdByNode(new Map());
       setExpandedBwdByNode(new Map());
+      setPendingBwdByNode(new Map());
       pendingFwdByNodeRef.current = new Map();
-      pendingBwdByNodeRef.current = new Map();
       setExternalCallerNodes(new Map());
       setExternalCallerEdges(new Map());
-      externalCallersLoadedRef.current = new Set();
       return;
     }
     // 从调用边中提取所有涉及的节点 ID
@@ -783,12 +811,15 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         graphDataRef.current = result;
         // 初始化 pendingFwdByNode：每个 caller 的全部外部 callee 都视为待展开
         pendingFwdByNodeRef.current = new Map(result.externalCalleesByCaller);
+        // 初始化预计算的外部 caller 索引：用于立即给出向上展开计数（无需等待 API）
+        prebuiltBwdByNodeRef.current = new Map(result.externalCallersByCallee);
+        apiBwdByNodeRef.current = new Map();
         setExpandedFwdByNode(new Map());
         setExpandedBwdByNode(new Map());
-        pendingBwdByNodeRef.current = new Map();
+        // 初始化 pendingBwdByNode 同步设置为预计算值，使按钮立即显示实际计数
+        setPendingBwdByNode(new Map(result.externalCallersByCallee));
         setExternalCallerNodes(new Map());
         setExternalCallerEdges(new Map());
-        externalCallersLoadedRef.current = new Set();
         setGlobalError(null);
       }
     }, 0);
@@ -806,6 +837,8 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       }
     }
   }, [highlightNodeId, graphData]);
+
+  // 预加载已移除：现在外部 caller 计数通过 buildGraphData 中预计算的 externalCallersByCallee 同步获取，无需 API 调用
 
   /**
    * 递归折叠 fwd 子树：移除 nodeId 的所有 fwd 后代（包括后代的后代）
@@ -968,140 +1001,135 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
   /**
    * 向上展开/折叠 toggle（caller 方向，需 API 调用）
    *
-   * - 首次：调用 getCallers API 获取外部 caller，存入 pendingBwdByNodeRef
+   * - 首次：调用 getCallers API 获取外部 caller，存入 pendingBwdByNode
    * - 有 pending：批量展开最多 MAX_EXTERNAL_PER_EXPANSION 个外部 caller
    * - 已展开（无 pending）：折叠该节点的 bwd 子树（原路按步折叠，递归移除后代）
    */
   const toggleBwd = useCallback(async (nodeId: string) => {
-    // 首次：调用 API 获取外部 caller
-    if (!externalCallersLoadedRef.current.has(nodeId)) {
-      externalCallersLoadedRef.current.add(nodeId);
-      setBwdLoadingSet((prev) => new Set(prev).add(nodeId));
-      try {
-        const { getCallers } = await import("@/api/call-edges");
-        const callers = await getCallers(nodeId).catch((e) => {
-          console.error("getCallers error:", e);
-          return [];
-        }) as any[];
+    // === Collapse path: already checked + nothing remaining to expand ===
+    const bwdExpanded = expandedBwdByNode.get(nodeId) || new Set();
+    const bwdPendingList = pendingBwdByNode.get(nodeId);
+    const isChecked = bwdPendingList !== undefined;
+    const hasRemaining = isChecked && bwdPendingList.some(id => !bwdExpanded.has(id));
+    const alreadyFullyExpanded = isChecked && bwdExpanded.size > 0 && !hasRemaining;
 
-    // 外部 caller：使用 ref 获取最新的 astNodeMap，避免闭包陈旧导致误过滤
-        const externalCallers = callers.filter((item: any) => {
-          const caller = item.caller;
-          if (!caller) return false;
-          return !graphDataRef.current?.astNodeMap.has(caller.id);
+    if (alreadyFullyExpanded) {
+      // 折叠：收集所有 bwd 后代，播放退出动画，再真正移除
+      const toRemove = collectBwdDescendants(expandedBwdByNode, nodeId);
+      const directParents = expandedBwdByNode.get(nodeId);
+      if (directParents) for (const id of directParents) toRemove.add(id);
+      startExitAnimation(toRemove, () => {
+        setExpandedBwdByNode((prev) => {
+          const next = new Map(prev);
+          collapseBwdRecursive(next, nodeId);
+          return next;
         });
-
-        // 存入 pendingBwdByNodeRef
-        const externalCallerIds = externalCallers.map((item: any) => item.caller?.id).filter(Boolean) as string[];
-        pendingBwdByNodeRef.current.set(nodeId, externalCallerIds);
-
-        // 存入 externalCallerNodes 和 externalCallerEdges
-        if (externalCallers.length > 0 && isMountedRef.current) {
-          setExternalCallerNodes((prev) => {
-            const next = new Map(prev);
-            for (const item of externalCallers) {
-              const caller = item.caller;
-              if (caller) {
-                next.set(caller.id, caller);
-              }
-            }
-            return next;
-          });
-          setExternalCallerEdges((prev) => {
-            const next = new Map(prev);
-            for (const item of externalCallers) {
-              const caller = item.caller;
-              if (caller) {
-                const edgeId = `bwd-${caller.id}-${nodeId}`;
-                const style = CALL_TYPE_STYLES[item.call_type] || CALL_TYPE_STYLES.unknown;
-                next.set(edgeId, {
-                  id: edgeId,
-                  source: caller.id,
-                  target: nodeId,
-                  type: "smoothstep",
-                  animated: item.call_type === "dynamic",
-                  style: {
-                    stroke: style.stroke,
-                    strokeDasharray: style.strokeDasharray,
-                    strokeWidth: style.width,
-                  },
-                  label: undefined,
-                  labelStyle: { opacity: 0 },
-                  labelBgStyle: { opacity: 0 },
-                  data: { callName: item.call_name, callCount: 1 },
-                  markerEnd: { type: "arrowclosed", width: 10, height: 10, color: style.stroke },
-                });
-              }
-            }
-            return next;
-          });
-        }
-      } catch (e) {
-        console.error("toggleBwd fetch error:", e);
-        externalCallersLoadedRef.current.delete(nodeId);
-        if (isMountedRef.current) {
-          setBwdLoadingSet((prev) => {
-            const next = new Set(prev);
-            next.delete(nodeId);
-            return next;
-          });
-        }
-        setGlobalError("获取外部调用者失败");
-        return;
-      } finally {
-        // 无论成功还是失败（包括外部 caller 为空），都清除加载状态
-        if (isMountedRef.current) {
-          setBwdLoadingSet((prev) => {
-            const next = new Set(prev);
-            next.delete(nodeId);
-            return next;
-          });
-        }
-      }
-    }
-
-    const pending = pendingBwdByNodeRef.current.get(nodeId) || [];
-    const currentExpanded = expandedBwdByNode.get(nodeId) || new Set();
-    const remaining = pending.filter(id => !currentExpanded.has(id));
-
-    if (remaining.length > 0) {
-      // 展开
-      setExpandedBwdByNode((prev) => {
-        const next = new Map(prev);
-        const current = new Set(next.get(nodeId) || []);
-        const totalAfterExpand = countAllExpanded(expandedFwdByNode, next) + displayedNodeCount;
-        const allowed = Math.min(
-          MAX_EXTERNAL_PER_EXPANSION,
-          remaining.length,
-          Math.max(0, MAX_TOTAL_NODES - totalAfterExpand)
-        );
-        if (allowed <= 0) {
-          setGlobalError(`已达节点数上限（${MAX_TOTAL_NODES}），请先折叠部分节点`);
-          return prev;
-        }
-        for (let i = 0; i < allowed; i++) {
-          current.add(remaining[i]);
-        }
-        next.set(nodeId, current);
-        return next;
       });
-      setGlobalError(null);
       return;
     }
 
-    // 折叠（原路按步折叠）：先收集所有后代，播放退出动画，再真正移除
-    const toRemove = collectBwdDescendants(expandedBwdByNode, nodeId);
-    const directParents = expandedBwdByNode.get(nodeId);
-    if (directParents) for (const id of directParents) toRemove.add(id);
+    setBwdLoadingSet((prev) => new Set(prev).add(nodeId));
+    try {
+      const { getCallers } = await import("@/api/call-edges");
+      const callers = await getCallers(nodeId).catch((e) => {
+        console.error("getCallers error:", e);
+        return [];
+      }) as any[];
 
-    startExitAnimation(toRemove, () => {
-      setExpandedBwdByNode((prev) => {
+      const currentFileAstNodeIds = new Set<string>();
+      for (const n of (graphDataRef.current?.nodes || [])) {
+        const d = n.data as any;
+        if (d?.isCurrentFile || d?.isCallSite) currentFileAstNodeIds.add(n.id);
+      }
+      const externalCallers = callers.filter((item: any) => {
+        const caller = item.caller;
+        if (!caller) return false;
+        return !currentFileAstNodeIds.has(caller.id);
+      });
+
+      const externalCallerIds = externalCallers.map((item: any) => item.caller?.id).filter(Boolean) as string[];
+
+      // 无论有无外部 caller，都更新 pendingBwdByNode（空数组表示"已检查，无调用者"）
+      // Also mark fetched external caller nodes as "checked" so their ▲ button doesn't show "?"
+      for (const itemId of externalCallerIds) {
+        bwdCheckedSetRef.current.add(itemId);
+      }
+      setPendingBwdByNode((prev) => {
         const next = new Map(prev);
-        collapseBwdRecursive(next, nodeId);
+        next.set(nodeId, externalCallerIds);
         return next;
       });
-    });
-  }, [graphData, expandedFwdByNode, expandedBwdByNode, displayedNodeCount, countAllExpanded, collapseBwdRecursive, collectBwdDescendants, startExitAnimation]);
+
+      // 存入 externalCallerNodes 和 externalCallerEdges
+      if (externalCallers.length > 0 && isMountedRef.current) {
+        setExternalCallerNodes((prev) => {
+          const next = new Map(prev);
+          for (const item of externalCallers) {
+            const caller = item.caller;
+            if (caller) next.set(caller.id, caller);
+          }
+          return next;
+        });
+        setExternalCallerEdges((prev) => {
+          const next = new Map(prev);
+          for (const item of externalCallers) {
+            const caller = item.caller;
+            if (caller) {
+              const edgeId = `bwd-${caller.id}-${nodeId}`;
+              const style = CALL_TYPE_STYLES[item.call_type] || CALL_TYPE_STYLES.unknown;
+              next.set(edgeId, {
+                id: edgeId,
+                source: caller.id,
+                target: nodeId,
+                type: "smoothstep",
+                animated: item.call_type === "dynamic",
+                style: { stroke: style.stroke, strokeDasharray: style.strokeDasharray, strokeWidth: style.width },
+                label: undefined,
+                labelStyle: { opacity: 0 },
+                labelBgStyle: { opacity: 0 },
+                data: { callName: item.call_name, callCount: 1 },
+                markerEnd: { type: "arrowclosed", width: 10, height: 10, color: style.stroke },
+              });
+            }
+          }
+          return next;
+        });
+
+        // 有外部 caller 时自动展开
+        setExpandedBwdByNode((prev) => {
+          const next = new Map(prev);
+          const current = new Set(next.get(nodeId) || []);
+          const totalAfterExpand = countAllExpanded(expandedFwdByNode, next) + displayedNodeCount;
+          const allowed = Math.min(
+            MAX_EXTERNAL_PER_EXPANSION,
+            externalCallerIds.length,
+            Math.max(0, MAX_TOTAL_NODES - totalAfterExpand)
+          );
+          if (allowed <= 0) {
+            setGlobalError(`已达节点数上限（${MAX_TOTAL_NODES}），请先折叠部分节点`);
+            return prev;
+          }
+          for (let i = 0; i < allowed; i++) {
+            current.add(externalCallerIds[i]);
+          }
+          next.set(nodeId, current);
+          return next;
+        });
+        setGlobalError(null);
+      }
+    } catch (e) {
+      console.error("toggleBwd fetch error:", e);
+      setGlobalError("获取外部调用者失败");
+    } finally {
+      if (isMountedRef.current) {
+        setBwdLoadingSet((prev) => {
+          const next = new Set(prev);
+          next.delete(nodeId);
+          return next;
+        });
+      }
+    }
+  }, [expandedFwdByNode, expandedBwdByNode, pendingBwdByNode, displayedNodeCount, countAllExpanded, collapseBwdRecursive, collectBwdDescendants, startExitAnimation]);
 
   /**
    * 计算每个节点的 pendingFwd/pendingBwd/expandedFwdCount/expandedBwdCount，
@@ -1121,7 +1149,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
 
     // 计算每个节点的 pending/expanded 计数
     const pendingFwdByNode = new Map<string, number>();
-    const pendingBwdByNode = new Map<string, number>();
+    const pendingBwdCountByNode = new Map<string, number>();
     const expandedFwdCountByNode = new Map<string, number>();
     const expandedBwdCountByNode = new Map<string, number>();
 
@@ -1132,14 +1160,24 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       expandedFwdCountByNode.set(callerId, expanded.size);
     }
 
-    for (const [callerId, allCallers] of pendingBwdByNodeRef.current) {
+    for (const [callerId, allCallers] of pendingBwdByNode) {
       const expanded = expandedBwdByNode.get(callerId) || new Set();
       const remaining = allCallers.filter(id => !expanded.has(id));
-      pendingBwdByNode.set(callerId, remaining.length);
+      pendingBwdCountByNode.set(callerId, remaining.length);
       expandedBwdCountByNode.set(callerId, expanded.size);
     }
 
-    // 聚焦模式：只显示聚焦节点 + 直接邻居
+    // 未通过 API 检查过的节点：用预计算的外部 caller 索引给出实际计数
+    for (const [callerId, allCallers] of prebuiltBwdByNodeRef.current) {
+      if (!pendingBwdCountByNode.has(callerId)) {
+        const expanded = expandedBwdByNode.get(callerId) || new Set();
+        const remaining = allCallers.filter(id => !expanded.has(id));
+        pendingBwdCountByNode.set(callerId, remaining.length);
+        expandedBwdCountByNode.set(callerId, expanded.size);
+      }
+    }
+
+    // 聚焦模式：只显示聚焦节点 + 直接邻居，但仍需注入 pending/expanded 计数
     if (focusedNodeId) {
       const connectedEdgeIds = new Set<string>();
       const connectedNodeIds = new Set<string>([focusedNodeId]);
@@ -1152,7 +1190,40 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       }
       const filteredNodes = graphData.nodes.filter((node) => connectedNodeIds.has(node.id));
       const filteredEdges = graphData.edges.filter((edge) => connectedEdgeIds.has(edge.id));
-      return { nodes: filteredNodes, edges: filteredEdges };
+
+      // 注入 pending/expanded 计数到聚焦模式节点
+      const hydratedNodes = filteredNodes.map((node) => {
+        const pendingFwd = pendingFwdByNode.get(node.id) || 0;
+        const pendingBwd = pendingBwdCountByNode.get(node.id) || 0;
+        const expandedFwdCount = expandedFwdCountByNode.get(node.id) || 0;
+        const expandedBwdCount = expandedBwdCountByNode.get(node.id) || 0;
+        const bwdLoading = bwdLoadingSet.has(node.id);
+        const bwdChecked = bwdCheckedSetRef.current.has(node.id);
+        const isExiting = exitingNodeIds.has(node.id);
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            pendingFwd,
+            pendingBwd,
+            expandedFwdCount,
+            expandedBwdCount,
+            bwdLoading,
+            bwdChecked,
+            isExiting,
+            isFocusedMode: true,
+            onToggleFwd: (e: React.MouseEvent) => {
+              e.stopPropagation();
+              toggleFwd(node.id);
+            },
+            onToggleBwd: (e: React.MouseEvent) => {
+              e.stopPropagation();
+              toggleBwd(node.id);
+            },
+          },
+        };
+      });
+      return { nodes: hydratedNodes, edges: filteredEdges };
     }
 
     // 非聚焦模式：渲染当前文件节点 + 已展开的外部节点 + 正在退出的节点
@@ -1195,10 +1266,11 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
     for (const node of graphData.nodes) {
       if (visibleNodeIds.has(node.id)) {
         const pendingFwd = pendingFwdByNode.get(node.id) || 0;
-        const pendingBwd = pendingBwdByNode.get(node.id) || 0;
+        const pendingBwd = pendingBwdCountByNode.get(node.id) || 0;
         const expandedFwdCount = expandedFwdCountByNode.get(node.id) || 0;
         const expandedBwdCount = expandedBwdCountByNode.get(node.id) || 0;
         const bwdLoading = bwdLoadingSet.has(node.id);
+        const bwdChecked = bwdCheckedSetRef.current.has(node.id);
         const isExiting = exitingNodeIds.has(node.id);
         visibleNodes.push({
           ...node,
@@ -1210,6 +1282,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
             expandedFwdCount,
             expandedBwdCount,
             bwdLoading,
+            bwdChecked,
             isExiting,
             onToggleFwd: (e: React.MouseEvent) => {
               e.stopPropagation();
@@ -1252,9 +1325,10 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       targetToCallers.set(target, list);
     }
 
-    // 2. 外部 caller 节点（不在 graphData 中）
+    // 2. 外部 caller 节点（排除已在 graphData 中的节点，避免重复 key）
+    const graphDataNodeIds = new Set(graphData.nodes.map((n) => n.id));
     for (const id of externalCallerNodeIds) {
-      if (visibleNodeIds.has(id)) {
+      if (visibleNodeIds.has(id) && !graphDataNodeIds.has(id)) {
         const callerData = externalCallerNodes.get(id);
         if (callerData) {
           const config = NODE_TYPE_CONFIG[callerData.node_type] || NODE_TYPE_CONFIG.function;
@@ -1305,10 +1379,11 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
               callsMade: 0,
               callsReceived: 0,
               pendingFwd: pendingFwdByNode.get(id) || 0,
-              pendingBwd: pendingBwdByNode.get(id) || 0,
+              pendingBwd: pendingBwdCountByNode.get(id) || 0,
               expandedFwdCount: expandedFwdCountByNode.get(id) || 0,
               expandedBwdCount: expandedBwdCountByNode.get(id) || 0,
               bwdLoading: bwdLoadingSet.has(id),
+              bwdChecked: bwdCheckedSetRef.current.has(id),
               isExiting,
               onToggleFwd: (e: React.MouseEvent) => {
                 e.stopPropagation();
@@ -1338,7 +1413,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
     }
 
     return { nodes: visibleNodes, edges: visibleEdges };
-  }, [graphData, focusedNodeId, expandedFwdByNode, expandedBwdByNode, exitingNodeIds, externalCallerNodes, externalCallerEdges, toggleFwd, toggleBwd, bwdLoadingSet]);
+  }, [graphData, focusedNodeId, expandedFwdByNode, expandedBwdByNode, exitingNodeIds, externalCallerNodes, externalCallerEdges, toggleFwd, toggleBwd, bwdLoadingSet, pendingBwdByNode]);
 
   // 边 hover 事件
   const onEdgeMouseEnter = useCallback((_: React.MouseEvent, edge: Edge) => {
@@ -1432,12 +1507,12 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       const expanded = expandedFwdByNode.get(callerId) || new Set();
       sum += allCallees.filter(id => !expanded.has(id)).length;
     }
-    for (const [callerId, allCallers] of pendingBwdByNodeRef.current) {
+    for (const [callerId, allCallers] of pendingBwdByNode) {
       const expanded = expandedBwdByNode.get(callerId) || new Set();
       sum += allCallers.filter(id => !expanded.has(id)).length;
     }
     return sum;
-  }, [expandedFwdByNode, expandedBwdByNode]);
+  }, [expandedFwdByNode, expandedBwdByNode, pendingBwdByNode]);
 
   const totalExpanded = useMemo(() => {
     let sum = 0;
