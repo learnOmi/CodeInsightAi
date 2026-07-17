@@ -14,3 +14,8 @@ export * from "./ast-nodes";
 export * from "./dependencies";
 export * from "./routes";
 export * from "./frameworks";
+
+// Phase 7: 项目概览增强
+export * from "./stats";
+export * from "./module-dependencies";
+export * from "./search";

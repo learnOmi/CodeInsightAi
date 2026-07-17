@@ -183,31 +183,57 @@ function DependencyItem({ dep }: { dep: ExternalDependency }) {
   const ecoCfg = getEcosystemConfig(dep.ecosystem);
   const version = dep.version || dep.versionRange || VERSION_FALLBACK;
   const isMaven = dep.ecosystem?.toLowerCase() === "maven";
+  const [showFiles, setShowFiles] = useState(false);
+  const hasUsedByFiles = dep.usedByFiles && dep.usedByFiles.length > 0;
 
   return (
-    <li className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors">
-      <span className="text-lg flex-shrink-0" title={ecoCfg.label}>
-        {ecoCfg.icon}
-      </span>
+    <li>
+      <div
+        className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+        onClick={() => hasUsedByFiles && setShowFiles(!showFiles)}
+      >
+        <span className="text-lg flex-shrink-0" title={ecoCfg.label}>
+          {ecoCfg.icon}
+        </span>
 
-      <div className="flex flex-col min-w-0 flex-1">
-        <span className="font-mono text-sm text-[var(--text-primary)] truncate">
-          {isMaven && dep.groupName ? (
-            <>
-              <span className="text-[var(--text-muted)]">{dep.groupName}:</span>
-              {dep.artifactName}
-            </>
-          ) : (
-            dep.artifactName
-          )}
-        </span>
-        <span className="font-mono text-xs text-[var(--text-muted)] truncate">
-          {version}
-          {dep.versionRange && dep.version ? ` (${dep.versionRange})` : ""}
-        </span>
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="font-mono text-sm text-[var(--text-primary)] truncate">
+            {isMaven && dep.groupName ? (
+              <>
+                <span className="text-[var(--text-muted)]">{dep.groupName}:</span>
+                {dep.artifactName}
+              </>
+            ) : (
+              dep.artifactName
+            )}
+          </span>
+          <span className="font-mono text-xs text-[var(--text-muted)] truncate">
+            {version}
+            {dep.versionRange && dep.version ? ` (${dep.versionRange})` : ""}
+          </span>
+        </div>
+
+        <ScopeTag scope={dep.scope} />
+        {hasUsedByFiles && (
+          <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0">
+            {showFiles ? "▲" : "▼"}
+          </span>
+        )}
       </div>
 
-      <ScopeTag scope={dep.scope} />
+      {/* 展开引用了该依赖的文件列表 */}
+      {showFiles && hasUsedByFiles && (
+        <div className="px-6 py-2 space-y-0.5 text-xs border-l-2 border-[var(--border)] ml-4 mb-1">
+          <div className="text-[10px] text-[var(--text-muted)] font-semibold mb-1">
+            引用文件 ({dep.usedByFiles.length})
+          </div>
+          {dep.usedByFiles.map((filePath, idx) => (
+            <div key={idx} className="font-mono text-[var(--text-muted)] truncate">
+              {filePath}
+            </div>
+          ))}
+        </div>
+      )}
     </li>
   );
 }

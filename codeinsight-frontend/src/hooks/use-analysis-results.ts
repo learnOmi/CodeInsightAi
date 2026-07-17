@@ -10,6 +10,17 @@ import {
   getFrameworksCount,
   type FrameworkPattern,
 } from "@/api/frameworks";
+import {
+  getRepositoryStats,
+  type RepositoryStats,
+} from "@/api/stats";
+import {
+  getModuleDependencies,
+  getModuleDependenciesCount,
+  getModuleDependencyStats,
+  type ModuleDependency,
+  type ModuleDependencyStats,
+} from "@/api/module-dependencies";
 
 // ===== 外部依赖 =====
 
@@ -86,5 +97,49 @@ export function useFrameworksCount(repositoryId: string) {
   });
 }
 
+// ===== 项目统计 =====
+
+/** 仓库全局统计 */
+export function useRepositoryStats(repositoryId: string) {
+  return useQuery({
+    queryKey: ["repository-stats", repositoryId],
+    queryFn: () => getRepositoryStats(repositoryId),
+    enabled: !!repositoryId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+// ===== 模块依赖 =====
+
+/** 模块依赖列表 */
+export function useModuleDependencies(repositoryId: string) {
+  return useQuery({
+    queryKey: ["module-dependencies", repositoryId],
+    queryFn: () => getModuleDependencies(repositoryId),
+    enabled: !!repositoryId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/** 模块依赖数量 */
+export function useModuleDependenciesCount(repositoryId: string) {
+  return useQuery({
+    queryKey: ["module-dependencies-count", repositoryId],
+    queryFn: () => getModuleDependenciesCount(repositoryId),
+    enabled: !!repositoryId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+/** 模块依赖统计 */
+export function useModuleDependencyStats(repositoryId: string) {
+  return useQuery({
+    queryKey: ["module-dependency-stats", repositoryId],
+    queryFn: () => getModuleDependencyStats(repositoryId),
+    enabled: !!repositoryId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 // 类型导出
-export type { ExternalDependency, ApiRoute, FrameworkPattern };
+export type { ExternalDependency, ApiRoute, FrameworkPattern, RepositoryStats, ModuleDependency, ModuleDependencyStats };

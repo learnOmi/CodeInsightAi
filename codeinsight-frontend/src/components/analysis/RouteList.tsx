@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRoutes } from "@/hooks/use-analysis-results";
 import type { ApiRoute } from "@/api/routes";
+import { MiddlewareChain } from "./MiddlewareChain";
 import { cn } from "@/utils";
 
 interface RouteListProps {
@@ -155,21 +156,42 @@ function RouteSkeleton() {
   );
 }
 
-/** 单行路由 */
+/** 单行路由（可点击展开中间件链） */
 function RouteRow({ route }: { route: ApiRoute }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasMiddlewares = (route.middlewares?.length ?? 0) > 0;
+
   return (
-    <li className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors">
-      <MethodTag method={route.httpMethod} />
-      <span className="font-mono text-sm text-[var(--text-primary)] truncate flex-1 min-w-0">
-        {route.pathPattern}
-      </span>
-      <span className="text-xs text-[var(--text-muted)] truncate max-w-[30%] hidden sm:inline">
-        {route.handlerFunction}
-      </span>
-      <span className="text-xs text-[var(--text-muted)] flex-shrink-0 hidden md:inline">
-        {route.framework}
-      </span>
-      <MiddlewareBadge count={route.middlewares?.length ?? 0} />
+    <li>
+      <div
+        className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+        onClick={() => hasMiddlewares && setExpanded(!expanded)}
+      >
+        <MethodTag method={route.httpMethod} />
+        <span className="font-mono text-sm text-[var(--text-primary)] truncate flex-1 min-w-0">
+          {route.pathPattern}
+        </span>
+        <span className="text-xs text-[var(--text-muted)] truncate max-w-[30%] hidden sm:inline">
+          {route.handlerFunction}
+        </span>
+        <span className="text-xs text-[var(--text-muted)] flex-shrink-0 hidden md:inline">
+          {route.framework}
+        </span>
+        <MiddlewareBadge count={route.middlewares?.length ?? 0} />
+        {hasMiddlewares && (
+          <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0">
+            {expanded ? "▲" : "▼"}
+          </span>
+        )}
+      </div>
+
+      {/* 展开的中间件链 */}
+      {expanded && route.middlewares && route.middlewares.length > 0 && (
+        <div className="px-4 py-3 border-l-2 border-[var(--border)] ml-4 mb-1">
+          <div className="text-[10px] text-[var(--text-muted)] font-semibold mb-2">中间件链</div>
+          <MiddlewareChain middlewares={route.middlewares} />
+        </div>
+      )}
     </li>
   );
 }

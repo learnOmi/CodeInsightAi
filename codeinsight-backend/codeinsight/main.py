@@ -19,9 +19,11 @@ from codeinsight.api import (
     files,
     frameworks,
     knowledge,
+    module_dependencies,
     repositories,
     routes,
     search,
+    stats,
     versions,
 )
 from codeinsight.config import settings
@@ -124,6 +126,8 @@ def create_app() -> FastAPI:
     app.include_router(dependencies.router, prefix="/api/v1", tags=["外部依赖"])
     app.include_router(frameworks.router, prefix="/api/v1", tags=["框架检测"])
     app.include_router(routes.router, prefix="/api/v1", tags=["API 路由"])
+    app.include_router(module_dependencies.router, prefix="/api/v1", tags=["模块依赖"])
+    app.include_router(stats.router, prefix="/api/v1", tags=["项目统计"])
 
     # 健康检查端点（S-1 修复：不返回敏感错误信息，防止信息泄露）
     # 注意：健康检查端点不加认证，因为需要被负载均衡器等基础设施访问

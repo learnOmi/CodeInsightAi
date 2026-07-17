@@ -10,14 +10,18 @@ import { VersionManager } from "@/components/VersionManager";
 import { RouteList } from "@/components/analysis/RouteList";
 import { DependencyList } from "@/components/analysis/DependencyList";
 import { FrameworkList } from "@/components/analysis/FrameworkList";
+import { RepositoryOverview } from "@/components/analysis/RepositoryOverview";
+import { ModuleDependencyGraph } from "@/components/analysis/ModuleDependencyGraph";
 
 type TabType =
+  | "overview"
   | "structure"
   | "callgraph"
   | "versions"
   | "routes"
   | "dependencies"
-  | "frameworks";
+  | "frameworks"
+  | "module-deps";
 
 /** 需要选中文件的 Tab */
 const FILE_DEPENDENT_TABS: TabType[] = ["structure", "callgraph"];
@@ -85,66 +89,46 @@ export default function FilesPage({
       <div className="flex-1 bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden flex flex-col">
         {/* 标签页头部 */}
         <div className="border-b border-[var(--border)] flex flex-wrap">
-          <button
+          <TabButton
+            label="项目概览"
+            active={activeTab === "overview"}
+            onClick={() => setActiveTab("overview")}
+          />
+          <TabButton
+            label="代码结构"
+            active={activeTab === "structure"}
             onClick={() => setActiveTab("structure")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
-              activeTab === "structure"
-                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            }`}
-          >
-            {"代码结构"}
-          </button>
-          <button
+          />
+          <TabButton
+            label="调用图"
+            active={activeTab === "callgraph"}
             onClick={() => setActiveTab("callgraph")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
-              activeTab === "callgraph"
-                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            }`}
-          >
-            {"调用图"}
-          </button>
-          <button
+          />
+          <TabButton
+            label="API 路由"
+            active={activeTab === "routes"}
             onClick={() => setActiveTab("routes")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
-              activeTab === "routes"
-                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            }`}
-          >
-            {"API 路由"}
-          </button>
-          <button
+          />
+          <TabButton
+            label="外部依赖"
+            active={activeTab === "dependencies"}
             onClick={() => setActiveTab("dependencies")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
-              activeTab === "dependencies"
-                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            }`}
-          >
-            {"外部依赖"}
-          </button>
-          <button
+          />
+          <TabButton
+            label="模块依赖"
+            active={activeTab === "module-deps"}
+            onClick={() => setActiveTab("module-deps")}
+          />
+          <TabButton
+            label="框架检测"
+            active={activeTab === "frameworks"}
             onClick={() => setActiveTab("frameworks")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
-              activeTab === "frameworks"
-                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            }`}
-          >
-            {"框架检测"}
-          </button>
-          <button
+          />
+          <TabButton
+            label="版本管理"
+            active={activeTab === "versions"}
             onClick={() => setActiveTab("versions")}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
-              activeTab === "versions"
-                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
-                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            }`}
-          >
-            {"版本管理"}
-          </button>
+          />
         </div>
 
         {/* 标签页内容 */}
@@ -152,6 +136,10 @@ export default function FilesPage({
           {FILE_DEPENDENT_TABS.includes(activeTab) && !selectedFileId ? (
             <div className="h-full flex items-center justify-center text-[var(--text-muted)] text-sm">
               {"请从左侧文件树中选择一个文件"}
+            </div>
+          ) : activeTab === "overview" ? (
+            <div className="h-full overflow-y-auto p-4">
+              <RepositoryOverview repositoryId={repo_id} />
             </div>
           ) : activeTab === "structure" ? (
             <div className="h-full overflow-y-auto p-4">
@@ -167,6 +155,10 @@ export default function FilesPage({
             <div className="h-full overflow-y-auto p-4">
               <DependencyList repositoryId={repo_id} />
             </div>
+          ) : activeTab === "module-deps" ? (
+            <div className="h-full overflow-y-auto p-4">
+              <ModuleDependencyGraph repositoryId={repo_id} />
+            </div>
           ) : activeTab === "frameworks" ? (
             <div className="h-full overflow-y-auto p-4">
               <FrameworkList repositoryId={repo_id} />
@@ -179,5 +171,28 @@ export default function FilesPage({
         </div>
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
+        active
+          ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
+          : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
