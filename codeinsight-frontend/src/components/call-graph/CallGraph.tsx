@@ -1,6 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
+/*
+ * 调用类型说明：
+ * - static:    静态调用（实线，蓝色）
+ * - dynamic:   动态调用（虚线，黄色）
+ * - unknown:   未知调用类型（点线，灰色）
+ * - external:  外部调用（虚线，绿色），表示对外部模块/服务的调用
+ * - injected:  依赖注入调用（点线，紫色），表示通过 IoC 容器注入的调用
+ */
+
 import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
@@ -39,6 +48,7 @@ const NODE_TYPE_CONFIG: Record<string, { color: string; borderColor: string; lab
   enum: { color: "#f97316", borderColor: "#ea580c", label: "枚举", icon: "E" },
   struct: { color: "#84cc16", borderColor: "#65a30d", label: "结构体", icon: "S" },
   call: { color: "#9ca3af", borderColor: "#6b7280", label: "调用", icon: "→" },
+  external: { color: "#10b981", borderColor: "#059669", label: "外部", icon: "E" },
 };
 
 const NODE_W = 140;
@@ -53,6 +63,8 @@ const CALL_TYPE_STYLES: Record<string, { stroke: string; strokeDasharray: string
   static: { stroke: "#60a5fa", strokeDasharray: "0", width: 2 },
   dynamic: { stroke: "#fbbf24", strokeDasharray: "5,5", width: 2 },
   unknown: { stroke: "#9ca3af", strokeDasharray: "2,3", width: 1 },
+  external: { stroke: "#10b981", strokeDasharray: "3,3", width: 2 },
+  injected: { stroke: "#a855f7", strokeDasharray: "1,2", width: 2 },
 };
 
 const CLASS_TYPES = new Set(["class"]);

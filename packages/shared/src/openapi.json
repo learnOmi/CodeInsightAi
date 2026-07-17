@@ -12,7 +12,7 @@
           "仓库管理"
         ],
         "summary": "Create Repository",
-        "description": "添加代码仓库\n\n添加一个新的代码仓库并开始分析。",
+        "description": "添加代码仓库\n\n添加一个新的代码仓库，如果 auto_analyze 为 True 则自动提交分析任务。",
         "operationId": "create_repository_api_v1_repositories_post",
         "security": [
           {
@@ -273,7 +273,7 @@
           "分析任务"
         ],
         "summary": "Submit Analysis",
-        "description": "提交分析任务\n\n创建一个异步分析任务并提交到 Celery 队列。\n返回 202 Accepted 状态码，表示任务已接受但尚未完成。\n\nArgs:\n    repository_id: 目标仓库 ID\n    request: 可选的分析参数（模式、启用的 Agent 列表）\n    db: 数据库会话\n    repo_dao: RepositoryDAO 实例\n\nReturns:\n    AnalysisTask: 包含 task_id、初始状态的响应",
+        "description": "提交分析任务\n\n创建一个异步分析任务并提交到 Celery 队列。\n返回 202 Accepted 状态码，表示任务已接受但尚未完成。",
         "operationId": "submit_analysis_api_v1_repositories__repository_id__analyze_post",
         "security": [
           {
@@ -387,7 +387,7 @@
           "分析任务"
         ],
         "summary": "Cancel Task",
-        "description": "取消分析任务\n\n通过 Celery control.revoke 终止正在执行的 Worker 任务。\n\nArgs:\n    task_id: Celery 任务 ID\n\nReturns:\n    包含成功消息的字典\n\nRaises:\n    HTTPException 404: 任务不存在",
+        "description": "取消分析任务\n\n通过 Celery control.revoke 终止正在执行的 Worker 任务。\n如果任务已完成或不存在（eager 模式），返回相应提示。\n\nArgs:\n    task_id: Celery 任务 ID\n\nReturns:\n    包含成功消息的字典\n\nRaises:\n    HTTPException 404: 任务不存在",
         "operationId": "cancel_task_api_v1_tasks__task_id__cancel_post",
         "security": [
           {
@@ -1009,10 +1009,10 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 500,
               "minimum": 1,
               "description": "每页数量",
-              "default": 20,
+              "default": 100,
               "title": "Page Size"
             },
             "description": "每页数量"
@@ -1443,6 +1443,721 @@
         }
       }
     },
+    "/api/v1/call-edges": {
+      "get": {
+        "tags": [
+          "调用图"
+        ],
+        "summary": "List Call Edges",
+        "description": "获取调用边列表\n\n支持按文件、仓库、节点类型过滤。\n至少提供 file_id 或 repository_id 之一。",
+        "operationId": "list_call_edges_api_v1_call_edges_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "文件 ID（按文件查询调用边）",
+              "title": "File Id"
+            },
+            "description": "文件 ID（按文件查询调用边）"
+          },
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "仓库 ID（按仓库查询调用边）",
+              "title": "Repository Id"
+            },
+            "description": "仓库 ID（按仓库查询调用边）"
+          },
+          {
+            "name": "node_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "调用者节点类型过滤",
+              "title": "Node Type"
+            },
+            "description": "调用者节点类型过滤"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CallEdge"
+                  },
+                  "title": "Response List Call Edges Api V1 Call Edges Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/call-edges/{node_id}/callees": {
+      "get": {
+        "tags": [
+          "调用图"
+        ],
+        "summary": "Get Callees",
+        "description": "获取该节点调用的所有目标（正向调用图）\n\n返回调用边列表，每条边包含 caller 和 callee 节点信息。\ncallee 为 None 时表示该调用无法匹配到具体目标（未知调用）。",
+        "operationId": "get_callees_api_v1_call_edges__node_id__callees_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Node Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Callees Api V1 Call Edges  Node Id  Callees Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/call-edges/{node_id}/callers": {
+      "get": {
+        "tags": [
+          "调用图"
+        ],
+        "summary": "Get Callers",
+        "description": "获取调用该节点的所有调用者（反向调用图）\n\n返回调用边列表，每条边包含 caller 节点信息。",
+        "operationId": "get_callers_api_v1_call_edges__node_id__callers_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Node Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Callers Api V1 Call Edges  Node Id  Callers Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/call-edges/{node_id}/chain": {
+      "get": {
+        "tags": [
+          "调用图"
+        ],
+        "summary": "Get Call Chain",
+        "description": "获取从该节点开始的完整调用链（DFS 遍历）\n\n返回调用链节点列表，按深度排序。",
+        "operationId": "get_call_chain_api_v1_call_edges__node_id__chain_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Node Id"
+            }
+          },
+          {
+            "name": "max_depth",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "最大遍历深度",
+              "default": 10,
+              "title": "Max Depth"
+            },
+            "description": "最大遍历深度"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Get Call Chain Api V1 Call Edges  Node Id  Chain Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/dependencies": {
+      "get": {
+        "tags": [
+          "外部依赖"
+        ],
+        "summary": "List Dependencies",
+        "description": "获取仓库的外部依赖列表\n\n支持按生态系统和作用域过滤。",
+        "operationId": "list_dependencies_api_v1_repositories__repository_id__dependencies_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "ecosystem",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按生态系统过滤（maven/npm/pip/go/cargo）",
+              "title": "Ecosystem"
+            },
+            "description": "按生态系统过滤（maven/npm/pip/go/cargo）"
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按作用域过滤（compile/dev/test/runtime/peer）",
+              "title": "Scope"
+            },
+            "description": "按作用域过滤（compile/dev/test/runtime/peer）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalDependency"
+                  },
+                  "title": "Response List Dependencies Api V1 Repositories  Repository Id  Dependencies Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/dependencies/count": {
+      "get": {
+        "tags": [
+          "外部依赖"
+        ],
+        "summary": "Count Dependencies",
+        "description": "获取仓库的外部依赖数量统计",
+        "operationId": "count_dependencies_api_v1_repositories__repository_id__dependencies_count_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Count Dependencies Api V1 Repositories  Repository Id  Dependencies Count Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/frameworks": {
+      "get": {
+        "tags": [
+          "框架检测"
+        ],
+        "summary": "List Frameworks",
+        "description": "获取仓库检测到的框架列表\n\n支持按类别和置信度过滤。",
+        "operationId": "list_frameworks_api_v1_repositories__repository_id__frameworks_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按类别过滤（frontend/backend/database/messaging 等）",
+              "title": "Category"
+            },
+            "description": "按类别过滤（frontend/backend/database/messaging 等）"
+          },
+          {
+            "name": "min_confidence",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "最低置信度阈值",
+              "title": "Min Confidence"
+            },
+            "description": "最低置信度阈值"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FrameworkPattern"
+                  },
+                  "title": "Response List Frameworks Api V1 Repositories  Repository Id  Frameworks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/frameworks/count": {
+      "get": {
+        "tags": [
+          "框架检测"
+        ],
+        "summary": "Count Frameworks",
+        "description": "获取仓库检测到的框架数量统计",
+        "operationId": "count_frameworks_api_v1_repositories__repository_id__frameworks_count_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Count Frameworks Api V1 Repositories  Repository Id  Frameworks Count Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/routes": {
+      "get": {
+        "tags": [
+          "API 路由"
+        ],
+        "summary": "List Routes",
+        "description": "获取仓库的 API 路由列表\n\n支持按 HTTP 方法、框架、路径模式过滤。",
+        "operationId": "list_routes_api_v1_repositories__repository_id__routes_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          },
+          {
+            "name": "http_method",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按 HTTP 方法过滤（GET/POST/PUT/DELETE 等）",
+              "title": "Http Method"
+            },
+            "description": "按 HTTP 方法过滤（GET/POST/PUT/DELETE 等）"
+          },
+          {
+            "name": "framework",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按框架过滤（spring_boot/express/flask/fastapi 等）",
+              "title": "Framework"
+            },
+            "description": "按框架过滤（spring_boot/express/flask/fastapi 等）"
+          },
+          {
+            "name": "path_pattern",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "路径模式模糊匹配",
+              "title": "Path Pattern"
+            },
+            "description": "路径模式模糊匹配"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiRoute"
+                  },
+                  "title": "Response List Routes Api V1 Repositories  Repository Id  Routes Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/routes/count": {
+      "get": {
+        "tags": [
+          "API 路由"
+        ],
+        "summary": "Count Routes",
+        "description": "获取仓库的 API 路由数量统计",
+        "operationId": "count_routes_api_v1_repositories__repository_id__routes_count_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Count Routes Api V1 Repositories  Repository Id  Routes Count Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -1705,6 +2420,69 @@
         "title": "AnalyzeRequest",
         "description": "提交分析任务请求"
       },
+      "ApiRoute": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "analysisVersionId": {
+            "type": "string",
+            "title": "Analysisversionid"
+          },
+          "astNodeId": {
+            "type": "string",
+            "title": "Astnodeid"
+          },
+          "httpMethod": {
+            "type": "string",
+            "title": "Httpmethod"
+          },
+          "pathPattern": {
+            "type": "string",
+            "title": "Pathpattern"
+          },
+          "handlerFunction": {
+            "type": "string",
+            "title": "Handlerfunction"
+          },
+          "handlerFile": {
+            "type": "string",
+            "title": "Handlerfile"
+          },
+          "middlewares": {
+            "items": {},
+            "type": "array",
+            "title": "Middlewares",
+            "default": []
+          },
+          "framework": {
+            "type": "string",
+            "title": "Framework"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repositoryId",
+          "httpMethod",
+          "pathPattern",
+          "handlerFunction",
+          "handlerFile",
+          "framework",
+          "createdAt"
+        ],
+        "title": "ApiRoute",
+        "description": "API 路由"
+      },
       "AstNode": {
         "properties": {
           "id": {
@@ -1778,6 +2556,29 @@
               }
             ],
             "title": "Docstring"
+          },
+          "tags": {
+            "items": {},
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          },
+          "annotations": {
+            "items": {},
+            "type": "array",
+            "title": "Annotations",
+            "default": []
+          },
+          "qualifiedName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualifiedname"
           },
           "createdAt": {
             "type": "string",
@@ -1862,6 +2663,59 @@
         ],
         "title": "CallChainNode",
         "description": "调用链节点"
+      },
+      "CallEdge": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "callerNodeId": {
+            "type": "string",
+            "title": "Callernodeid"
+          },
+          "calleeNodeId": {
+            "type": "string",
+            "title": "Calleenodeid"
+          },
+          "startLine": {
+            "type": "integer",
+            "title": "Startline"
+          },
+          "startColumn": {
+            "type": "integer",
+            "title": "Startcolumn"
+          },
+          "callName": {
+            "type": "string",
+            "title": "Callname"
+          },
+          "callType": {
+            "type": "string",
+            "title": "Calltype"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repositoryId",
+          "callerNodeId",
+          "startLine",
+          "startColumn",
+          "callName",
+          "callType",
+          "createdAt"
+        ],
+        "title": "CallEdge",
+        "description": "调用边"
       },
       "CodeSnippet": {
         "properties": {
@@ -1950,6 +2804,99 @@
         ],
         "title": "ExpansionContent",
         "description": "拓展内容"
+      },
+      "ExternalDependency": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "analysisVersionId": {
+            "type": "string",
+            "title": "Analysisversionid"
+          },
+          "ecosystem": {
+            "type": "string",
+            "title": "Ecosystem"
+          },
+          "groupName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groupname"
+          },
+          "artifactName": {
+            "type": "string",
+            "title": "Artifactname"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "versionRange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Versionrange"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": "compile"
+          },
+          "declarationFile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declarationfile"
+          },
+          "usedByFiles": {
+            "items": {},
+            "type": "array",
+            "title": "Usedbyfiles",
+            "default": []
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repositoryId",
+          "ecosystem",
+          "artifactName",
+          "createdAt"
+        ],
+        "title": "ExternalDependency",
+        "description": "外部依赖"
       },
       "File": {
         "properties": {
@@ -2088,6 +3035,55 @@
         "type": "object",
         "title": "FileUpdate",
         "description": "更新文件请求"
+      },
+      "FrameworkPattern": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "analysisVersionId": {
+            "type": "string",
+            "title": "Analysisversionid"
+          },
+          "framework": {
+            "type": "string",
+            "title": "Framework"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "evidence": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Evidence",
+            "default": {}
+          },
+          "detectedAt": {
+            "type": "string",
+            "title": "Detectedat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repositoryId",
+          "framework",
+          "category",
+          "confidence",
+          "detectedAt"
+        ],
+        "title": "FrameworkPattern",
+        "description": "框架模式"
       },
       "HTTPValidationError": {
         "properties": {

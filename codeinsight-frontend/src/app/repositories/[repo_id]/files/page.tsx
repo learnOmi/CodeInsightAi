@@ -7,8 +7,20 @@ import { FileTree } from "@/components/file-tree";
 import { StructureList } from "@/components/structure";
 import { CallGraph } from "@/components/call-graph";
 import { VersionManager } from "@/components/VersionManager";
+import { RouteList } from "@/components/analysis/RouteList";
+import { DependencyList } from "@/components/analysis/DependencyList";
+import { FrameworkList } from "@/components/analysis/FrameworkList";
 
-type TabType = "structure" | "callgraph" | "versions";
+type TabType =
+  | "structure"
+  | "callgraph"
+  | "versions"
+  | "routes"
+  | "dependencies"
+  | "frameworks";
+
+/** 需要选中文件的 Tab */
+const FILE_DEPENDENT_TABS: TabType[] = ["structure", "callgraph"];
 
 /** 文件树 + 结构概览页面 */
 export default function FilesPage({
@@ -72,7 +84,7 @@ export default function FilesPage({
       {/* 右侧：标签页内容 */}
       <div className="flex-1 bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden flex flex-col">
         {/* 标签页头部 */}
-        <div className="border-b border-[var(--border)] flex">
+        <div className="border-b border-[var(--border)] flex flex-wrap">
           <button
             onClick={() => setActiveTab("structure")}
             className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
@@ -94,6 +106,36 @@ export default function FilesPage({
             {"调用图"}
           </button>
           <button
+            onClick={() => setActiveTab("routes")}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
+              activeTab === "routes"
+                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            }`}
+          >
+            {"API 路由"}
+          </button>
+          <button
+            onClick={() => setActiveTab("dependencies")}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
+              activeTab === "dependencies"
+                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            }`}
+          >
+            {"外部依赖"}
+          </button>
+          <button
+            onClick={() => setActiveTab("frameworks")}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
+              activeTab === "frameworks"
+                ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            }`}
+          >
+            {"框架检测"}
+          </button>
+          <button
             onClick={() => setActiveTab("versions")}
             className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
               activeTab === "versions"
@@ -107,20 +149,32 @@ export default function FilesPage({
 
         {/* 标签页内容 */}
         <div className="flex-1 overflow-hidden">
-          {activeTab === "versions" ? (
-            <div className="h-full overflow-y-auto p-4">
-              <VersionManager repositoryId={repo_id} />
-            </div>
-          ) : !selectedFileId ? (
+          {FILE_DEPENDENT_TABS.includes(activeTab) && !selectedFileId ? (
             <div className="h-full flex items-center justify-center text-[var(--text-muted)] text-sm">
               {"请从左侧文件树中选择一个文件"}
             </div>
           ) : activeTab === "structure" ? (
             <div className="h-full overflow-y-auto p-4">
-              <StructureList fileId={selectedFileId} fileName={selectedFileName} />
+              <StructureList fileId={selectedFileId!} fileName={selectedFileName} />
+            </div>
+          ) : activeTab === "callgraph" ? (
+            <CallGraph fileId={selectedFileId!} repositoryId={repo_id} />
+          ) : activeTab === "routes" ? (
+            <div className="h-full overflow-y-auto p-4">
+              <RouteList repositoryId={repo_id} />
+            </div>
+          ) : activeTab === "dependencies" ? (
+            <div className="h-full overflow-y-auto p-4">
+              <DependencyList repositoryId={repo_id} />
+            </div>
+          ) : activeTab === "frameworks" ? (
+            <div className="h-full overflow-y-auto p-4">
+              <FrameworkList repositoryId={repo_id} />
             </div>
           ) : (
-            <CallGraph fileId={selectedFileId} repositoryId={repo_id} />
+            <div className="h-full overflow-y-auto p-4">
+              <VersionManager repositoryId={repo_id} />
+            </div>
           )}
         </div>
       </div>

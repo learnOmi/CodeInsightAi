@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useAstNodes } from "@/hooks/use-files";
 import { groupAstNodes, flattenGroupedNodes } from "@/utils/structure-utils";
+import { FrameworkBadge } from "@/components/common/FrameworkBadge";
 import { NodeBadge } from "./NodeBadge";
 
 interface StructureListProps {
@@ -60,18 +61,25 @@ export function StructureList({ fileId, fileName }: StructureListProps) {
         </div>
       ) : (
         <ul className="space-y-0.5">
-          {flatNodes.map((node) => (
-            <li
-              key={node.id}
-              className="flex items-center gap-2 py-1 px-2 rounded hover:bg-[var(--bg-hover)] transition-colors"
-              style={{ paddingLeft: `${node.depth * 20 + 8}px` }}
-            >
-              <NodeBadge type={node.nodeType} name={node.name} />
-              <span className="ml-auto text-xs text-[var(--text-muted)] font-mono flex-shrink-0">
-                L{node.startLine}-{node.endLine}
-              </span>
-            </li>
-          ))}
+          {flatNodes.map((node) => {
+            // 后端 tags 字段类型为 list（unknown[]），此处安全过滤为 string[]
+            const tags = Array.isArray(node.tags)
+              ? node.tags.filter((t): t is string => typeof t === "string")
+              : [];
+            return (
+              <li
+                key={node.id}
+                className="flex items-center gap-2 py-1 px-2 rounded hover:bg-[var(--bg-hover)] transition-colors"
+                style={{ paddingLeft: `${node.depth * 20 + 8}px` }}
+              >
+                <NodeBadge type={node.nodeType} name={node.name} />
+                {tags.length > 0 && <FrameworkBadge tags={tags} />}
+                <span className="ml-auto text-xs text-[var(--text-muted)] font-mono flex-shrink-0">
+                  L{node.startLine}-{node.endLine}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

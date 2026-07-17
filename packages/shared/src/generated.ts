@@ -23,7 +23,7 @@ export interface paths {
          * Create Repository
          * @description 添加代码仓库
          *
-         *     添加一个新的代码仓库并开始分析。
+         *     添加一个新的代码仓库，如果 auto_analyze 为 True 则自动提交分析任务。
          */
         post: operations["create_repository_api_v1_repositories_post"];
         delete?: never;
@@ -75,14 +75,6 @@ export interface paths {
          *
          *     创建一个异步分析任务并提交到 Celery 队列。
          *     返回 202 Accepted 状态码，表示任务已接受但尚未完成。
-         *
-         *     Args:
-         *         repository_id: 目标仓库 ID
-         *         request: 可选的分析参数（模式、启用的 Agent 列表）
-         *         db: 数据库会话
-         *
-         *     Returns:
-         *         AnalysisTask: 包含 task_id、初始状态的响应
          */
         post: operations["submit_analysis_api_v1_repositories__repository_id__analyze_post"];
         delete?: never;
@@ -136,6 +128,7 @@ export interface paths {
          * @description 取消分析任务
          *
          *     通过 Celery control.revoke 终止正在执行的 Worker 任务。
+         *     如果任务已完成或不存在（eager 模式），返回相应提示。
          *
          *     Args:
          *         task_id: Celery 任务 ID
@@ -209,6 +202,7 @@ export interface paths {
          * @description 获取知识点统计
          *
          *     返回指定仓库的知识点统计数据，包括按分类分布、置信度分布、热门标签等。
+         *     优化：9 次独立查询合并为 3 次（分类 GROUP BY + 总数 + 置信度 GROUP BY）。
          */
         get: operations["get_knowledge_stats_api_v1_repositories__repository_id__knowledge_stats_get"];
         put?: never;
@@ -295,6 +289,8 @@ export interface paths {
          * @description 切换到指定版本
          *
          *     将仓库的当前版本设置为指定版本，后续查询将使用该版本的数据。
+         *
+         *     API-9 修复：只允许切换到已完成的版本，禁止切换到分析中或已失败的版本。
          */
         post: operations["switch_version_api_v1_repositories__repository_id__switch_version_post"];
         delete?: never;
@@ -316,9 +312,345 @@ export interface paths {
          * Rollback Version
          * @description 回滚到指定版本
          *
-         *     将仓库状态恢复到指定历史版本，并标记此次变更为"回滚"操作。
+         *     将仓库状态恢复到指定历史版本（语义上表示从当前版本撤回）。
+         *
+         *     API-13 修复：复用 _update_current_version 共享逻辑，消除重复代码。
+         *     API-14 修复：移除伪造的 rollback_record_id。
          */
         post: operations["rollback_version_api_v1_repositories__repository_id__rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Files
+         * @description 获取文件列表（分页）
+         */
+        get: operations["list_files_api_v1_files_get"];
+        put?: never;
+        /**
+         * Create File
+         * @description 添加代码文件
+         *
+         *     在指定仓库下添加一个新文件。
+         */
+        post: operations["create_file_api_v1_files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get File
+         * @description 获取文件详情
+         */
+        get: operations["get_file_api_v1_files__file_id__get"];
+        /**
+         * Update File
+         * @description 更新文件信息
+         */
+        put: operations["update_file_api_v1_files__file_id__put"];
+        post?: never;
+        /**
+         * Delete File
+         * @description 删除文件
+         */
+        delete: operations["delete_file_api_v1_files__file_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/by-hash/{content_hash}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Files By Hash
+         * @description 根据内容哈希查找文件（用于增量检测）
+         */
+        get: operations["get_files_by_hash_api_v1_files_by_hash__content_hash__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ast-nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Ast Nodes
+         * @description 获取 AST 节点列表
+         *
+         *     支持按文件、仓库、节点类型过滤。
+         *     至少提供 file_id 或 repository_id 之一。
+         */
+        get: operations["list_ast_nodes_api_v1_ast_nodes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ast-nodes/{node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ast Node
+         * @description 获取单个 AST 节点详情
+         */
+        get: operations["get_ast_node_api_v1_ast_nodes__node_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/call-edges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Call Edges
+         * @description 获取调用边列表
+         *
+         *     支持按文件、仓库、节点类型过滤。
+         *     至少提供 file_id 或 repository_id 之一。
+         */
+        get: operations["list_call_edges_api_v1_call_edges_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/call-edges/{node_id}/callees": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Callees
+         * @description 获取该节点调用的所有目标（正向调用图）
+         *
+         *     返回调用边列表，每条边包含 caller 和 callee 节点信息。
+         *     callee 为 None 时表示该调用无法匹配到具体目标（未知调用）。
+         */
+        get: operations["get_callees_api_v1_call_edges__node_id__callees_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/call-edges/{node_id}/callers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Callers
+         * @description 获取调用该节点的所有调用者（反向调用图）
+         *
+         *     返回调用边列表，每条边包含 caller 节点信息。
+         */
+        get: operations["get_callers_api_v1_call_edges__node_id__callers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/call-edges/{node_id}/chain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Call Chain
+         * @description 获取从该节点开始的完整调用链（DFS 遍历）
+         *
+         *     返回调用链节点列表，按深度排序。
+         */
+        get: operations["get_call_chain_api_v1_call_edges__node_id__chain_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Dependencies
+         * @description 获取仓库的外部依赖列表
+         *
+         *     支持按生态系统和作用域过滤。
+         */
+        get: operations["list_dependencies_api_v1_repositories__repository_id__dependencies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/dependencies/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count Dependencies
+         * @description 获取仓库的外部依赖数量统计
+         */
+        get: operations["count_dependencies_api_v1_repositories__repository_id__dependencies_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/frameworks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Frameworks
+         * @description 获取仓库检测到的框架列表
+         *
+         *     支持按类别和置信度过滤。
+         */
+        get: operations["list_frameworks_api_v1_repositories__repository_id__frameworks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/frameworks/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count Frameworks
+         * @description 获取仓库检测到的框架数量统计
+         */
+        get: operations["count_frameworks_api_v1_repositories__repository_id__frameworks_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/routes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Routes
+         * @description 获取仓库的 API 路由列表
+         *
+         *     支持按 HTTP 方法、框架、路径模式过滤。
+         */
+        get: operations["list_routes_api_v1_repositories__repository_id__routes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/routes/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count Routes
+         * @description 获取仓库的 API 路由数量统计
+         */
+        get: operations["count_routes_api_v1_repositories__repository_id__routes_count_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -335,6 +667,9 @@ export interface paths {
         /**
          * Health Check
          * @description 健康检查端点
+         *
+         *     S-1 修复：不返回详细错误信息，避免泄露数据库连接信息等敏感数据。
+         *     Q-1 修复：错误状态仅返回 "unavailable"，详细信息记录到日志。
          */
         get: operations["health_check_api_v1_health_get"];
         put?: never;
@@ -429,6 +764,91 @@ export interface components {
             agents?: ("design_pattern" | "architecture" | "algorithm" | "engineering_tips" | "domain_knowledge")[] | null;
         };
         /**
+         * ApiRoute
+         * @description API 路由
+         */
+        ApiRoute: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Analysisversionid */
+            analysisVersionId?: string;
+            /** Astnodeid */
+            astNodeId?: string;
+            /** Httpmethod */
+            httpMethod: string;
+            /** Pathpattern */
+            pathPattern: string;
+            /** Handlerfunction */
+            handlerFunction: string;
+            /** Handlerfile */
+            handlerFile: string;
+            /**
+             * Middlewares
+             * @default []
+             */
+            middlewares: unknown[];
+            /** Framework */
+            framework: string;
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
+         * AstNode
+         * @description AST 节点
+         */
+        AstNode: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Fileid */
+            fileId: string;
+            /** Nodetype */
+            nodeType: string;
+            /** Name */
+            name: string;
+            /** Startline */
+            startLine: number;
+            /** Endline */
+            endLine: number;
+            /**
+             * Startcolumn
+             * @default 0
+             */
+            startColumn: number;
+            /**
+             * Endcolumn
+             * @default 0
+             */
+            endColumn: number;
+            /** Parentnodeid */
+            parentNodeId?: string;
+            /** Filepath */
+            filePath: string;
+            /** Language */
+            language: string;
+            /** Signature */
+            signature?: string | null;
+            /** Docstring */
+            docstring?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: unknown[];
+            /**
+             * Annotations
+             * @default []
+             */
+            annotations: unknown[];
+            /** Qualifiedname */
+            qualifiedName?: string | null;
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
          * CallChainNode
          * @description 调用链节点
          */
@@ -456,6 +876,30 @@ export interface components {
             direction: "entry" | "call" | "implementation" | "export";
         };
         /**
+         * CallEdge
+         * @description 调用边
+         */
+        CallEdge: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Callernodeid */
+            callerNodeId: string;
+            /** Calleenodeid */
+            calleeNodeId?: string;
+            /** Startline */
+            startLine: number;
+            /** Startcolumn */
+            startColumn: number;
+            /** Callname */
+            callName: string;
+            /** Calltype */
+            callType: string;
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
          * CodeSnippet
          * @description 代码片段
          */
@@ -475,14 +919,6 @@ export interface components {
             language: string;
             /** Signature */
             signature: string;
-        };
-        /**
-         * DeleteResponse
-         * @description 删除响应
-         */
-        DeleteResponse: {
-            /** Message */
-            message: string;
         };
         /**
          * ExpansionContent
@@ -511,6 +947,131 @@ export interface components {
              * @default []
              */
             learningResources: components["schemas"]["LearningResource"][];
+        };
+        /**
+         * ExternalDependency
+         * @description 外部依赖
+         */
+        ExternalDependency: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Analysisversionid */
+            analysisVersionId?: string;
+            /** Ecosystem */
+            ecosystem: string;
+            /** Groupname */
+            groupName?: string | null;
+            /** Artifactname */
+            artifactName: string;
+            /** Version */
+            version?: string | null;
+            /** Versionrange */
+            versionRange?: string | null;
+            /**
+             * Scope
+             * @default compile
+             */
+            scope: string;
+            /** Declarationfile */
+            declarationFile?: string | null;
+            /**
+             * Usedbyfiles
+             * @default []
+             */
+            usedByFiles: unknown[];
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
+         * File
+         * @description 代码文件
+         */
+        File: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Path */
+            path: string;
+            /** Absolutepath */
+            absolutePath: string;
+            /** Language */
+            language: string;
+            /** Linecount */
+            lineCount: number;
+            /** Sizebytes */
+            sizeBytes: number;
+            /** Contenthash */
+            contentHash: string;
+            /** Createdat */
+            createdAt: string;
+            /** Updatedat */
+            updatedAt: string;
+        };
+        /**
+         * FileCreate
+         * @description 创建文件请求
+         */
+        FileCreate: {
+            /** Path */
+            path: string;
+            /** Absolutepath */
+            absolutePath: string;
+            /** Language */
+            language: string;
+            /**
+             * Linecount
+             * @default 0
+             */
+            lineCount: number;
+            /**
+             * Sizebytes
+             * @default 0
+             */
+            sizeBytes: number;
+            /** Contenthash */
+            contentHash: string;
+        };
+        /**
+         * FileUpdate
+         * @description 更新文件请求
+         */
+        FileUpdate: {
+            /** Linecount */
+            lineCount?: number | null;
+            /** Sizebytes */
+            sizeBytes?: number | null;
+            /** Contenthash */
+            contentHash?: string | null;
+        };
+        /**
+         * FrameworkPattern
+         * @description 框架模式
+         */
+        FrameworkPattern: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Analysisversionid */
+            analysisVersionId?: string;
+            /** Framework */
+            framework: string;
+            /** Category */
+            category: string;
+            /** Confidence */
+            confidence: number;
+            /**
+             * Evidence
+             * @default {}
+             */
+            evidence: {
+                [key: string]: unknown;
+            };
+            /** Detectedat */
+            detectedAt: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -663,68 +1224,6 @@ export interface components {
             totalPages: number;
         };
         /**
-         * AstNode
-         * @description AST 节点
-         */
-        AstNode: {
-            /** Id */
-            id: string;
-            /** Repositoryid */
-            repositoryId: string;
-            /** Fileid */
-            fileId: string;
-            /** Nodetype */
-            nodeType: string;
-            /** Name */
-            name: string;
-            /** Startline */
-            startLine: number;
-            /** Endline */
-            endLine: number;
-            /** Startcolumn */
-            startColumn?: number;
-            /** Endcolumn */
-            endColumn?: number;
-            /** Parentnodeid */
-            parentNodeId?: string;
-            /** Filepath */
-            filePath: string;
-            /** Language */
-            language: string;
-            /** Signature */
-            signature?: string | null;
-            /** Docstring */
-            docstring?: string | null;
-            /** Createdat */
-            createdAt: string;
-        };
-        /**
-         * File
-         * @description 代码文件
-         */
-        File: {
-            /** Id */
-            id: string;
-            /** Repositoryid */
-            repositoryId: string;
-            /** Path */
-            path: string;
-            /** Absolutepath */
-            absolutePath: string;
-            /** Language */
-            language: string;
-            /** Linecount */
-            lineCount: number;
-            /** Sizebytes */
-            sizeBytes: number;
-            /** Contenthash */
-            contentHash: string;
-            /** Createdat */
-            createdAt: string;
-            /** Updatedat */
-            updatedAt: string;
-        };
-        /**
          * Repository
          * @description 仓库信息
          */
@@ -781,7 +1280,9 @@ export interface components {
         };
         /**
          * RepositoryStatus
-         * @description 仓库分析状态
+         * @description 仓库状态（M-3 修复：使用 StrEnum 替代松散 str，确保类型安全）
+         *
+         *     注意：analyzing_structures 是 TaskStatus 的细分状态，不在此枚举中。
          * @enum {string}
          */
         RepositoryStatus: "pending" | "analyzing" | "completed" | "failed" | "cancelled";
@@ -792,6 +1293,7 @@ export interface components {
         RepositoryUpdate: {
             /** Name */
             name?: string | null;
+            status?: components["schemas"]["RepositoryStatus"] | null;
         };
         /**
          * SearchMode
@@ -1064,13 +1566,11 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["DeleteResponse"];
-                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -1441,6 +1941,618 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_files_api_v1_files_get: {
+        parameters: {
+            query: {
+                /** @description 仓库 ID */
+                repository_id: string;
+                /** @description 页码 */
+                page?: number;
+                /** @description 每页数量 */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_file_api_v1_files_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["File"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_file_api_v1_files__file_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["File"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_file_api_v1_files__file_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["File"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_file_api_v1_files__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_files_by_hash_api_v1_files_by_hash__content_hash__get: {
+        parameters: {
+            query: {
+                /** @description 仓库 ID */
+                repository_id: string;
+            };
+            header?: never;
+            path: {
+                content_hash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["File"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_ast_nodes_api_v1_ast_nodes_get: {
+        parameters: {
+            query?: {
+                /** @description 文件 ID（按文件查询节点） */
+                file_id?: string | null;
+                /** @description 仓库 ID（按仓库查询节点） */
+                repository_id?: string | null;
+                /** @description 节点类型过滤 */
+                node_type?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AstNode"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ast_node_api_v1_ast_nodes__node_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AstNode"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_call_edges_api_v1_call_edges_get: {
+        parameters: {
+            query?: {
+                /** @description 文件 ID（按文件查询调用边） */
+                file_id?: string | null;
+                /** @description 仓库 ID（按仓库查询调用边） */
+                repository_id?: string | null;
+                /** @description 调用者节点类型过滤 */
+                node_type?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallEdge"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_callees_api_v1_call_edges__node_id__callees_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_callers_api_v1_call_edges__node_id__callers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_call_chain_api_v1_call_edges__node_id__chain_get: {
+        parameters: {
+            query?: {
+                /** @description 最大遍历深度 */
+                max_depth?: number;
+            };
+            header?: never;
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_dependencies_api_v1_repositories__repository_id__dependencies_get: {
+        parameters: {
+            query?: {
+                /** @description 按生态系统过滤（maven/npm/pip/go/cargo） */
+                ecosystem?: string | null;
+                /** @description 按作用域过滤（compile/dev/test/runtime/peer） */
+                scope?: string | null;
+            };
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalDependency"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    count_dependencies_api_v1_repositories__repository_id__dependencies_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_frameworks_api_v1_repositories__repository_id__frameworks_get: {
+        parameters: {
+            query?: {
+                /** @description 按类别过滤（frontend/backend/database/messaging 等） */
+                category?: string | null;
+                /** @description 最低置信度阈值 */
+                min_confidence?: number | null;
+            };
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameworkPattern"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    count_frameworks_api_v1_repositories__repository_id__frameworks_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_routes_api_v1_repositories__repository_id__routes_get: {
+        parameters: {
+            query?: {
+                /** @description 按 HTTP 方法过滤（GET/POST/PUT/DELETE 等） */
+                http_method?: string | null;
+                /** @description 按框架过滤（spring_boot/express/flask/fastapi 等） */
+                framework?: string | null;
+                /** @description 路径模式模糊匹配 */
+                path_pattern?: string | null;
+            };
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiRoute"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    count_routes_api_v1_repositories__repository_id__routes_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
