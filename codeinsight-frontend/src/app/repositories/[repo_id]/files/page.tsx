@@ -42,10 +42,6 @@ export default function FilesPage({
   const [highlightNodeId, setHighlightNodeId] = useState<string | null>(null);
 
   // 探索轨迹栈（Photoshop 式历史记录）
-  // - navStack: 所有历史条目
-  // - navIndex: 当前所处位置（0-based），始终 <= navStack.length - 1
-  // - 当 navIndex < navStack.length - 1 时，[navIndex+1..end] 为"回退区"（灰色展示）
-  // - 在回退区产生新操作时，回退区条目被截断
   const [navStack, setNavStack] = useState<NavEntry[]>([]);
   const [navIndex, setNavIndex] = useState(-1);
   const MAX_STACK_DEPTH = 20;
@@ -71,7 +67,6 @@ export default function FilesPage({
       };
 
       setNavStack((prev) => {
-        // 如果不在栈顶，截断回退区
         let base = prev;
         if (navIndex >= 0 && navIndex < prev.length - 1) {
           base = prev.slice(0, navIndex + 1);
@@ -103,7 +98,6 @@ export default function FilesPage({
           result = result.slice(-MAX_STACK_DEPTH);
         }
 
-        // navIndex 在新操作后指向栈顶
         setNavIndex(result.length - 1);
         return result;
       });
@@ -118,7 +112,6 @@ export default function FilesPage({
           const found = currentFiles.find(f => f.id === entry.fileId);
           if (found) {
             setSelectedFilePath(found.path);
-            // 从路径推导文件名，而非使用 entry.label（可能是函数名）
             setSelectedFileName(found.path.split("/").pop() ?? found.path);
           } else {
             setSelectedFileName(entry.label);
@@ -152,7 +145,7 @@ export default function FilesPage({
         setSelectedFileName(prevEntry.label);
       }
       setHighlightNodeId(prevEntry.nodeId ?? null);
-      return prev; // 不截断，仅移动 navIndex
+      return prev;
     });
   }, [navIndex]);
 
@@ -172,7 +165,6 @@ export default function FilesPage({
         setSelectedFileName(target.label);
       }
       setHighlightNodeId(target.nodeId ?? null);
-      // 移动 navIndex 到目标位置，不截断栈
       setNavIndex(index);
       return prev;
     });
@@ -194,7 +186,6 @@ export default function FilesPage({
   const filesRef = useRef(files);
   filesRef.current = files;
 
-  // 当 selectedFileId 变化时同步更新 filePath
   useEffect(() => {
     if (selectedFileId && files) {
       const found = files.find(f => f.id === selectedFileId);
@@ -218,22 +209,22 @@ export default function FilesPage({
     <div className="flex flex-col gap-4 h-[calc(100vh-120px)]">
       {/* 探索轨迹栏 */}
       <NavTrailBar
-  stack={navStack}
-  activeIndex={navIndex}
-  onBack={handleNavigateBack}
-  onClear={handleClearNavStack}
-  onJumpTo={handleJumpTo}
-/>
+        stack={navStack}
+        activeIndex={navIndex}
+        onBack={handleNavigateBack}
+        onClear={handleClearNavStack}
+        onJumpTo={handleJumpTo}
+      />
 
       {/* 主内容区 */}
       <div className="flex gap-6 flex-1 min-h-0">
-        {/* 左侧：文件树 */}
-        <div className="w-1/2 max-w-md flex flex-col bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden">
-          <div className="border-b border-[var(--border)] px-4 py-3 flex items-center justify-between">
+        {/* 左侧：文件树 — 磨砂玻璃面板 */}
+        <div className="w-1/2 max-w-md flex flex-col bg-[var(--bg-card)]/60 backdrop-blur-sm rounded-xl border border-white/[0.06] overflow-hidden">
+          <div className="border-b border-white/[0.06] px-4 py-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[var(--text-primary)]">
               {"文件树"}
             </h2>
-            <span className="text-xs text-[var(--text-muted)]">
+            <span className="text-xs text-[var(--text-muted)] font-mono tabular-nums">
               {fileCount} {"个文件"}
             </span>
           </div>
@@ -249,7 +240,7 @@ export default function FilesPage({
                 ))}
               </div>
             ) : error ? (
-              <div className="text-center text-red-500 text-sm py-4">
+              <div className="text-center text-status-error text-sm py-4">
                 {"加载文件列表失败"}
               </div>
             ) : (
@@ -264,50 +255,18 @@ export default function FilesPage({
           </div>
         </div>
 
-        {/* 右侧：标签页内容 */}
-        <div className="nav-container flex-1 bg-[var(--bg-card)] rounded-lg border border-[var(--border)] overflow-hidden flex flex-col relative">
-          {/* 标签页头部 */}
-          <div className="border-b border-[var(--border)] flex flex-wrap">
-            <TabButton
-              label="项目概览"
-              active={activeTab === "overview"}
-              onClick={() => setActiveTab("overview")}
-            />
-            <TabButton
-              label="代码结构"
-              active={activeTab === "structure"}
-              onClick={() => setActiveTab("structure")}
-            />
-            <TabButton
-              label="调用图"
-              active={activeTab === "callgraph"}
-              onClick={() => setActiveTab("callgraph")}
-            />
-            <TabButton
-              label="API 路由"
-              active={activeTab === "routes"}
-              onClick={() => setActiveTab("routes")}
-            />
-            <TabButton
-              label="外部依赖"
-              active={activeTab === "dependencies"}
-              onClick={() => setActiveTab("dependencies")}
-            />
-            <TabButton
-              label="模块依赖"
-              active={activeTab === "module-deps"}
-              onClick={() => setActiveTab("module-deps")}
-            />
-            <TabButton
-              label="框架检测"
-              active={activeTab === "frameworks"}
-              onClick={() => setActiveTab("frameworks")}
-            />
-            <TabButton
-              label="版本管理"
-              active={activeTab === "versions"}
-              onClick={() => setActiveTab("versions")}
-            />
+        {/* 右侧：标签页内容 — 磨砂玻璃面板 */}
+        <div className="flex-1 flex flex-col bg-[var(--bg-card)]/60 backdrop-blur-sm rounded-xl border border-white/[0.06] overflow-hidden relative">
+          {/* 标签页头部 — 无分隔线，单个 pill 激活态 */}
+          <div className="flex flex-wrap gap-0.5 px-3 pt-3 pb-2 border-b border-white/[0.06]">
+            <TabButton label="项目概览" active={activeTab === "overview"} onClick={() => setActiveTab("overview")} />
+            <TabButton label="代码结构" active={activeTab === "structure"} onClick={() => setActiveTab("structure")} />
+            <TabButton label="调用图" active={activeTab === "callgraph"} onClick={() => setActiveTab("callgraph")} />
+            <TabButton label="API 路由" active={activeTab === "routes"} onClick={() => setActiveTab("routes")} />
+            <TabButton label="外部依赖" active={activeTab === "dependencies"} onClick={() => setActiveTab("dependencies")} />
+            <TabButton label="模块依赖" active={activeTab === "module-deps"} onClick={() => setActiveTab("module-deps")} />
+            <TabButton label="框架检测" active={activeTab === "frameworks"} onClick={() => setActiveTab("frameworks")} />
+            <TabButton label="版本管理" active={activeTab === "versions"} onClick={() => setActiveTab("versions")} />
           </div>
 
           {/* 标签页内容 */}
@@ -379,9 +338,9 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium transition-colors border-r border-[var(--border)] last:border-r-0 ${
+      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
         active
-          ? "bg-[var(--bg-primary)] text-[var(--text-primary)]"
+          ? "bg-brand/10 text-brand shadow-sm"
           : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
       }`}
     >

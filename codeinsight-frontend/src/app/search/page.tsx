@@ -125,7 +125,20 @@ export default function SearchPage() {
     activeTab === "代码节点" && Array.isArray(r);
 
   return (
-    <div className="max-w-4xl mx-auto py-6 px-4">
+    <div className="max-w-4xl mx-auto py-12 px-4">
+      <header className="mb-8 relative">
+        {/* 标题后方光晕 */}
+        <div className="absolute -top-8 -left-8 w-48 h-48 rounded-full bg-brand/10 blur-[100px] pointer-events-none" />
+        <h1 className="text-5xl font-bold tracking-tight relative">
+          <span className="bg-gradient-to-r from-brand via-brand-fg to-status-info bg-clip-text text-transparent">
+            搜索
+          </span>
+        </h1>
+        <p className="mt-2 text-base text-[var(--text-muted)] tracking-wide">
+          全文检索代码中的类、函数、方法名
+        </p>
+      </header>
+
       {/* 搜索框 */}
       <div className="relative mb-6">
         <input
@@ -137,7 +150,7 @@ export default function SearchPage() {
           onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
           onKeyDown={handleKeyDown}
           placeholder="搜索代码中的类、函数、方法名..."
-          className="w-full h-12 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] px-4 pl-12 text-base text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+          className="w-full h-12 rounded-xl border border-white/[0.06] bg-[var(--bg-card)]/70 backdrop-blur-xl px-4 pl-12 text-base text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-brand/40 focus:ring-2 focus:ring-brand/20 focus:shadow-[var(--glow-brand-light)] transition-all"
         />
         <svg
           className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]"
@@ -156,7 +169,7 @@ export default function SearchPage() {
 
         {/* 建议下拉 */}
         {showSuggestions && suggestions.length > 0 && (
-          <div className="absolute z-10 top-full mt-1 w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-lg overflow-hidden">
+          <div className="absolute z-10 top-full mt-1 w-full bg-[var(--bg-card)] border border-white/[0.06] rounded-xl shadow-2xl overflow-hidden backdrop-blur-xl">
             {suggestions.map((s) => (
               <button
                 key={s.text}
@@ -179,7 +192,7 @@ export default function SearchPage() {
         )}
       </div>
 
-      {/* Tab 切换 */}
+      {/* Tab 切换 — 品牌色 */}
       <div className="flex gap-1 mb-4 border-b border-[var(--border)]">
         {SEARCH_TABS.map((tab) => (
           <button
@@ -187,7 +200,7 @@ export default function SearchPage() {
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab
-                ? "border-blue-500 text-blue-600"
+                ? "border-brand text-brand"
                 : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
             }`}
           >

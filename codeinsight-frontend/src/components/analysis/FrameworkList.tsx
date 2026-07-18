@@ -116,7 +116,7 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
       {/* 过滤栏 */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="flex items-center gap-2">
-          <label className="text-xs text-[var(--text-muted)]">{"分类"}</label>
+          <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">{"分类"}</label>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
@@ -131,7 +131,7 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
           </select>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-xs text-[var(--text-muted)]">{"最低置信度"}</label>
+          <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">{"最低置信度"}</label>
           <select
             value={minConfidence}
             onChange={(e) => setMinConfidence(Number(e.target.value))}
@@ -161,44 +161,51 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
           return (
             <div
               key={fw.id}
-              className="border border-[var(--border)] rounded-lg p-3.5 hover:bg-[var(--bg-hover)] transition-colors group"
+              className="group relative rounded-xl overflow-hidden bg-[var(--bg-card)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--glow-brand-light)]"
             >
-              {/* 框架名称 + 分类 */}
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">
-                  {displayName}
-                </span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${categoryColor}`}
-                >
-                  {FRAMEWORK_CATEGORY_LABELS[fw.category] ?? fw.category}
-                </span>
-              </div>
+              {/* 渐变边框层 — hover 时显现 */}
+              <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-brand/20 via-brand/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              {/* 顶部光条 */}
+              <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-              {/* 置信度 */}
-              <div className="flex items-center gap-2 mb-2">
-                <div className="flex-1 h-1.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-brand to-brand-fg rounded-full transition-all"
-                    style={{ width: `${fw.confidence * 100}%` }}
-                  />
+              <div className="relative m-[1px] rounded-xl bg-[var(--bg-card)] p-3.5">
+                {/* 框架名称 + 分类 */}
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">
+                    {displayName}
+                  </span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${categoryColor}`}
+                  >
+                    {FRAMEWORK_CATEGORY_LABELS[fw.category] ?? fw.category}
+                  </span>
                 </div>
-                <span className={`text-[10px] font-mono tabular-nums ${confidence.color}`}>
-                  {(fw.confidence * 100).toFixed(0)}%
-                </span>
-              </div>
 
-              {/* 证据信息 */}
-              {Object.keys(fw.evidence).length > 0 && (
-                <div className="text-[10px] text-[var(--text-muted)] space-y-0.5 font-mono">
-                  {Object.entries(fw.evidence).map(([key, value]) => (
-                    <div key={key} className="truncate">
-                      <span className="font-mono">{key}:</span>{" "}
-                      <span className="font-mono">{String(value)}</span>
-                    </div>
-                  ))}
+                {/* 置信度 — 更细 */}
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="flex-1 h-1 bg-[var(--bg-hover)] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-brand to-brand-fg rounded-full transition-all"
+                      style={{ width: `${fw.confidence * 100}%` }}
+                    />
+                  </div>
+                  <span className={`text-[10px] font-mono tabular-nums ${confidence.color}`}>
+                    {(fw.confidence * 100).toFixed(0)}%
+                  </span>
                 </div>
-              )}
+
+                {/* 证据信息 */}
+                {Object.keys(fw.evidence).length > 0 && (
+                  <div className="text-[10px] text-[var(--text-muted)] space-y-0.5 font-mono">
+                    {Object.entries(fw.evidence).map(([key, value]) => (
+                      <div key={key} className="truncate">
+                        <span className="font-mono">{key}:</span>{" "}
+                        <span className="font-mono">{String(value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}

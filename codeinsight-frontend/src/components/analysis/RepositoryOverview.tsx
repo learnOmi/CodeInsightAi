@@ -172,8 +172,8 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
 /** 统计卡片 */
 function StatCard({ label, value, sub }: { label: string; value: number; sub: string }) {
   return (
-    <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-3.5 hover:shadow-sm transition-shadow">
-      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">{label}</div>
+    <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-3.5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[var(--glow-brand-light)] group">
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1 group-hover:text-brand transition-colors">{label}</div>
       <div className="text-xl font-bold text-[var(--text-primary)] font-mono tabular-nums">{value.toLocaleString()}</div>
       <div className="text-[10px] text-[var(--text-muted)] mt-0.5 truncate">{sub}</div>
     </div>

@@ -726,7 +726,7 @@ export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose, 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
       <div
         className="relative bg-[var(--bg-card)] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[var(--border)]"
         style={{ width: 960, maxWidth: "95vw", height: "85vh", minHeight: "60vh" }}

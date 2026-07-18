@@ -67,23 +67,22 @@ export function getNodeTypeConfig(nodeType: string): NodeTypeConfig {
  * 分析状态显示配置
  */
 export interface AnalysisStatusConfig {
-  icon: string;
   label: string;
   color: string;
   animate?: boolean;
 }
 
 export const ANALYSIS_STATUS_CONFIG: Record<string, AnalysisStatusConfig> = {
-  pending:              { icon: '⏳', label: '待分析', color: 'bg-gray-500/15 text-gray-500' },
-  analyzing:            { icon: '🔄', label: '分析中', color: 'bg-status-info/15 text-status-info', animate: true },
-  scanning:             { icon: '🔍', label: '扫描中', color: 'bg-status-info/15 text-status-info', animate: true },
-  parsing:              { icon: '🧩', label: '解析中', color: 'bg-status-info/15 text-status-info', animate: true },
-  analyzing_structures: { icon: '📆', label: '结构分析', color: 'bg-status-info/15 text-status-info', animate: true },
-  analyzing_modules:    { icon: '🧠', label: 'AI 分析', color: 'bg-status-info/15 text-status-info', animate: true },
-  storing:              { icon: '💾', label: '存储中', color: 'bg-status-info/15 text-status-info', animate: true },
-  completed:            { icon: '✅', label: '已完成', color: 'bg-status-success/15 text-status-success' },
-  failed:               { icon: '❌', label: '失败', color: 'bg-status-error/15 text-status-error' },
-  cancelled:            { icon: '⏹️', label: '已取消', color: 'bg-gray-500/15 text-gray-500' },
+  pending:              { label: '待分析', color: 'bg-gray-500/15 text-gray-500' },
+  analyzing:            { label: '分析中', color: 'bg-status-info/15 text-status-info', animate: true },
+  scanning:             { label: '扫描中', color: 'bg-status-info/15 text-status-info', animate: true },
+  parsing:              { label: '解析中', color: 'bg-status-info/15 text-status-info', animate: true },
+  analyzing_structures: { label: '结构分析', color: 'bg-status-info/15 text-status-info', animate: true },
+  analyzing_modules:    { label: 'AI 分析', color: 'bg-status-info/15 text-status-info', animate: true },
+  storing:              { label: '存储中', color: 'bg-status-info/15 text-status-info', animate: true },
+  completed:            { label: '已完成', color: 'bg-status-success/15 text-status-success' },
+  failed:               { label: '失败', color: 'bg-status-error/15 text-status-error' },
+  cancelled:            { label: '已取消', color: 'bg-gray-500/15 text-gray-500' },
 };
 
 /**

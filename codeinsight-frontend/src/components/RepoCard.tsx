@@ -113,142 +113,148 @@ export function RepoCard({ repository }: RepoCardProps) {
   const currentStep = progress.currentStep ? taskStepLabels[progress.currentStep] : "";
 
   return (
-    <div className="bg-[var(--bg-card)] rounded-xl shadow-md p-6 hover:shadow-lg transition-all duration-200 border border-[var(--border)] overflow-hidden relative group">
+    <div className="group relative rounded-2xl overflow-hidden bg-[var(--bg-card)] transition-all duration-500 hover:-translate-y-1 hover:shadow-[var(--glow-brand-light)]">
+      {/* 渐变边框层 — hover 时显现 */}
+      <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-brand/20 via-brand/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+      {/* 顶部光条 */}
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <Link
-            href={`/repositories/${repository.id}/files`}
-            className="text-[var(--text-primary)] hover:text-brand transition-colors"
+
+      {/* 内容层 */}
+      <div className="relative m-[1px] rounded-2xl bg-[var(--bg-card)] p-6">
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <Link
+              href={`/repositories/${repository.id}/files`}
+              className="text-[var(--text-primary)] hover:text-brand transition-colors"
+            >
+              <h3 className="text-lg font-semibold">{repository.name}</h3>
+            </Link>
+            <p className="text-[11px] text-[var(--text-muted)] font-mono truncate max-w-xs mt-0.5 opacity-70">{repository.path}</p>
+          </div>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold tracking-wide",
+              statusConfig.color,
+              statusConfig.animate && "animate-pulse"
+            )}
           >
-            <h3 className="text-lg font-semibold">{repository.name}</h3>
-          </Link>
-          <p className="text-sm text-[var(--text-secondary)] truncate max-w-xs">{repository.path}</p>
-        </div>
-        <span
-          className={cn(
-            "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium",
-            statusConfig.color,
-            statusConfig.animate && "animate-pulse"
-          )}
-        >
-          <span className={statusConfig.animate ? "inline-block animate-spin" : ""}>
-            {statusConfig.icon}
+            <span className={`w-1.5 h-1.5 rounded-full`} style={{ backgroundColor: "currentColor" }} />
+            {statusConfig.label}
           </span>
-          {statusConfig.label}
-        </span>
-      </div>
-
-      {isAnalyzing && (
-        <div className="mb-3 space-y-1.5">
-          <div className="flex justify-between text-xs">
-            <span className="text-[var(--text-secondary)]">{currentStep || "分析中"}</span>
-            <span className="tabular-nums text-[var(--text-secondary)]">{progress.percent}%</span>
-          </div>
-          <div className="w-full bg-[var(--bg-hover)] rounded-full h-1.5 overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-brand to-brand-fg h-1.5 rounded-full transition-all duration-300"
-              style={{ width: `${progress.percent}%` }}
-            />
-          </div>
-          <div className="text-xs text-[var(--text-muted)]">
-            {progress.filesProcessed} / {progress.filesTotal} 文件
-          </div>
         </div>
-      )}
 
-      <div className="grid grid-cols-3 gap-4 mb-4 divide-x divide-[var(--border)]">
-        <div className="text-center">
-          <div className="text-xl font-bold text-[var(--text-primary)] tabular-nums">{repository.fileCount}</div>
-          <div className="text-xs text-[var(--text-muted)]">文件数</div>
-        </div>
-        <div className="text-center">
-          <div className="text-xl font-bold text-[var(--text-primary)] tabular-nums">{repository.lineCount}</div>
-          <div className="text-xs text-[var(--text-muted)]">代码行数</div>
-        </div>
-        <div className="text-center">
-          <div className="text-xl font-bold text-[var(--text-primary)] tabular-nums">{repository.knowledgePointsCount}</div>
-          <div className="text-xs text-[var(--text-muted)]">知识点</div>
-        </div>
-      </div>
-
-      {submitError && (
-          <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{submitError}</div>
-        )}
-        {cancelError && (
-          <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{cancelError}</div>
-        )}
-        {deleteError && (
-        <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{deleteError}</div>
-      )}
-
-      <div className="flex gap-2">
-        {!isAnalyzing && (
-          <Link
-            href={`/repositories/${repository.id}/files`}
-            className="flex-1 px-4 py-2 rounded-md text-xs font-medium text-center transition-colors bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
-          >
-            查看文件
-          </Link>
-        )}
-        {!isAnalyzing && (
-          <button
-            onClick={handleSubmitAnalysis}
-            disabled={submitAnalysis.isPending}
-            className={cn(
-              "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
-              submitAnalysis.isPending
-                ? "bg-brand/60 cursor-not-allowed text-white/80"
-                : "bg-brand text-white hover:opacity-90 shadow-sm"
-            )}
-          >
-            {submitAnalysis.isPending ? "提交中..." : "开始分析"}
-          </button>
-        )}
         {isAnalyzing && (
-          <button
-            onClick={handleCancelTask}
-            disabled={cancelTask.isPending}
-            className={cn(
-              "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
-              cancelTask.isPending
-                ? "bg-brand/60 cursor-not-allowed text-white/80"
-                : "bg-status-warning text-white shadow-sm"
-            )}
-          >
-            {cancelTask.isPending ? "取消中..." : "取消分析"}
-          </button>
+          <div className="mb-4 space-y-1.5">
+            <div className="flex justify-between text-[11px]">
+              <span className="text-[var(--text-muted)]">{currentStep || "分析中"}</span>
+              <span className="font-mono tabular-nums text-[var(--text-muted)]">{progress.percent}%</span>
+            </div>
+            <div className="w-full bg-[var(--bg-hover)] rounded-full h-1 overflow-hidden">
+              <div
+                className="bg-gradient-to-r from-brand to-brand-fg h-1 rounded-full transition-all duration-300"
+                style={{ width: `${progress.percent}%` }}
+              />
+            </div>
+            <div className="text-[11px] text-[var(--text-muted)]">
+              {progress.filesProcessed} / {progress.filesTotal} 文件
+            </div>
+          </div>
         )}
-        {showConfirm ? (
-          <>
+
+        <div className="grid grid-cols-3 gap-4 mb-5 divide-x divide-[var(--border)]/50">
+          <StatItem value={repository.fileCount} label="FILES" />
+          <StatItem value={repository.lineCount} label="LINES" />
+          <StatItem value={repository.knowledgePointsCount} label="INSIGHTS" />
+        </div>
+
+        {submitError && (
+            <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{submitError}</div>
+          )}
+          {cancelError && (
+            <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{cancelError}</div>
+          )}
+          {deleteError && (
+          <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{deleteError}</div>
+        )}
+
+        <div className="flex gap-2">
+          {!isAnalyzing && (
+            <Link
+              href={`/repositories/${repository.id}/files`}
+              className="flex-1 px-4 py-2 rounded-md text-xs font-medium text-center transition-colors bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
+            >
+              查看文件
+            </Link>
+          )}
+          {!isAnalyzing && (
             <button
-              onClick={handleDelete}
-              disabled={deleteRepository.isPending}
+              onClick={handleSubmitAnalysis}
+              disabled={submitAnalysis.isPending}
               className={cn(
                 "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
-                deleteRepository.isPending
+                submitAnalysis.isPending
                   ? "bg-brand/60 cursor-not-allowed text-white/80"
-                  : "text-status-error bg-status-error/10 hover:bg-status-error/20"
+                  : "bg-brand text-white hover:opacity-90 shadow-sm"
               )}
             >
-              {deleteRepository.isPending ? "删除中..." : "确认删除"}
+              {submitAnalysis.isPending ? "提交中..." : "开始分析"}
             </button>
+          )}
+          {isAnalyzing && (
             <button
-              onClick={() => setShowConfirm(false)}
-              className="px-4 py-2 border border-[var(--border)] rounded-md text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              onClick={handleCancelTask}
+              disabled={cancelTask.isPending}
+              className={cn(
+                "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
+                cancelTask.isPending
+                  ? "bg-brand/60 cursor-not-allowed text-white/80"
+                  : "bg-status-warning text-white shadow-sm"
+              )}
             >
-              取消
+              {cancelTask.isPending ? "取消中..." : "取消分析"}
             </button>
-          </>
-        ) : (
-          <button
-            onClick={() => setShowConfirm(true)}
-            className="px-4 py-2 border border-[var(--border)] rounded-md text-xs font-medium text-status-error/70 hover:bg-status-error/10 transition-colors"
-          >
-            删除
-          </button>
-        )}
+          )}
+          {showConfirm ? (
+            <>
+              <button
+                onClick={handleDelete}
+                disabled={deleteRepository.isPending}
+                className={cn(
+                  "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
+                  deleteRepository.isPending
+                    ? "bg-brand/60 cursor-not-allowed text-white/80"
+                    : "text-status-error bg-status-error/10 hover:bg-status-error/20"
+                )}
+              >
+                {deleteRepository.isPending ? "删除中..." : "确认删除"}
+              </button>
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="px-4 py-2 border border-[var(--border)] rounded-md text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              >
+                取消
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setShowConfirm(true)}
+              className="px-4 py-2 border border-[var(--border)] rounded-md text-xs font-medium text-status-error/70 hover:bg-status-error/10 transition-colors"
+            >
+              删除
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** 统计项（数字 + 英文标签），用于 RepoCard 底部 */
+function StatItem({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="text-center">
+      <div className="text-xl font-bold text-[var(--text-primary)] tabular-nums">{value}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">{label}</div>
     </div>
   );
 }

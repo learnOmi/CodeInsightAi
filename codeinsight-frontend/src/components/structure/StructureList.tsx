@@ -32,7 +32,6 @@ export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }:
 
   const flatNodes = useMemo(() => {
     if (!nodes) return [];
-    // 去重：按 (start_line, start_column, node_type, name) 去重，保留最新记录
     const seen = new Set<string>();
     const deduped: typeof nodes = [];
     for (const node of nodes) {
@@ -58,7 +57,7 @@ export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }:
   if (isLoading) {
     return (
       <div className="space-y-2">
-        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">{fileName}</h3>
+        <h3 className="text-[15px] font-semibold tracking-tight text-[var(--text-primary)]">{fileName}</h3>
         {[...Array(8)].map((_, i) => (
           <div key={i} className="h-6 bg-[var(--bg-hover)] rounded animate-pulse" style={{ width: `${80 - i * 5}%` }} />
         ))}
@@ -69,7 +68,7 @@ export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }:
   if (error) {
     return (
       <div>
-        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">{fileName}</h3>
+        <h3 className="text-[15px] font-semibold tracking-tight text-[var(--text-primary)]">{fileName}</h3>
         <div className="text-status-error text-sm">加载结构数据失败</div>
       </div>
     );
@@ -77,7 +76,7 @@ export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }:
 
   return (
     <div>
-      <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">{fileName}</h3>
+      <h3 className="text-[15px] font-semibold tracking-tight text-[var(--text-primary)]">{fileName}</h3>
 
       {flatNodes.length === 0 ? (
         <div className="text-[var(--text-muted)] text-sm py-4">
@@ -86,7 +85,6 @@ export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }:
       ) : (
         <ul className="space-y-0.5">
           {flatNodes.map((node) => {
-            // 后端 tags 字段类型为 list（unknown[]），此处安全过滤为 string[]
             const tags = Array.isArray(node.tags)
               ? node.tags.filter((t): t is string => typeof t === "string")
               : [];
@@ -131,8 +129,10 @@ function StructureNode({
     <li>
       <div
         ref={setRef}
-        className={`flex items-center gap-2 py-1.5 px-2.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer ${
-          isHighlighted ? "bg-brand/10 ring-1 ring-brand/30" : ""
+        className={`flex items-center gap-2 py-1.5 px-2.5 rounded-md transition-all cursor-pointer ${
+          isHighlighted
+            ? "bg-brand/[0.04] border-l-2 border-brand"
+            : "hover:bg-[var(--bg-hover)]"
         }`}
         style={{ paddingLeft: `${node.depth * 20 + 8}px` }}
         onClick={() => hasDetails && setExpanded(!expanded)}
@@ -164,7 +164,7 @@ function StructureNode({
       {/* 展开详情：signature + annotations */}
       {expanded && (
         <div
-          className="px-2 py-1 space-y-1 text-xs border-l-2 border-[var(--border)] ml-[18px] pl-3 mb-1"
+          className="px-2 py-1 space-y-1 text-xs border-l-2 border-white/[0.06] ml-[18px] pl-3 mb-1"
           style={{ marginLeft: `${node.depth * 20 + 26}px` }}
         >
           {node.signature && (

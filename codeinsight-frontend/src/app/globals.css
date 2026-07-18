@@ -125,3 +125,29 @@ body {
   border-radius: 8px !important;
   overflow: hidden !important;
 }
+
+/* ── Custom scrollbar — Raycast 风格极细滚动条 ───── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* ── Selection color ───────────────────────────────── */
+::selection {
+  background: hsla(247, 84%, 59%, 0.3);
+  color: var(--text-primary);
+}

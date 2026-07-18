@@ -33,7 +33,6 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
   }, [selectedFilePath, node.isDirectory, node.path]);
 
   const [expanded, setExpanded] = useState(level < 2 || isAncestorOfSelected);
-  // 当 selectedFilePath 变化时，如果是祖先目录则自动展开
   useEffect(() => {
     if (isAncestorOfSelected) {
       setExpanded(true);
@@ -72,9 +71,9 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         className={cn(
-          "flex items-center gap-1.5 py-1 px-2.5 rounded-md cursor-pointer text-sm transition-colors",
+          "flex items-center gap-1.5 py-1 px-2.5 rounded-md text-sm transition-all cursor-pointer",
           "hover:bg-[var(--bg-hover)]",
-          isSelected && "bg-brand/10 text-brand font-medium"
+          isSelected && "bg-brand/[0.04] border-l-2 border-brand"
         )}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
       >
@@ -93,7 +92,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
         </span>
 
         {/* 名称 */}
-        <span className="truncate text-[var(--text-primary)]">{node.name}</span>
+        <span className={cn("truncate", isSelected ? "text-brand font-medium" : "text-[var(--text-primary)]")}>{node.name}</span>
 
         {/* 行数（仅文件显示） */}
         {!node.isDirectory && node.file && (
@@ -124,7 +123,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
         <>
           <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} />
           <div
-            className="fixed z-50 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[160px]"
+            className="fixed z-50 bg-[var(--bg-card)]/80 backdrop-blur-xl border border-white/[0.06] rounded-xl shadow-2xl py-1 min-w-[160px] overflow-hidden"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
             <button

@@ -63,7 +63,7 @@ function ExploreNode({ data }: { data: ExploreNodeData }) {
 
   return (
     <div
-      className="px-3 py-2 flex flex-col items-center justify-center cursor-pointer select-none transition-all hover:brightness-125"
+      className="px-3 py-2 flex flex-col items-center justify-center cursor-pointer select-none transition-all hover:brightness-125 backdrop-blur-md"
       style={{
         backgroundColor: c.bg,
         border: `2px solid ${c.border}`,
@@ -489,7 +489,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索文件或模块名称..."
-            className="w-full px-4 py-2 text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 text-sm bg-[var(--bg-card)] border border-white/[0.06] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition-all"
           />
         </div>
         {selectedNodeId && (

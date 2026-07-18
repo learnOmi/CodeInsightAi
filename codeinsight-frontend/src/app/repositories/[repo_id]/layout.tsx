@@ -22,8 +22,8 @@ export default function RepoDetailLayout({
 
   return (
     <main className="min-h-screen bg-[var(--bg-base)]">
-      {/* 顶部导航栏 */}
-      <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg-card)]">
+      {/* 顶部导航栏 — 毛玻璃 */}
+      <header className="sticky top-0 z-10 border-b border-white/[0.06] bg-[var(--bg-card)]/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
           <Link
             href="/repositories"
@@ -31,8 +31,8 @@ export default function RepoDetailLayout({
           >
             {"\u2190 仓库列表"}
           </Link>
-          <div className="h-5 w-px bg-[var(--border)]" />
-          <h1 className="text-base font-semibold text-[var(--text-primary)]">
+          <div className="h-4 w-px bg-[var(--border)]/50" />
+          <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">
             {repo?.name ?? "\u52A0\u8F7D\u4E2D..."}
           </h1>
           {repo && (

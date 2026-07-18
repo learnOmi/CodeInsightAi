@@ -104,7 +104,7 @@ export function NavTrailBar({
 
       <div
         ref={panelRef}
-        className={`fixed z-50 w-[240px] bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-lg overflow-hidden transition-all duration-300 ${
+        className={`fixed z-50 w-[240px] bg-[var(--bg-card)]/80 backdrop-blur-xl border border-white/[0.06] rounded-xl shadow-2xl overflow-hidden transition-all duration-300 ${
           isVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none translate-x-full"
         }`}
         style={{

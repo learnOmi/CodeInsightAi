@@ -101,7 +101,7 @@ function FilterBar({
   frameworkOptions: string[];
 }) {
   const selectClass =
-    "h-8 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand";
+    "h-8 rounded-md border border-white/[0.06] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand";
 
   return (
     <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -137,7 +137,7 @@ function FilterBar({
         value={pathPattern}
         onChange={(e) => setPathPattern(e.target.value)}
         placeholder="搜索路径..."
-        className="h-8 flex-1 min-w-[160px] rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
+        className="h-8 flex-1 min-w-[160px] rounded-md border border-white/[0.06] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
       />
     </div>
   );
@@ -166,8 +166,7 @@ function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onN
 
   return (
     <li>
-      <div
-        className="flex items-center gap-3 py-1.5 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+      <div className="flex items-center gap-3 py-1.5 px-3 rounded-md hover:bg-[var(--bg-hover)]/60 transition-colors cursor-pointer"
         onClick={() => hasMiddlewares && setExpanded(!expanded)}
       >
         <MethodTag method={route.httpMethod} />
@@ -250,7 +249,7 @@ export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
 
   if (isLoading) {
     return (
-      <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+      <div className="bg-[var(--bg-card)] rounded-xl border border-white/[0.06] p-5">
         <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
           API 路由
         </h3>

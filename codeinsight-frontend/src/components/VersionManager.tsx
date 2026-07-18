@@ -149,7 +149,7 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
       </div>
 
       {showRollbackConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50">
           <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] shadow-2xl p-6 max-w-md w-full mx-4">
             <h3 className="text-base font-semibold text-[var(--text-primary)] mb-2">确认回滚</h3>
             <p className="text-[var(--text-secondary)] mb-4">
