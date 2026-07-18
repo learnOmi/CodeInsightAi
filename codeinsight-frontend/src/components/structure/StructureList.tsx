@@ -70,7 +70,7 @@ export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }:
     return (
       <div>
         <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">{fileName}</h3>
-        <div className="text-red-500 text-sm">加载结构数据失败</div>
+        <div className="text-status-error text-sm">加载结构数据失败</div>
       </div>
     );
   }
@@ -131,15 +131,15 @@ function StructureNode({
     <li>
       <div
         ref={setRef}
-        className={`flex items-center gap-2 py-1 px-2 rounded hover:bg-[var(--bg-hover)] transition-colors cursor-pointer ${
-          isHighlighted ? "bg-blue-100 ring-1 ring-blue-400" : ""
+        className={`flex items-center gap-2 py-1.5 px-2.5 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer ${
+          isHighlighted ? "bg-brand/10 ring-1 ring-brand/30" : ""
         }`}
         style={{ paddingLeft: `${node.depth * 20 + 8}px` }}
         onClick={() => hasDetails && setExpanded(!expanded)}
       >
         <NodeBadge type={node.nodeType} name={node.name} />
         {tags.length > 0 && <FrameworkBadge tags={tags} />}
-        <span className="ml-auto text-xs text-[var(--text-muted)] font-mono flex-shrink-0">
+        <span className="ml-auto text-xs text-[var(--text-muted)] font-mono tabular-nums flex-shrink-0">
           L{node.startLine}-{node.endLine}
         </span>
         {(node.nodeType === "function" || node.nodeType === "method") && onNavigate && (
@@ -148,7 +148,7 @@ function StructureNode({
               e.stopPropagation();
               onNavigate({ component: "callgraph", nodeId: node.id, label: node.name, detail: "调用图" });
             }}
-            className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors flex-shrink-0"
+            className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand hover:bg-brand/20 transition-colors flex-shrink-0"
             title="查看调用图"
           >
             ⊙调用图
@@ -169,7 +169,7 @@ function StructureNode({
         >
           {node.signature && (
             <div className="font-mono text-[var(--text-muted)]">
-              <span className="text-[10px] text-[var(--text-muted)] font-semibold mr-1">签名:</span>
+              <span className="text-[10px] text-[var(--text-secondary)] font-semibold mr-1">签名:</span>
               {node.signature}
             </div>
           )}
@@ -181,7 +181,7 @@ function StructureNode({
                 return (
                   <span
                     key={idx}
-                    className="inline-flex items-center rounded px-1 py-0.5 text-[10px] font-mono bg-yellow-100 text-yellow-700"
+                    className="inline-flex items-center rounded px-1 py-0.5 text-[10px] font-mono bg-status-warning/15 text-status-warning"
                   >
                     {annObj.name || String(ann)}
                   </span>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, memo } from "react";
+import React, { useState, memo, useMemo, useEffect } from "react";
 import { cn } from "@/utils";
 import { getFileIcon } from "@codeinsight/shared";
 import type { TreeNode } from "@/utils/tree-utils";
@@ -10,6 +10,7 @@ interface TreeNodeProps {
   node: TreeNode;
   level: number;
   selectedFileId?: string;
+  selectedFilePath?: string;
   onSelectFile: (fileId: string, filePath: string) => void;
   onNavigate?: NavigableProps["onNavigate"];
 }
@@ -19,10 +20,25 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
   node,
   level,
   selectedFileId,
+  selectedFilePath,
   onSelectFile,
   onNavigate,
 }: TreeNodeProps) {
-  const [expanded, setExpanded] = useState(level < 2); // 默认展开前两层
+  // 判断当前目录是否为选中文件路径的祖先
+  const isAncestorOfSelected = useMemo(() => {
+    if (!selectedFilePath || !node.isDirectory) return false;
+    const normalizedPath = selectedFilePath.replace(/\\/g, "/");
+    const nodePath = node.path.replace(/\\/g, "/");
+    return normalizedPath.startsWith(nodePath + "/") || normalizedPath === nodePath;
+  }, [selectedFilePath, node.isDirectory, node.path]);
+
+  const [expanded, setExpanded] = useState(level < 2 || isAncestorOfSelected);
+  // 当 selectedFilePath 变化时，如果是祖先目录则自动展开
+  useEffect(() => {
+    if (isAncestorOfSelected) {
+      setExpanded(true);
+    }
+  }, [isAncestorOfSelected]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleClick = () => {
@@ -56,9 +72,9 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         className={cn(
-          "flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer text-sm transition-colors",
+          "flex items-center gap-1.5 py-1 px-2.5 rounded-md cursor-pointer text-sm transition-colors",
           "hover:bg-[var(--bg-hover)]",
-          isSelected && "bg-blue-50 text-blue-700 font-medium"
+          isSelected && "bg-brand/10 text-brand font-medium"
         )}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
       >
@@ -81,7 +97,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
 
         {/* 行数（仅文件显示） */}
         {!node.isDirectory && node.file && (
-          <span className="ml-auto text-xs text-[var(--text-muted)] flex-shrink-0">
+          <span className="ml-auto text-[10px] text-[var(--text-muted)] font-mono tabular-nums flex-shrink-0">
             {node.file.lineCount}L
           </span>
         )}
@@ -96,6 +112,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
               node={child}
               level={level + 1}
               selectedFileId={selectedFileId}
+              selectedFilePath={selectedFilePath}
               onSelectFile={onSelectFile}
               onNavigate={onNavigate}
             />
@@ -107,7 +124,7 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
         <>
           <div className="fixed inset-0 z-50" onClick={() => setContextMenu(null)} />
           <div
-            className="fixed z-50 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-xl py-1 min-w-[140px]"
+            className="fixed z-50 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg shadow-lg py-1 min-w-[160px]"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
             <button
@@ -132,15 +149,16 @@ const TreeNodeComponent = memo(function TreeNodeComponent({
 interface FileTreeProps {
   nodes: TreeNode[];
   selectedFileId?: string;
+  selectedFilePath?: string;
   onSelectFile: (fileId: string, filePath: string) => void;
   onNavigate?: NavigableProps["onNavigate"];
 }
 
 /** 文件树视图 */
-export function FileTree({ nodes, selectedFileId, onSelectFile, onNavigate }: FileTreeProps) {
+export function FileTree({ nodes, selectedFileId, selectedFilePath, onSelectFile, onNavigate }: FileTreeProps) {
   if (nodes.length === 0) {
     return (
-      <div className="text-center text-[var(--text-muted)] text-sm py-8">
+      <div className="text-center text-[var(--text-muted)] text-sm py-10">
         暂无文件
       </div>
     );
@@ -154,6 +172,7 @@ export function FileTree({ nodes, selectedFileId, onSelectFile, onNavigate }: Fi
           node={node}
           level={0}
           selectedFileId={selectedFileId}
+          selectedFilePath={selectedFilePath}
           onSelectFile={onSelectFile}
           onNavigate={onNavigate}
         />

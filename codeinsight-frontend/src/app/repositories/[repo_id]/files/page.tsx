@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useMemo, useCallback, useEffect } from "react";
+import { use, useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useFiles } from "@/hooks/use-files";
 import { buildFileTree, countFiles } from "@/utils/tree-utils";
 import { FileTree } from "@/components/file-tree";
@@ -37,63 +37,75 @@ export default function FilesPage({
   const { repo_id } = use(params);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string>("");
+  const [selectedFilePath, setSelectedFilePath] = useState<string>("");
   const [activeTab, setActiveTab] = useState<TabType>("structure");
   const [highlightNodeId, setHighlightNodeId] = useState<string | null>(null);
 
-  // 探索轨迹栈
+  // 探索轨迹栈（Photoshop 式历史记录）
+  // - navStack: 所有历史条目
+  // - navIndex: 当前所处位置（0-based），始终 <= navStack.length - 1
+  // - 当 navIndex < navStack.length - 1 时，[navIndex+1..end] 为"回退区"（灰色展示）
+  // - 在回退区产生新操作时，回退区条目被截断
   const [navStack, setNavStack] = useState<NavEntry[]>([]);
+  const [navIndex, setNavIndex] = useState(-1);
   const MAX_STACK_DEPTH = 20;
 
   const handleNavigate = useCallback(
     (entry: Omit<NavEntry, "component"> & { component?: TabType }) => {
+      const targetFileId = entry.fileId ?? selectedFileId ?? null;
+
+      const newEntry: NavEntry = {
+        component: entry.component ?? activeTab,
+        fileId: targetFileId,
+        nodeId: entry.nodeId ?? null,
+        label: entry.label,
+        detail: entry.detail,
+      };
+
+      const currentEntry: NavEntry = {
+        component: activeTab,
+        fileId: selectedFileId ?? null,
+        nodeId: null,
+        label: selectedFileName,
+        detail: "",
+      };
+
       setNavStack((prev) => {
-        const targetFileId = entry.fileId ?? selectedFileId ?? null;
+        // 如果不在栈顶，截断回退区
+        let base = prev;
+        if (navIndex >= 0 && navIndex < prev.length - 1) {
+          base = prev.slice(0, navIndex + 1);
+        }
 
-        const newEntry: NavEntry = {
-          component: entry.component ?? activeTab,
-          fileId: targetFileId,
-          nodeId: entry.nodeId ?? null,
-          label: entry.label,
-          detail: entry.detail,
-        };
-
-        const currentEntry: NavEntry = {
-          component: activeTab,
-          fileId: selectedFileId ?? null,
-          nodeId: null,
-          label: selectedFileName,
-          detail: "",
-        };
-
-        const stackTop = prev[prev.length - 1];
+        const stackTop = base[base.length - 1];
         const sameFileAsStackTop =
           !!stackTop &&
           !!targetFileId &&
           stackTop.fileId === targetFileId;
 
+        let result: NavEntry[];
         if (sameFileAsStackTop) {
-          const next = [...prev.slice(0, -1), newEntry];
-          return next.length > MAX_STACK_DEPTH
-            ? next.slice(-MAX_STACK_DEPTH)
-            : next;
+          result = [...base.slice(0, -1), newEntry];
+        } else {
+          const duplicatesStackTop =
+            !!stackTop &&
+            stackTop.component === currentEntry.component &&
+            stackTop.fileId === currentEntry.fileId;
+
+          if (duplicatesStackTop) {
+            result = [...base, newEntry];
+          } else {
+            result = [...base, currentEntry, newEntry];
+          }
         }
 
-        const duplicatesStackTop =
-          !!stackTop &&
-          stackTop.component === currentEntry.component &&
-          stackTop.fileId === currentEntry.fileId;
-
-        if (duplicatesStackTop) {
-          const next = [...prev, newEntry];
-          return next.length > MAX_STACK_DEPTH
-            ? next.slice(-MAX_STACK_DEPTH)
-            : next;
+        if (result.length > MAX_STACK_DEPTH) {
+          result = result.slice(-MAX_STACK_DEPTH);
         }
 
-        const next = [...prev, currentEntry, newEntry];
-        return next.length > MAX_STACK_DEPTH
-          ? next.slice(-MAX_STACK_DEPTH)
-          : next;
+        // navIndex 在新操作后指向栈顶
+        setNavIndex(result.length - 1);
+        return result;
       });
 
       if (entry.component) {
@@ -101,7 +113,19 @@ export default function FilesPage({
       }
       if (entry.fileId) {
         setSelectedFileId(entry.fileId);
-        setSelectedFileName(entry.label);
+        const currentFiles = filesRef.current;
+        if (currentFiles && entry.fileId) {
+          const found = currentFiles.find(f => f.id === entry.fileId);
+          if (found) {
+            setSelectedFilePath(found.path);
+            // 从路径推导文件名，而非使用 entry.label（可能是函数名）
+            setSelectedFileName(found.path.split("/").pop() ?? found.path);
+          } else {
+            setSelectedFileName(entry.label);
+          }
+        } else {
+          setSelectedFileName(entry.label);
+        }
       }
       if (entry.nodeId) {
         setHighlightNodeId(entry.nodeId);
@@ -109,29 +133,32 @@ export default function FilesPage({
         setHighlightNodeId(null);
       }
     },
-    [activeTab, selectedFileId, selectedFileName]
+    [activeTab, selectedFileId, selectedFileName, navIndex]
   );
 
   const handleNavigateBack = useCallback(() => {
     setNavStack((prev) => {
-      if (prev.length <= 1) {
+      if (prev.length <= 1 || navIndex <= 0) {
         setHighlightNodeId(null);
-        return [];
+        setNavIndex(-1);
+        return prev.length <= 1 ? [] : prev;
       }
-      const newStack = prev.slice(0, -1);
-      const prevEntry = newStack[newStack.length - 1];
+      const newIndex = navIndex - 1;
+      setNavIndex(newIndex);
+      const prevEntry = prev[newIndex];
       setActiveTab(prevEntry.component);
       if (prevEntry.fileId) {
         setSelectedFileId(prevEntry.fileId);
         setSelectedFileName(prevEntry.label);
       }
       setHighlightNodeId(prevEntry.nodeId ?? null);
-      return newStack;
+      return prev; // 不截断，仅移动 navIndex
     });
-  }, []);
+  }, [navIndex]);
 
   const handleClearNavStack = useCallback(() => {
     setNavStack([]);
+    setNavIndex(-1);
     setHighlightNodeId(null);
   }, []);
 
@@ -145,7 +172,9 @@ export default function FilesPage({
         setSelectedFileName(target.label);
       }
       setHighlightNodeId(target.nodeId ?? null);
-      return prev.slice(0, index + 1);
+      // 移动 navIndex 到目标位置，不截断栈
+      setNavIndex(index);
+      return prev;
     });
   }, []);
 
@@ -162,12 +191,25 @@ export default function FilesPage({
   }, [handleNavigateBack]);
 
   const { data: files, isLoading, error } = useFiles(repo_id);
+  const filesRef = useRef(files);
+  filesRef.current = files;
+
+  // 当 selectedFileId 变化时同步更新 filePath
+  useEffect(() => {
+    if (selectedFileId && files) {
+      const found = files.find(f => f.id === selectedFileId);
+      if (found && found.path !== selectedFilePath) {
+        setSelectedFilePath(found.path);
+      }
+    }
+  }, [selectedFileId, files, selectedFilePath]);
 
   const tree = useMemo(() => buildFileTree(files ?? []), [files]);
   const fileCount = useMemo(() => countFiles(tree), [tree]);
 
   const handleSelectFile = (fileId: string, filePath: string) => {
     setSelectedFileId(fileId);
+    setSelectedFilePath(filePath);
     const name = filePath.split("/").pop() ?? filePath;
     setSelectedFileName(name);
   };
@@ -176,11 +218,12 @@ export default function FilesPage({
     <div className="flex flex-col gap-4 h-[calc(100vh-120px)]">
       {/* 探索轨迹栏 */}
       <NavTrailBar
-        stack={navStack}
-        onBack={handleNavigateBack}
-        onClear={handleClearNavStack}
-        onJumpTo={handleJumpTo}
-      />
+  stack={navStack}
+  activeIndex={navIndex}
+  onBack={handleNavigateBack}
+  onClear={handleClearNavStack}
+  onJumpTo={handleJumpTo}
+/>
 
       {/* 主内容区 */}
       <div className="flex gap-6 flex-1 min-h-0">
@@ -213,6 +256,7 @@ export default function FilesPage({
               <FileTree
                 nodes={tree}
                 selectedFileId={selectedFileId ?? undefined}
+                selectedFilePath={selectedFilePath}
                 onSelectFile={handleSelectFile}
                 onNavigate={handleNavigate}
               />

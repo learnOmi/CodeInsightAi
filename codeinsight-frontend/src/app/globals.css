@@ -1,14 +1,51 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #fafafb;
-  --color-foreground: #1a1a2e;
-  --color-muted: #6b7280;
-  --color-accent: #5b4fe3;
-  --color-accent2: #22a5f7;
-  --color-success: #1dc981;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
+  /* ── Brand ───────────────────────────────────── */
+  --color-brand:        hsl(247 84% 59%);
+  --color-brand-fg:     white;
+
+  /* ── Semantic status ─────────────────────────── */
+  --color-status-success: hsl(152 71% 48%);
+  --color-status-warning: hsl(38 92% 55%);
+  --color-status-error:   hsl(0 84% 60%);
+  --color-status-info:    hsl(217 91% 60%);
+
+  /* ── Call-graph node types ───────────────────── */
+  --color-node-function:      hsl(221 83% 53%);
+  --color-node-method:        hsl(262 84% 58%);
+  --color-node-constructor:   hsl(39 93% 52%);
+  --color-node-class:         hsl(330 81% 60%);
+  --color-node-interface:     hsl(171 77% 46%);
+  --color-node-enum:          hsl(24 94% 50%);
+  --color-node-struct:        hsl(86 86% 47%);
+  --color-node-call:          hsl(215 16% 47%);
+  --color-node-external:      hsl(158 84% 50%);
+
+  /* ── Call-graph edge types ───────────────────── */
+  --color-edge-static:   hsl(214 92% 60%);
+  --color-edge-dynamic:  hsl(45 93% 58%);
+  --color-edge-unknown:  hsl(210 10% 60%);
+  --color-edge-external: hsl(158 84% 50%);
+  --color-edge-injected: hsl(270 85% 60%);
+
+  /* ── Framework labels ────────────────────────── */
+  --color-fw-react:      hsl(214 95% 60%);
+  --color-fw-vue:        hsl(152 71% 48%);
+  --color-fw-angular:    hsl(0 84% 60%);
+  --color-fw-spring:     hsl(158 84% 50%);
+  --color-fw-express:    hsl(45 93% 47%);
+  --color-fw-fastapi:    hsl(39 93% 52%);
+  --color-fw-default:    hsl(215 10% 55%);
+
+  /* ── Middleware types ────────────────────────── */
+  --color-mw-auth:       hsl(0 84% 60%);
+  --color-mw-rate-limit: hsl(24 94% 50%);
+  --color-mw-logging:    hsl(217 91% 60%);
+  --color-mw-cors:       hsl(152 71% 48%);
+
+  /* ── Typography ──────────────────────────────── */
+  --font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* 暗色主题 CSS 变量 — 纯变量方案，组件直接引用 var(--xxx) */
@@ -16,25 +53,75 @@
   --bg-base: #fafafb;
   --bg-card: #ffffff;
   --bg-hover: #f3f4f6;
+  --bg-active: #eef2ff;
   --text-primary: #1a1a2e;
-  --text-secondary: #6b7280;
+  --text-secondary: #4b5563;
   --text-muted: #9ca3af;
   --border: #e5e7eb;
+  --shadow-sm-light: 0 1px 2px rgba(0,0,0,.05);
+  --shadow-md-light: 0 4px 6px -1px rgba(0,0,0,.07);
+  --shadow-lg-light: 0 10px 15px -3px rgba(0,0,0,.08);
+  --glow-brand-light: 0 0 20px rgba(91,79,227,.15);
+  --glow-focus: 0 0 0 2px hsla(217 91% 60% / 0.25);
 }
 
 .dark {
-  --bg-base: #111827;
-  --bg-card: #1f2937;
-  --bg-hover: #374151;
-  --text-primary: #f9fafb;
-  --text-secondary: #d1d5db;
-  --text-muted: #b0b8c4;
-  --border: #374151;
+  --bg-base: #0f172a;
+  --bg-card: #1e293b;
+  --bg-hover: #334155;
+  --bg-active: rgba(91,79,227,.12);
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --border: #334155;
+  --shadow-sm-light: 0 1px 2px rgba(0,0,0,.4);
+  --shadow-md-light: 0 4px 6px -1px rgba(0,0,0,.5);
+  --shadow-lg-light: 0 10px 15px -3px rgba(0,0,0,.6);
+  --glow-brand-light: 0 0 24px rgba(91,79,227,.3);
+  --glow-focus: 0 0 0 2px hsla(217 91% 60% / 0.4);
 }
 
 body {
   background-color: var(--bg-base);
   color: var(--text-primary);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  transition: background-color 0.2s, color 0.2s;
+  font-family: var(--font-family);
+  transition: background-color .2s, color .2s;
+}
+
+/* ── React Flow theme overrides ─────────────────── */
+.react-flow {
+  --rf-bg-base: var(--bg-base);
+  --rf-bg-node: var(--bg-card);
+  --rf-border-node: var(--border);
+  --rf-text-base: var(--text-primary);
+  --rf-font-family: var(--font-family);
+}
+
+.react-flow__panel {
+  margin: 8px !important;
+}
+
+.react-flow__controls {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+  overflow: hidden !important;
+}
+
+.react-flow__controls button {
+  background-color: transparent !important;
+  color: var(--text-muted) !important;
+}
+
+.react-flow__controls button:hover {
+  background-color: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.react-flow__minimap {
+  background-color: var(--bg-base) !important;
+  border-color: var(--border) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
 }

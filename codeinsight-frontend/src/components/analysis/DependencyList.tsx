@@ -23,14 +23,14 @@ const ECOSYSTEM_ORDER = ["maven", "npm", "pip", "go", "cargo"] as const;
 
 /** 作用域配色映射 */
 const SCOPE_STYLES: Record<string, string> = {
-  compile: "bg-blue-100 text-blue-700",
-  dev: "bg-yellow-100 text-yellow-700",
-  test: "bg-green-100 text-green-700",
-  peer: "bg-purple-100 text-purple-700",
+  compile: "bg-status-info/15 text-status-info",
+  dev: "bg-status-warning/15 text-status-warning",
+  test: "bg-status-success/15 text-status-success",
+  peer: "bg-purple-500/15 text-purple-500",
 };
 
 /** 默认作用域标签样式 */
-const DEFAULT_SCOPE_STYLE = "bg-gray-100 text-gray-700";
+const DEFAULT_SCOPE_STYLE = "bg-gray-500/15 text-gray-500";
 
 /** 作用域过滤选项 */
 const SCOPE_OPTIONS = ["", "compile", "dev", "test", "peer"] as const;
@@ -104,7 +104,7 @@ function ScopeTag({ scope }: { scope: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center justify-center rounded px-2 py-0.5 text-xs font-medium flex-shrink-0",
+        "inline-flex items-center justify-center rounded-sm px-2 py-0.5 text-[10px] font-medium flex-shrink-0",
         getScopeStyle(scope)
       )}
     >
@@ -126,7 +126,7 @@ function FilterBar({
   setScope: (v: string) => void;
 }) {
   const selectClass =
-    "h-8 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-400";
+    "h-8 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand";
 
   return (
     <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -189,10 +189,10 @@ function DependencyItem({ dep }: { dep: ExternalDependency }) {
   return (
     <li>
       <div
-        className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+        className="flex items-center gap-3 py-1.5 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
         onClick={() => hasUsedByFiles && setShowFiles(!showFiles)}
       >
-        <span className="text-lg flex-shrink-0" title={ecoCfg.label}>
+        <span className="text-base w-6 flex-shrink-0" title={ecoCfg.label}>
           {ecoCfg.icon}
         </span>
 
@@ -223,8 +223,8 @@ function DependencyItem({ dep }: { dep: ExternalDependency }) {
 
       {/* 展开引用了该依赖的文件列表 */}
       {showFiles && hasUsedByFiles && (
-        <div className="px-6 py-2 space-y-0.5 text-xs border-l-2 border-[var(--border)] ml-4 mb-1">
-          <div className="text-[10px] text-[var(--text-muted)] font-semibold mb-1">
+        <div className="px-5 py-1.5 space-y-0.5 text-xs border-l-2 border-[var(--border)]/60 ml-5 mb-0.5">
+          <div className="text-[10px] text-[var(--text-muted)] font-semibold uppercase tracking-wider mb-1">
             引用文件 ({dep.usedByFiles.length})
           </div>
           {dep.usedByFiles.map((filePath, idx) => (
@@ -249,12 +249,12 @@ function EcosystemGroup({
   const cfg = getEcosystemConfig(ecosystem);
   return (
     <div className="mb-4 last:mb-0">
-      <div className="flex items-center gap-2 mb-2 pb-1 border-b border-[var(--border)]">
-        <span className="text-base">{cfg.icon}</span>
+      <div className="flex items-center gap-2 mb-2.5 pb-2 border-b border-[var(--border)]/60">
+        <span className="w-6 h-6 flex items-center justify-center rounded-md bg-[var(--bg-hover)]">{cfg.icon}</span>
         <span className="text-sm font-semibold text-[var(--text-primary)]">
           {cfg.label}
         </span>
-        <span className="text-xs text-[var(--text-muted)]">({deps.length})</span>
+        <span className="text-[10px] text-[var(--text-muted)] font-mono bg-[var(--bg-hover)] px-1.5 py-0.5 rounded-sm">({deps.length})</span>
       </div>
       <ul className="space-y-0.5">
         {deps.map((dep) => (
@@ -291,8 +291,8 @@ export function DependencyList({ repositoryId }: DependencyListProps) {
 
   if (isLoading) {
     return (
-      <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">
+      <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
           外部依赖
         </h3>
         <DependencySkeleton />
@@ -302,8 +302,8 @@ export function DependencyList({ repositoryId }: DependencyListProps) {
 
   if (error) {
     return (
-      <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">
+      <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
           外部依赖
         </h3>
         <div className="text-red-500 text-sm">加载依赖数据失败</div>
@@ -312,8 +312,8 @@ export function DependencyList({ repositoryId }: DependencyListProps) {
   }
 
   return (
-    <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-      <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">
+    <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+      <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
         外部依赖
       </h3>
 
@@ -325,7 +325,7 @@ export function DependencyList({ repositoryId }: DependencyListProps) {
       />
 
       {!deps || deps.length === 0 ? (
-        <div className="text-[var(--text-muted)] text-sm py-8 text-center">
+        <div className="text-[var(--text-muted)] text-sm py-10 text-center">
           暂无外部依赖数据
         </div>
       ) : (

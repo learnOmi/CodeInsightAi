@@ -113,12 +113,13 @@ export function RepoCard({ repository }: RepoCardProps) {
   const currentStep = progress.currentStep ? taskStepLabels[progress.currentStep] : "";
 
   return (
-    <div className="bg-[var(--bg-card)] rounded-lg shadow-md p-6 hover:shadow-lg transition-all duration-200 border border-[var(--border)]">
+    <div className="bg-[var(--bg-card)] rounded-xl shadow-md p-6 hover:shadow-lg transition-all duration-200 border border-[var(--border)] overflow-hidden relative group">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
       <div className="flex justify-between items-start mb-4">
         <div>
           <Link
             href={`/repositories/${repository.id}/files`}
-            className="text-[var(--text-primary)] hover:text-blue-500 transition-colors"
+            className="text-[var(--text-primary)] hover:text-brand transition-colors"
           >
             <h3 className="text-lg font-semibold">{repository.name}</h3>
           </Link>
@@ -139,14 +140,14 @@ export function RepoCard({ repository }: RepoCardProps) {
       </div>
 
       {isAnalyzing && (
-        <div className="mb-4 space-y-2">
-          <div className="flex justify-between text-sm">
+        <div className="mb-3 space-y-1.5">
+          <div className="flex justify-between text-xs">
             <span className="text-[var(--text-secondary)]">{currentStep || "分析中"}</span>
-            <span className="text-[var(--text-secondary)]">{progress.percent}%</span>
+            <span className="tabular-nums text-[var(--text-secondary)]">{progress.percent}%</span>
           </div>
-          <div className="w-full bg-[var(--bg-hover)] rounded-full h-2">
+          <div className="w-full bg-[var(--bg-hover)] rounded-full h-1.5 overflow-hidden">
             <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              className="bg-gradient-to-r from-brand to-brand-fg h-1.5 rounded-full transition-all duration-300"
               style={{ width: `${progress.percent}%` }}
             />
           </div>
@@ -156,36 +157,36 @@ export function RepoCard({ repository }: RepoCardProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4 mb-4">
+      <div className="grid grid-cols-3 gap-4 mb-4 divide-x divide-[var(--border)]">
         <div className="text-center">
-          <div className="text-xl font-bold text-[var(--text-primary)]">{repository.fileCount}</div>
+          <div className="text-xl font-bold text-[var(--text-primary)] tabular-nums">{repository.fileCount}</div>
           <div className="text-xs text-[var(--text-muted)]">文件数</div>
         </div>
         <div className="text-center">
-          <div className="text-xl font-bold text-[var(--text-primary)]">{repository.lineCount}</div>
+          <div className="text-xl font-bold text-[var(--text-primary)] tabular-nums">{repository.lineCount}</div>
           <div className="text-xs text-[var(--text-muted)]">代码行数</div>
         </div>
         <div className="text-center">
-          <div className="text-xl font-bold text-[var(--text-primary)]">{repository.knowledgePointsCount}</div>
+          <div className="text-xl font-bold text-[var(--text-primary)] tabular-nums">{repository.knowledgePointsCount}</div>
           <div className="text-xs text-[var(--text-muted)]">知识点</div>
         </div>
       </div>
 
       {submitError && (
-          <div className="text-red-600 text-sm mb-3">{submitError}</div>
+          <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{submitError}</div>
         )}
         {cancelError && (
-          <div className="text-red-600 text-sm mb-3">{cancelError}</div>
+          <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{cancelError}</div>
         )}
         {deleteError && (
-        <div className="text-red-600 text-sm mb-3">{deleteError}</div>
+        <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{deleteError}</div>
       )}
 
       <div className="flex gap-2">
         {!isAnalyzing && (
           <Link
             href={`/repositories/${repository.id}/files`}
-            className="flex-1 px-4 py-2 rounded-lg font-medium text-sm text-center transition-colors bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
+            className="flex-1 px-4 py-2 rounded-md text-xs font-medium text-center transition-colors bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
           >
             查看文件
           </Link>
@@ -195,10 +196,10 @@ export function RepoCard({ repository }: RepoCardProps) {
             onClick={handleSubmitAnalysis}
             disabled={submitAnalysis.isPending}
             className={cn(
-              "flex-1 px-4 py-2 rounded-lg font-medium text-sm transition-colors",
+              "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
               submitAnalysis.isPending
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-blue-600 text-white hover:bg-blue-700"
+                ? "bg-brand/60 cursor-not-allowed text-white/80"
+                : "bg-brand text-white hover:opacity-90 shadow-sm"
             )}
           >
             {submitAnalysis.isPending ? "提交中..." : "开始分析"}
@@ -209,10 +210,10 @@ export function RepoCard({ repository }: RepoCardProps) {
             onClick={handleCancelTask}
             disabled={cancelTask.isPending}
             className={cn(
-              "flex-1 px-4 py-2 rounded-lg font-medium text-sm transition-colors",
+              "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
               cancelTask.isPending
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-yellow-600 text-white hover:bg-yellow-700"
+                ? "bg-brand/60 cursor-not-allowed text-white/80"
+                : "bg-status-warning text-white shadow-sm"
             )}
           >
             {cancelTask.isPending ? "取消中..." : "取消分析"}
@@ -224,17 +225,17 @@ export function RepoCard({ repository }: RepoCardProps) {
               onClick={handleDelete}
               disabled={deleteRepository.isPending}
               className={cn(
-                "flex-1 px-4 py-2 rounded-lg font-medium text-sm transition-colors",
+                "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
                 deleteRepository.isPending
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-red-600 text-white hover:bg-red-700"
+                  ? "bg-brand/60 cursor-not-allowed text-white/80"
+                  : "text-status-error bg-status-error/10 hover:bg-status-error/20"
               )}
             >
               {deleteRepository.isPending ? "删除中..." : "确认删除"}
             </button>
             <button
               onClick={() => setShowConfirm(false)}
-              className="px-4 py-2 border border-[var(--border)] rounded-lg font-medium text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              className="px-4 py-2 border border-[var(--border)] rounded-md text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             >
               取消
             </button>
@@ -242,7 +243,7 @@ export function RepoCard({ repository }: RepoCardProps) {
         ) : (
           <button
             onClick={() => setShowConfirm(true)}
-            className="px-4 py-2 border border-red-300 rounded-lg font-medium text-sm text-red-600 hover:bg-red-50"
+            className="px-4 py-2 border border-[var(--border)] rounded-md text-xs font-medium text-status-error/70 hover:bg-status-error/10 transition-colors"
           >
             删除
           </button>

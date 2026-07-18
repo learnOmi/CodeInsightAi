@@ -89,7 +89,7 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
         {[...Array(6)].map((_, i) => (
           <div
             key={i}
-            className="h-16 bg-[var(--bg-hover)] rounded animate-pulse"
+            className="h-20 bg-[var(--bg-hover)] rounded animate-pulse"
             style={{ width: `${90 - i * 5}%` }}
           />
         ))}
@@ -99,13 +99,13 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
 
   if (error) {
     return (
-      <div className="text-red-500 text-sm py-4">{"加载框架检测数据失败"}</div>
+      <div className="text-status-error text-sm py-4">{"加载框架检测数据失败"}</div>
     );
   }
 
   if (!frameworks || frameworks.length === 0) {
     return (
-      <div className="text-center text-[var(--text-muted)] text-sm py-8">
+      <div className="text-center text-[var(--text-muted)] text-sm py-10">
         {"暂无框架检测数据"}
       </div>
     );
@@ -120,7 +120,7 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="text-sm bg-[var(--bg-primary)] border border-[var(--border)] rounded px-2 py-1 text-[var(--text-primary)]"
+            className="text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-[var(--text-primary)]"
           >
             <option value="">{"全部"}</option>
             {categories.map((cat) => (
@@ -135,7 +135,7 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
           <select
             value={minConfidence}
             onChange={(e) => setMinConfidence(Number(e.target.value))}
-            className="text-sm bg-[var(--bg-primary)] border border-[var(--border)] rounded px-2 py-1 text-[var(--text-primary)]"
+            className="text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-[var(--text-primary)]"
           >
             <option value={0}>{"全部"}</option>
             <option value={0.3}>{"0.3+"}</option>
@@ -143,13 +143,13 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
             <option value={0.8}>{"0.8+"}</option>
           </select>
         </div>
-        <span className="text-xs text-[var(--text-muted)] ml-auto">
+        <span className="text-[10px] text-[var(--text-muted)] font-mono bg-[var(--bg-hover)] px-2 py-0.5 rounded-sm ml-auto">
           {frameworks.length} {"个框架"}
         </span>
       </div>
 
       {/* 框架卡片网格 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {frameworks.map((fw) => {
           const confidence = getConfidenceLevel(fw.confidence);
           const categoryColor =
@@ -161,11 +161,11 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
           return (
             <div
               key={fw.id}
-              className="border border-[var(--border)] rounded-lg p-3 hover:bg-[var(--bg-hover)] transition-colors"
+              className="border border-[var(--border)] rounded-lg p-3.5 hover:bg-[var(--bg-hover)] transition-colors group"
             >
               {/* 框架名称 + 分类 */}
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-[var(--text-primary)]">
+                <span className="text-sm font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">
                   {displayName}
                 </span>
                 <span
@@ -179,18 +179,18 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
               <div className="flex items-center gap-2 mb-2">
                 <div className="flex-1 h-1.5 bg-[var(--bg-hover)] rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-blue-500 rounded-full transition-all"
+                    className="h-full bg-gradient-to-r from-brand to-brand-fg rounded-full transition-all"
                     style={{ width: `${fw.confidence * 100}%` }}
                   />
                 </div>
-                <span className={`text-xs font-medium ${confidence.color}`}>
+                <span className={`text-[10px] font-mono tabular-nums ${confidence.color}`}>
                   {(fw.confidence * 100).toFixed(0)}%
                 </span>
               </div>
 
               {/* 证据信息 */}
               {Object.keys(fw.evidence).length > 0 && (
-                <div className="text-[10px] text-[var(--text-muted)] space-y-0.5">
+                <div className="text-[10px] text-[var(--text-muted)] space-y-0.5 font-mono">
                   {Object.entries(fw.evidence).map(([key, value]) => (
                     <div key={key} className="truncate">
                       <span className="font-mono">{key}:</span>{" "}

@@ -108,8 +108,8 @@ export function RepoForm({ onClose }: RepoFormProps) {
   };
 
   return (
-    <div className="bg-[var(--bg-card)] rounded-lg shadow-md p-6">
-      <h2 className="text-xl font-semibold mb-4 text-[var(--text-primary)]">添加仓库</h2>
+    <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 shadow-sm">
+      <h2 className="text-lg font-semibold mb-4 tracking-tight text-[var(--text-primary)]">添加仓库</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
@@ -119,7 +119,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-2 border border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-[var(--bg-base)] text-[var(--text-primary)]"
+            className="w-full px-3.5 py-2 border border-[var(--border)] rounded-md text-sm bg-[var(--bg-base)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition-all placeholder:text-[var(--text-muted)]"
             placeholder="例如：my-project"
           />
         </div>
@@ -132,7 +132,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
               type="text"
               value={path}
               onChange={(e) => setPath(e.target.value)}
-              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-[var(--bg-base)] text-[var(--text-primary)]"
+              className="w-full px-3.5 py-2 border border-[var(--border)] rounded-md text-sm bg-[var(--bg-base)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition-all placeholder:text-[var(--text-muted)]"
               placeholder="例如：/path/to/repo"
             />
             <input
@@ -146,7 +146,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-2 bg-[var(--bg-hover)] border border-[var(--border)] rounded-lg hover:bg-[var(--border)] transition-colors"
+              className="px-3 py-2 bg-[var(--bg-hover)] border border-[var(--border)] rounded-md hover:bg-[var(--border)] transition-colors"
               title="选择本地目录"
             >
               📁
@@ -159,7 +159,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
                   key={i}
                   type="button"
                   onClick={() => setPath(h)}
-                  className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
+                  className="text-xs px-2 py-0.5 bg-brand/10 text-brand rounded hover:bg-brand/20 transition-colors"
                 >
                   {h}
                 </button>
@@ -180,24 +180,24 @@ export function RepoForm({ onClose }: RepoFormProps) {
             id="auto-analyze"
             checked={autoAnalyze}
             onChange={(e) => setAutoAnalyze(e.target.checked)}
-            className="w-4 h-4 text-blue-600 border-[var(--border)] rounded focus:ring-blue-500"
+            className="w-4 h-4 text-brand border-[var(--border)] rounded focus:ring-brand/50"
           />
           <label htmlFor="auto-analyze" className="ml-2 text-sm text-[var(--text-secondary)]">
             创建后自动分析
           </label>
         </div>
         {error && (
-          <div className="text-red-600 text-sm">{error}</div>
+          <div className="text-status-error text-sm">{error}</div>
         )}
         <div className="flex gap-2">
           <button
             type="submit"
             disabled={createRepository.isPending}
             className={cn(
-              "flex-1 px-4 py-2 rounded-lg font-medium transition-colors",
+              "flex-1 px-3.5 py-2 text-sm rounded-md font-medium transition-colors",
               createRepository.isPending
                 ? "bg-gray-400 cursor-not-allowed"
-                : "bg-blue-600 text-white hover:bg-blue-700"
+                : "bg-brand text-white hover:opacity-90 shadow-sm"
             )}
           >
             {createRepository.isPending ? "创建中..." : "创建"}
@@ -205,7 +205,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-[var(--border)] rounded-lg font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+            className="px-3.5 py-2 text-sm border border-[var(--border)] rounded-md font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           >
             取消
           </button>

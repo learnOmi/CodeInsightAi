@@ -12,39 +12,39 @@ const MIDDLEWARE_TYPE_STYLES: Record<string, {
   badgeText: string;
 }> = {
   authentication: {
-    bg: "rgba(239, 68, 68, 0.08)",
-    border: "#ef4444",
-    text: "#b91c1c",
-    badgeBg: "rgba(239, 68, 68, 0.15)",
-    badgeText: "#dc2626",
+    bg: "hsl(0 84% 60% / 0.08)",
+    border: "var(--color-mw-auth)",
+    text: "hsl(0 60% 40%)",
+    badgeBg: "hsl(0 84% 60% / 0.15)",
+    badgeText: "var(--color-mw-auth)",
   },
   rate_limiting: {
-    bg: "rgba(249, 115, 22, 0.08)",
-    border: "#f97316",
-    text: "#c2410c",
-    badgeBg: "rgba(249, 115, 22, 0.15)",
-    badgeText: "#ea580c",
+    bg: "hsl(24 94% 50% / 0.08)",
+    border: "var(--color-mw-rate-limit)",
+    text: "hsl(24 70% 40%)",
+    badgeBg: "hsl(24 94% 50% / 0.15)",
+    badgeText: "var(--color-mw-rate-limit)",
   },
   logging: {
-    bg: "rgba(59, 130, 246, 0.08)",
-    border: "#3b82f6",
-    text: "#1d4ed8",
-    badgeBg: "rgba(59, 130, 246, 0.15)",
-    badgeText: "#2563eb",
+    bg: "hsl(217 91% 60% / 0.08)",
+    border: "var(--color-mw-logging)",
+    text: "hsl(217 70% 40%)",
+    badgeBg: "hsl(217 91% 60% / 0.15)",
+    badgeText: "var(--color-mw-logging)",
   },
   cors: {
-    bg: "rgba(34, 197, 94, 0.08)",
-    border: "#22c55e",
-    text: "#15803d",
-    badgeBg: "rgba(34, 197, 94, 0.15)",
-    badgeText: "#16a34a",
+    bg: "hsl(152 71% 48% / 0.08)",
+    border: "var(--color-mw-cors)",
+    text: "hsl(152 60% 35%)",
+    badgeBg: "hsl(152 71% 48% / 0.15)",
+    badgeText: "var(--color-mw-cors)",
   },
   default: {
-    bg: "rgba(107, 114, 128, 0.08)",
-    border: "#6b7280",
-    text: "#4b5563",
-    badgeBg: "rgba(107, 114, 128, 0.15)",
-    badgeText: "#6b7280",
+    bg: "hsl(215 10% 47% / 0.08)",
+    border: "var(--text-muted)",
+    text: "var(--text-secondary)",
+    badgeBg: "hsl(215 10% 47% / 0.15)",
+    badgeText: "var(--text-muted)",
   },
 };
 
@@ -89,7 +89,7 @@ export function MiddlewareChain({ middlewares }: MiddlewareChainProps) {
 
   if (!middlewares || middlewares.length === 0) {
     return (
-      <div className="flex items-center justify-center py-6 text-sm text-[var(--text-muted)]">
+      <div className="flex items-center justify-center text-center py-8 text-sm text-[var(--text-muted)]">
         无中间件
       </div>
     );
@@ -105,10 +105,10 @@ export function MiddlewareChain({ middlewares }: MiddlewareChainProps) {
             <div key={`${mw.name}-${mw.order}-${index}`} className="flex items-stretch">
               {/* 中间件卡片节点 */}
               <div
-                className="flex flex-col justify-between rounded-lg border-2 px-3 py-2 min-w-[180px] max-w-[220px]"
+                className="flex flex-col justify-between rounded-lg border-2 px-3 py-2.5 min-w-[170px] max-w-[220px] transition-all duration-200 hover:shadow-md hover:-translate-y-0.5"
                 style={{
                   backgroundColor: style.bg,
-                  borderColor: style.border,
+                  borderColor: style.border + "60",
                 }}
               >
                 <div className="flex items-center gap-1.5 mb-1.5">
@@ -133,7 +133,7 @@ export function MiddlewareChain({ middlewares }: MiddlewareChainProps) {
                   {mw.name}
                 </div>
                 <div
-                  className="text-[11px] font-mono truncate mt-1"
+                  className="text-[10px] font-mono truncate mt-1"
                   style={{ color: "var(--text-muted)" }}
                   title={mw.file}
                 >
@@ -156,6 +156,7 @@ export function MiddlewareChain({ middlewares }: MiddlewareChainProps) {
                       stroke="var(--text-muted)"
                       strokeWidth="1.5"
                       strokeLinecap="round"
+                      style={{ opacity: 0.5 }}
                     />
                     <path
                       d="M14 3 L21 8 L14 13"
@@ -164,6 +165,7 @@ export function MiddlewareChain({ middlewares }: MiddlewareChainProps) {
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       fill="none"
+                      style={{ opacity: 0.5 }}
                     />
                   </svg>
                 </div>

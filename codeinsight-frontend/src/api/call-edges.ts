@@ -22,6 +22,7 @@ export interface CallEdgeWithNode {
     id: string;
     name: string;
     nodeType: string;
+    fileId?: string;
     filePath: string;
   };
   callee?: {

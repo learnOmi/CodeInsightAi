@@ -1173,6 +1173,7 @@ class CallGraphQuery:
                                 "id": str(caller.id),
                                 "name": caller.name,
                                 "node_type": caller.node_type,
+                                "file_id": str(caller.file_id),
                                 "file_path": caller.file_path,
                             }
                             if caller

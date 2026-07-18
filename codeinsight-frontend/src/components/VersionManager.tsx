@@ -48,7 +48,7 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[var(--primary)]"></div>
+        <div className="animate-spin rounded-full h-6 w-6 border-2 border-brand border-t-transparent"></div>
       </div>
     );
   }
@@ -64,7 +64,7 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2 text-red-600 text-sm">
+        <div className="rounded-lg bg-status-error/10 text-status-error px-3 py-2 text-sm">
           {error}
         </div>
       )}
@@ -72,28 +72,28 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--border)]">
-              <th className="text-left py-3 px-4 font-medium text-[var(--text-secondary)]">版本号</th>
-              <th className="text-left py-3 px-4 font-medium text-[var(--text-secondary)]">状态</th>
-              <th className="text-left py-3 px-4 font-medium text-[var(--text-secondary)]">文件数</th>
-              <th className="text-left py-3 px-4 font-medium text-[var(--text-secondary)]">知识点数</th>
-              <th className="text-left py-3 px-4 font-medium text-[var(--text-secondary)]">创建时间</th>
-              <th className="text-left py-3 px-4 font-medium text-[var(--text-secondary)]">操作</th>
+            <tr className="border-b border-[var(--border)]/60">
+              <th className="text-left py-2.5 px-4 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">版本号</th>
+              <th className="text-left py-2.5 px-4 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">状态</th>
+              <th className="text-left py-2.5 px-4 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">文件数</th>
+              <th className="text-left py-2.5 px-4 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">知识点数</th>
+              <th className="text-left py-2.5 px-4 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">创建时间</th>
+              <th className="text-left py-2.5 px-4 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody>
             {versions.map((version: AnalysisVersion) => (
               <tr
                 key={version.version}
-                className={`border-b border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors ${
-                  version.isCurrent ? "bg-[var(--bg-active)]" : ""
+                className={`border-b border-[var(--border)]/60 hover:bg-[var(--bg-hover)]/50 transition-colors ${
+                  version.isCurrent ? "bg-brand/5" : ""
                 }`}
               >
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[var(--text-primary)]">{version.version}</span>
                     {version.isCurrent && (
-                      <span className="text-xs bg-[var(--primary)] text-white px-2 py-0.5 rounded-full">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand text-white font-medium">
                         当前
                       </span>
                     )}
@@ -102,10 +102,10 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
                 <td className="py-3 px-4">
                   <StatusBadge status={version.status} />
                 </td>
-                <td className="py-3 px-4 text-[var(--text-secondary)]">
+                <td className="py-3 px-4 text-[var(--text-secondary)] tabular-nums">
                   {version.analyzedFiles}/{version.totalFiles}
                 </td>
-                <td className="py-3 px-4 text-[var(--text-secondary)]">
+                <td className="py-3 px-4 text-[var(--text-secondary)] tabular-nums">
                   {version.knowledgePointsCount}
                 </td>
                 <td className="py-3 px-4 text-[var(--text-secondary)]">
@@ -117,7 +117,7 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
                       <button
                         onClick={() => handleSwitch(version.version)}
                         disabled={switchVersion.isPending}
-                        className="px-3 py-1 text-xs bg-[var(--primary)] text-white rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
+                        className="px-2.5 py-1 text-[10px] bg-brand text-white rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity shadow-sm font-medium"
                       >
                         切换
                       </button>
@@ -129,7 +129,7 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
                           setShowRollbackConfirm(true);
                         }}
                         disabled={rollbackVersion.isPending}
-                        className="px-3 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 transition-colors"
+                        className="px-2.5 py-1 text-[10px] bg-status-error text-white rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity shadow-sm font-medium"
                       >
                         回滚
                       </button>
@@ -149,11 +149,11 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
       </div>
 
       {showRollbackConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[var(--bg-card)] rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">确认回滚</h3>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] shadow-2xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-base font-semibold text-[var(--text-primary)] mb-2">确认回滚</h3>
             <p className="text-[var(--text-secondary)] mb-4">
-              确定要将仓库回滚到版本 <code className="font-mono">{selectedVersion}</code> 吗？
+              确定要将仓库回滚到版本 <code className="font-mono text-xs bg-[var(--bg-hover)] px-1.5 py-0.5 rounded-sm">{selectedVersion}</code> 吗？
               此操作将恢复该版本的所有数据。
             </p>
             <div className="flex gap-3">
@@ -162,14 +162,14 @@ export function VersionManager({ repositoryId }: VersionManagerProps) {
                   setShowRollbackConfirm(false);
                   setSelectedVersion(null);
                 }}
-                className="flex-1 px-4 py-2 text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] rounded transition-colors"
+                className="flex-1 px-3 py-2 text-sm rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors font-medium"
               >
                 取消
               </button>
               <button
                 onClick={handleRollback}
                 disabled={rollbackVersion.isPending}
-                className="flex-1 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 transition-colors"
+                className="flex-1 px-3 py-2 text-sm bg-status-error text-white rounded-md hover:opacity-90 disabled:opacity-50 transition-opacity font-medium shadow-sm"
               >
                 {rollbackVersion.isPending ? "回滚中..." : "确认回滚"}
               </button>

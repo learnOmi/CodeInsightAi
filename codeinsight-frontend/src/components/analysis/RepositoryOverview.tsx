@@ -27,8 +27,8 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-[var(--text-primary)]">项目概览</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">项目概览</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[...Array(8)].map((_, i) => (
             <div key={i} className="h-20 bg-[var(--bg-hover)] rounded-lg animate-pulse" />
           ))}
@@ -40,7 +40,7 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
   if (error || !stats) {
     return (
       <div>
-        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">项目概览</h3>
+        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">项目概览</h3>
         <div className="text-red-500 text-sm">加载统计信息失败</div>
       </div>
     );
@@ -55,10 +55,10 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
 
   return (
     <div className="space-y-6">
-      <h3 className="text-lg font-semibold text-[var(--text-primary)]">项目概览</h3>
+      <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">项目概览</h3>
 
       {/* 顶部分类统计卡片 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="文件" value={stats.fileCount} sub={`${stats.totalLines} 行代码`} />
         <StatCard label="AST 节点" value={stats.nodeCount} sub={`${nodeTypeEntries.length} 种类型`} />
         <StatCard label="调用关系" value={stats.edgeCount} sub={`${edgeTypeEntries.length} 种调用类型`} />
@@ -75,8 +75,8 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
       {/* 语言分布 + 节点类型分布 + 调用类型分布 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* 语言分布 */}
-        <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-          <h4 className="text-sm font-semibold mb-3 text-[var(--text-primary)]">语言分布</h4>
+        <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">语言分布</h4>
           {langEntries.length === 0 ? (
             <p className="text-xs text-[var(--text-muted)]">暂无数据</p>
           ) : (
@@ -95,8 +95,8 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
         </div>
 
         {/* AST 节点类型分布 */}
-        <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-          <h4 className="text-sm font-semibold mb-3 text-[var(--text-primary)]">节点类型分布</h4>
+        <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">节点类型分布</h4>
           {nodeTypeEntries.length === 0 ? (
             <p className="text-xs text-[var(--text-muted)]">暂无数据</p>
           ) : (
@@ -109,7 +109,7 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
                     <div className="flex-1 h-2 bg-[var(--bg-hover)] rounded-full overflow-hidden">
                       <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
                     </div>
-                    <span className="w-12 text-right text-[var(--text-muted)] font-mono">{pct}%</span>
+                    <span className="w-12 text-right text-[var(--text-muted)] font-mono tabular-nums">{pct}%</span>
                   </div>
                 );
               })}
@@ -123,8 +123,8 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
         </div>
 
         {/* 调用类型分布 */}
-        <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-          <h4 className="text-sm font-semibold mb-3 text-[var(--text-primary)]">调用类型分布</h4>
+        <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">调用类型分布</h4>
           {edgeTypeEntries.length === 0 ? (
             <p className="text-xs text-[var(--text-muted)]">暂无数据</p>
           ) : (
@@ -137,7 +137,9 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
                     <div className="flex-1 h-2 bg-[var(--bg-hover)] rounded-full overflow-hidden">
                       <div className="h-full bg-purple-500 rounded-full" style={{ width: `${pct}%` }} />
                     </div>
-                    <span className="w-12 text-right text-[var(--text-muted)] font-mono">{count}</span>
+                    <span className="w-16 text-right text-[var(--text-muted)] font-mono tabular-nums flex-shrink-0">
+                      {count} ({pct}%)
+                    </span>
                   </div>
                 );
               })}
@@ -148,13 +150,13 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
 
       {/* 生态系统分布 */}
       {ecoEntries.length > 0 && (
-        <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-          <h4 className="text-sm font-semibold mb-3 text-[var(--text-primary)]">外部依赖生态系统</h4>
+        <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">外部依赖生态系统</h4>
           <div className="flex flex-wrap gap-2">
             {ecoEntries.map(([eco, count]) => (
               <span
                 key={eco}
-                className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-hover)] px-3 py-1 text-xs text-[var(--text-primary)]"
+                className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-hover)] px-2.5 py-1 text-xs text-[var(--text-primary)]"
               >
                 {eco}
                 <span className="font-mono text-[var(--text-muted)]">({count})</span>
@@ -170,11 +172,9 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
 /** 统计卡片 */
 function StatCard({ label, value, sub }: { label: string; value: number; sub: string }) {
   return (
-    <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-3">
-      <div className="text-xs text-[var(--text-muted)] mb-1">{label}</div>
-      <div className="text-xl font-bold text-[var(--text-primary)] font-mono">
-        {value.toLocaleString()}
-      </div>
+    <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-3.5 hover:shadow-sm transition-shadow">
+      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-xl font-bold text-[var(--text-primary)] font-mono tabular-nums">{value.toLocaleString()}</div>
       <div className="text-[10px] text-[var(--text-muted)] mt-0.5 truncate">{sub}</div>
     </div>
   );
@@ -199,7 +199,7 @@ function BarRow({
       <div className="flex-1 h-3 bg-[var(--bg-hover)] rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-16 text-right text-[var(--text-muted)] font-mono flex-shrink-0">
+      <span className="w-16 text-right text-[var(--text-muted)] font-mono tabular-nums flex-shrink-0">
         {count} ({pct}%)
       </span>
     </div>

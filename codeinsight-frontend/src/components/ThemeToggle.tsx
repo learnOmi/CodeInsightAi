@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
+import { motion } from "framer-motion";
 
 const STORAGE_KEY = "theme";
 
@@ -32,14 +33,12 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="p-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors"
+      className="p-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] hover:bg-[var(--bg-hover)] transition-all duration-200 hover:scale-105"
       title={dark ? "切换亮色主题" : "切换暗色主题"}
     >
-      {dark ? (
-        <Sun className="w-5 h-5 text-yellow-400" />
-      ) : (
-        <Moon className="w-5 h-5 text-[var(--text-secondary)]" />
-      )}
+      <motion.div animate={{ rotate: dark ? 180 : 0 }} transition={{ duration: 0.3, ease: "easeInOut" }}>
+        {dark ? <Sun className="w-[18px] h-[18px] text-amber-400" /> : <Moon className="w-[18px] h-[18px] text-[var(--text-secondary)]" />}
+      </motion.div>
     </button>
   );
 }

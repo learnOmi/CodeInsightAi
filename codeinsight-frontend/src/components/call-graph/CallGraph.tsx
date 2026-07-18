@@ -19,6 +19,7 @@ import {
   MiniMap,
   Position,
   ReactFlow,
+  ReactFlowProvider,
   type Edge,
   type Node,
 } from "@xyflow/react";
@@ -139,6 +140,8 @@ function ToggleButton({
   onClick,
   loading,
   bwdChecked,
+  hasPotentialExternal,
+  totalAvailable,
 }: {
   direction: "down" | "up";
   pendingCount: number;
@@ -146,41 +149,47 @@ function ToggleButton({
   onClick: (e: React.MouseEvent) => void;
   loading?: boolean;
   bwdChecked?: boolean;
+  /** 节点是否在预计算索引中有外部 caller（用于区分"无外部调用者"和"未检查"） */
+  hasPotentialExternal?: boolean;
+  /** 该方向总共有多少个外部节点（含已展开的），用于显示"全部"提示 */
+  totalAvailable?: number;
 }) {
-  const isUpWithNoData = direction === "up" && pendingCount === 0 && expandedCount === 0 && !bwdChecked;
-  // 已检查过但无外部调用者 → 隐藏按钮
   const isEmptyChecked = direction === "up" && bwdChecked && pendingCount === 0 && expandedCount === 0;
-  if (isEmptyChecked) return null;
-  if (!isUpWithNoData && !loading && pendingCount === 0 && expandedCount === 0) return null;
+  // 预计算索引中也没有外部 caller → 隐藏按钮（不是"未检查"，而是真的没有）
+  const hasNoExternalAtAll = direction === "up" && pendingCount === 0 && expandedCount === 0 && !bwdChecked && !hasPotentialExternal;
+  if (isEmptyChecked || hasNoExternalAtAll) return null;
+  // 无待展开、无已展开、非加载中 → 隐藏按钮
+  if (!loading && pendingCount === 0 && expandedCount === 0) return null;
 
   const isExpanded = expandedCount > 0 && pendingCount === 0;
   const isPartial = pendingCount > 0 && expandedCount > 0;
-  const color = isExpanded ? "#ef4444" : isPartial ? "#f59e0b" : loading ? "#6b7280" : "#3b82f6";
+  const color = isExpanded ? "var(--color-status-error)" : isPartial ? "var(--color-status-warning)" : loading ? "var(--text-muted)" : "var(--color-brand)";
   const icon = direction === "down" ? "▼" : "▲";
   let displayCount: string | number = isExpanded ? expandedCount : pendingCount;
-  if (isUpWithNoData && !loading) {
-    displayCount = "?";
-  } else if (loading) {
+  if (loading) {
     displayCount = "…";
   }
+
+  // 构建标题：当待展开数 > 单次上限时，提示 Shift+Click 可展开全部
+  const loadAllHint = totalAvailable && pendingCount > MAX_EXTERNAL_PER_EXPANSION
+    ? `（Shift+点击展开全部 ${totalAvailable} 个）`
+    : "";
   let title: string;
   if (direction === "down") {
     if (isExpanded) {
       title = `已展开 ${expandedCount} 个外部调用，点击折叠（原路按步折叠）`;
     } else {
       const extra = expandedCount > 0 ? `（已展开 ${expandedCount}）` : "";
-      title = `待展开 ${pendingCount} 个外部调用${extra}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）`;
+      title = `待展开 ${pendingCount} 个外部调用${extra}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）${loadAllHint}`;
     }
   } else {
     if (isExpanded) {
       title = `已展开 ${expandedCount} 个外部调用者，点击折叠（原路按步折叠）`;
     } else if (loading) {
       title = "加载中...";
-    } else if (isUpWithNoData) {
-      title = "点击加载外部调用者（需 API 调用）";
     } else {
       const extra = expandedCount > 0 ? `（已展开 ${expandedCount}）` : "";
-      title = `待展开 ${pendingCount} 个外部调用者${extra}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）`;
+      title = `待展开 ${pendingCount} 个外部调用者${extra}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）${loadAllHint}`;
     }
   }
 
@@ -190,14 +199,13 @@ function ToggleButton({
         e.stopPropagation();
         if (typeof onClick === "function" && !loading) onClick(e);
       }}
-      className={`absolute flex items-center justify-center rounded-full text-[9px] font-bold ${loading ? "cursor-wait" : "cursor-pointer hover:scale-110"} transition-transform z-20`}
+      className={`absolute flex items-center justify-center rounded-full text-[9px] font-bold ${loading ? "cursor-wait" : "cursor-pointer hover:scale-110"} transition-transform z-20 shadow-md`}
       style={{
         backgroundColor: color,
         color: "#ffffff",
-        border: "1.5px solid #ffffff",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
-        width: 18,
-        height: 18,
+        border: "1.5px solid hsla(0 0% 100% / 0.8)",
+        width: 20,
+        height: 20,
         [direction === "down" ? "bottom" : "top"]: -8,
         right: -8,
       }}
@@ -235,11 +243,11 @@ function CallGraphNode({ data, selected }: any) {
         style={{
           width: 80,
           height: 28,
-          backgroundColor: "rgba(107, 114, 128, 0.08)",
-          border: "1px dashed rgba(107, 114, 128, 0.3)",
+          backgroundColor: "hsla(215 10% 47% / 0.08)",
+          border: "1px dashed hsla(215 10% 47% / 0.3)",
           borderRadius: 4,
           fontSize: 10,
-          color: "rgba(255, 255, 255, 0.5)",
+          color: "var(--text-muted)",
           fontWeight: 400,
         }}
         onMouseEnter={() => setHovered(true)}
@@ -249,7 +257,7 @@ function CallGraphNode({ data, selected }: any) {
         {hovered && (
           <div
             className="absolute z-50 bottom-full left-1/2 mb-2 px-2 py-1 text-xs whitespace-nowrap rounded shadow-lg pointer-events-none"
-            style={{ transform: "translateX(-50%)", backgroundColor: "#1f2937", color: "#e5e7eb" }}
+            style={{ transform: "translateX(-50%)", backgroundColor: "var(--bg-card)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
           >
             {buildNodeTooltip(data)}
           </div>
@@ -258,13 +266,13 @@ function CallGraphNode({ data, selected }: any) {
           id="source-0"
           type="source"
           position={Position.Bottom}
-          style={{ background: "rgba(107, 114, 128, 0.5)", width: 6, height: 6 }}
+          style={{ background: "var(--text-muted)", width: 6, height: 6 }}
         />
         <Handle
           id="target-0"
           type="target"
           position={Position.Top}
-          style={{ background: "rgba(107, 114, 128, 0.5)", width: 6, height: 6 }}
+          style={{ background: "var(--text-muted)", width: 6, height: 6 }}
         />
       </motion.div>
     );
@@ -282,13 +290,13 @@ function CallGraphNode({ data, selected }: any) {
       className="relative px-3 py-2 text-center font-medium cursor-pointer"
       style={{
         backgroundColor: data.isCurrentFile
-          ? (isClass ? "rgba(236, 72, 153, 0.15)" : data.color)
-          : "rgba(107, 114, 128, 0.25)",
-        borderColor: selected ? "#3b82f6" : (data.isCurrentFile ? data.borderColor : "#6b7280"),
+          ? (isClass ? "hsla(330 81% 60% / 0.15)" : data.color)
+          : "hsla(215 10% 47% / 0.25)",
+        borderColor: selected ? "var(--color-status-info)" : (data.isCurrentFile ? data.borderColor : "var(--border)"),
         borderWidth: selected ? 3 : (isClass ? 2 : isMember ? 2.5 : 2),
         borderStyle: data.isCurrentFile ? "solid" : "dashed",
-        borderRadius: 8,
-        color: "#ffffff",
+        borderRadius: 10,
+        color: "var(--text-primary)",
         fontSize: data.label.length > 14 ? 12 : 14,
         fontWeight: isClass ? 700 : 600,
         letterSpacing: data.label.length > 14 ? -0.5 : 0,
@@ -299,31 +307,35 @@ function CallGraphNode({ data, selected }: any) {
         alignItems: "center",
         justifyContent: "center",
         gap: 0,
-        boxShadow: selected ? "0 0 0 2px rgba(59, 130, 246, 0.3)" : "none",
+        boxShadow: selected ? "var(--glow-focus)" : "0 1px 3px rgba(0,0,0,0.08)",
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {!data.isFocusedMode && (
-        <>
-          {/* ▼ 向下展开/折叠按钮（callee 方向） */}
-          <ToggleButton
-            direction="down"
-            pendingCount={data.pendingFwd || 0}
-            expandedCount={data.expandedFwdCount || 0}
-            onClick={data.onToggleFwd}
-          />
-          {/* ▲ 向上展开/折叠按钮（caller 方向） */}
-          <ToggleButton
-            direction="up"
-            pendingCount={data.pendingBwd || 0}
-            expandedCount={data.expandedBwdCount || 0}
-            onClick={data.onToggleBwd}
-            loading={data.bwdLoading}
-            bwdChecked={data.bwdChecked}
-          />
-        </>
-      )}
+      {/* ▼ 向下展开/折叠按钮（callee 方向） */}
+      <ToggleButton
+        direction="down"
+        pendingCount={data.pendingFwd || 0}
+        expandedCount={data.expandedFwdCount || 0}
+        onClick={data.onToggleFwd}
+      />
+      {/* ▲ 向上展开/折叠按钮（caller 方向） */}
+      <ToggleButton
+        direction="up"
+        pendingCount={data.pendingBwd || 0}
+        expandedCount={data.expandedBwdCount || 0}
+        onClick={(e) => {
+          if (e.shiftKey && data.onToggleBwdAll) {
+            data.onToggleBwdAll(e);
+          } else {
+            data.onToggleBwd(e);
+          }
+        }}
+        loading={data.bwdLoading}
+        bwdChecked={data.bwdChecked}
+        hasPotentialExternal={data.hasPotentialExternal}
+        totalAvailable={data.totalAvailableBwd}
+      />
 
       <div className="flex items-center gap-1" style={{ marginTop: data.isCurrentFile ? 0 : -4 }}>
         <span className="text-xs opacity-75">{data.icon}</span>
@@ -343,9 +355,9 @@ function CallGraphNode({ data, selected }: any) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              data.onNavigate({ component: "structure", nodeId: data.label, label: data.label, detail: "代码结构" });
+              data.onNavigate({ component: "structure", fileId: data.fileId, nodeId: data.label, label: data.label, detail: "代码结构" });
             }}
-            className="text-[9px] px-1 py-0.5 rounded bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
+            className="text-[9px] px-1 py-0.5 rounded bg-brand/10 text-brand hover:bg-brand/20 transition-colors"
             title="查看代码结构"
           >
             ◆结构
@@ -549,6 +561,7 @@ async function buildGraphData(
           isClass: false,
           isMember: false,
           isCurrentFile: true,
+          fileId: astNode.fileId,
           filePath: astNode.filePath,
           callsMade: outDegree.get(nodeId) || 0,
           callsReceived: inDegree.get(nodeId) || 0,
@@ -583,6 +596,7 @@ async function buildGraphData(
         isClass,
         isMember,
         isCurrentFile: astNode.fileId === currentFileId,
+        fileId: astNode.fileId,
         filePath: astNode.filePath,
         callsMade: outDegree.get(nodeId) || 0,
         callsReceived: inDegree.get(nodeId) || 0,
@@ -638,7 +652,7 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors px-2 py-1 rounded hover:bg-gray-100"
+        className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors px-2 py-1 rounded-md hover:bg-[var(--bg-hover)]"
       >
         <span>图例</span>
         <span className="text-[9px]">{open ? "▲" : "▼"}</span>
@@ -646,13 +660,13 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-4 min-w-[280px]">
+          <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-card)] rounded-lg shadow-xl border border-[var(--border)] p-4 min-w-[280px]">
             <div className="space-y-3">
               <div>
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">节点类型</p>
+                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">节点类型</p>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1">
                   {Object.entries(NODE_TYPE_CONFIG).map(([type, config]) => (
-                    <span key={type} className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <span key={type} className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                       <span className="w-2.5 h-2.5 rounded flex-shrink-0" style={{ backgroundColor: config.color }} />
                       <span>{config.label}</span>
                     </span>
@@ -660,10 +674,10 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
                 </div>
               </div>
               <div>
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">调用类型</p>
+                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">调用类型</p>
                 <div className="space-y-1">
                   {["static", "dynamic", "unknown"].map((type) => (
-                    <span key={type} className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                    <span key={type} className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                       <span className="w-6 h-0.5 flex-shrink-0" style={{
                         backgroundColor: CALL_TYPE_STYLES[type].stroke,
                         ...(CALL_TYPE_STYLES[type].strokeDasharray ? { borderTop: `1px dashed ${CALL_TYPE_STYLES[type].stroke}`, backgroundColor: "transparent" } : {}),
@@ -674,25 +688,25 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
                 </div>
               </div>
               <div>
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">交互说明</p>
+                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">交互说明</p>
                 <div className="space-y-1">
-                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "#3b82f6", color: "#fff", width: 16, height: 16 }}>▼N</span>
-                    <span>蓝色 ▼N：N 个外部调用可展开</span>
+                  <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                    <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "var(--color-brand)", color: "#fff", width: 16, height: 16 }}>▼N</span>
+                    <span>品牌色 ▼N：N 个外部调用可展开</span>
                   </span>
-                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "#ef4444", color: "#fff", width: 16, height: 16 }}>▼N</span>
+                  <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                    <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "var(--color-status-error)", color: "#fff", width: 16, height: 16 }}>▼N</span>
                     <span>红色 ▼N：已展开 N 个，点击折叠</span>
                   </span>
-                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "#3b82f6", color: "#fff", width: 16, height: 16 }}>▲N</span>
-                    <span>蓝色 ▲N：N 个外部调用者可展开</span>
+                  <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                    <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "var(--color-brand)", color: "#fff", width: 16, height: 16 }}>▲N</span>
+                    <span>品牌色 ▲N：N 个外部调用者可展开</span>
                   </span>
-                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                    <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "#ef4444", color: "#fff", width: 16, height: 16 }}>▲N</span>
+                  <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                    <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "var(--color-status-error)", color: "#fff", width: 16, height: 16 }}>▲N</span>
                     <span>红色 ▲N：已展开 N 个，点击折叠</span>
                   </span>
-                  <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                  <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                     <span className="text-[10px] flex-shrink-0">点击节点</span>
                     <span>切换聚焦模式</span>
                   </span>
@@ -759,6 +773,9 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
     astNodeMap: Map<string, any>;
   } | null>(null);
 
+  const reactFlowRef = useRef<any>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
@@ -782,6 +799,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       setExpandedBwdByNode(new Map());
       setPendingBwdByNode(new Map());
       pendingFwdByNodeRef.current = new Map();
+      bwdCheckedSetRef.current = new Set();
       setExternalCallerNodes(new Map());
       setExternalCallerEdges(new Map());
       return;
@@ -866,16 +884,6 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
   }, []);
 
   /**
-   * 计算所有已展开的外部节点总数
-   */
-  const countAllExpanded = useCallback((fwd: Map<string, Set<string>>, bwd: Map<string, Set<string>>): number => {
-    let count = 0;
-    for (const set of fwd.values()) count += set.size;
-    for (const set of bwd.values()) count += set.size;
-    return count;
-  }, []);
-
-  /**
    * 计算 displayedNodeCount（用于上限检查）
    */
   const displayedNodeCount = useMemo(() => {
@@ -889,6 +897,12 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
     for (const set of expandedBwdByNode.values()) count += set.size;
     return count;
   }, [graphData, expandedFwdByNode, expandedBwdByNode]);
+
+  // 同步 displayedNodeCountRef 与最新 state，避免异步闭包过期值
+  const displayedNodeCountRef = useRef(0);
+  useEffect(() => {
+    displayedNodeCountRef.current = displayedNodeCount;
+  }, [displayedNodeCount]);
 
   /**
    * 收集 fwd 方向所有后代节点 ID（递归）
@@ -963,12 +977,9 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       setExpandedFwdByNode((prev) => {
         const next = new Map(prev);
         const current = new Set(next.get(nodeId) || []);
-        const totalAfterExpand = countAllExpanded(next, expandedBwdByNode) + displayedNodeCount;
-        const allowed = Math.min(
-          MAX_EXTERNAL_PER_EXPANSION,
-          remaining.length,
-          Math.max(0, MAX_TOTAL_NODES - totalAfterExpand)
-        );
+        const maxToAdd = Math.min(MAX_EXTERNAL_PER_EXPANSION, remaining.length);
+        const spaceLeft = MAX_TOTAL_NODES - displayedNodeCountRef.current;
+        const allowed = Math.min(maxToAdd, Math.max(0, spaceLeft));
         if (allowed <= 0) {
           setGlobalError(`已达节点数上限（${MAX_TOTAL_NODES}），请先折叠部分节点`);
           return prev;
@@ -996,37 +1007,49 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         return next;
       });
     });
-  }, [expandedFwdByNode, expandedBwdByNode, displayedNodeCount, countAllExpanded, collapseFwdRecursive, collectFwdDescendants, startExitAnimation]);
+  }, [expandedFwdByNode, collapseFwdRecursive, collectFwdDescendants, startExitAnimation]);
 
   /**
    * 向上展开/折叠 toggle（caller 方向，需 API 调用）
    *
-   * - 首次：调用 getCallers API 获取外部 caller，存入 pendingBwdByNode
+   * pendingBwdByNode 语义：每个节点存储的是"尚未显示的外部 caller ID 列表"
+   * （已展开的不在其中）。这样第二次点击时 remaining = pending.length 就是正确的增量。
+   *
+   * - 首次：调用 getCallers API 获取外部 caller，将未显示的存入 pendingBwdByNode
    * - 有 pending：批量展开最多 MAX_EXTERNAL_PER_EXPANSION 个外部 caller
    * - 已展开（无 pending）：折叠该节点的 bwd 子树（原路按步折叠，递归移除后代）
    */
   const toggleBwd = useCallback(async (nodeId: string) => {
-    // === Collapse path: already checked + nothing remaining to expand ===
+    // === Collapse path: checked + nothing remaining to expand ===
     const bwdExpanded = expandedBwdByNode.get(nodeId) || new Set();
     const bwdPendingList = pendingBwdByNode.get(nodeId);
     const isChecked = bwdPendingList !== undefined;
-    const hasRemaining = isChecked && bwdPendingList.some(id => !bwdExpanded.has(id));
-    const alreadyFullyExpanded = isChecked && bwdExpanded.size > 0 && !hasRemaining;
+    const hasRemaining = isChecked && bwdPendingList.length > 0;
+    const shouldCollapse = isChecked && !hasRemaining && bwdExpanded.size > 0;
 
-    if (alreadyFullyExpanded) {
-      // 折叠：收集所有 bwd 后代，播放退出动画，再真正移除
+    if (shouldCollapse) {
+      // 折叠前先标记为已检查，防止折叠后显示 "?"
+      bwdCheckedSetRef.current.add(nodeId);
+      // 收集所有 bwd 后代，播放退出动画，再真正移除
       const toRemove = collectBwdDescendants(expandedBwdByNode, nodeId);
-      const directParents = expandedBwdByNode.get(nodeId);
-      if (directParents) for (const id of directParents) toRemove.add(id);
       startExitAnimation(toRemove, () => {
         setExpandedBwdByNode((prev) => {
           const next = new Map(prev);
           collapseBwdRecursive(next, nodeId);
           return next;
         });
+        // 移除 pendingBwdByNode 条目，让预计算索引重新填充计数
+        setPendingBwdByNode((prev) => {
+          const next = new Map(prev);
+          next.delete(nodeId);
+          return next;
+        });
       });
       return;
     }
+
+    // 标记当前节点为已检查（无论 API 结果如何），防止折叠后显示 "?"
+    bwdCheckedSetRef.current.add(nodeId);
 
     setBwdLoadingSet((prev) => new Set(prev).add(nodeId));
     try {
@@ -1049,16 +1072,22 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
 
       const externalCallerIds = externalCallers.map((item: any) => item.caller?.id).filter(Boolean) as string[];
 
-      // 无论有无外部 caller，都更新 pendingBwdByNode（空数组表示"已检查，无调用者"）
-      // Also mark fetched external caller nodes as "checked" so their ▲ button doesn't show "?"
+      // 标记已检查 + 将 fetched 的子节点也标记为已检查
       for (const itemId of externalCallerIds) {
         bwdCheckedSetRef.current.add(itemId);
       }
+
+      // pendingBwdByNode 只存"尚未显示"的 caller（已展开的不在里面）
+      const currentExpanded = expandedBwdByNode.get(nodeId) || new Set();
+      const unshownCallers = externalCallerIds.filter(id => !currentExpanded.has(id));
       setPendingBwdByNode((prev) => {
         const next = new Map(prev);
-        next.set(nodeId, externalCallerIds);
+        next.set(nodeId, unshownCallers);
         return next;
       });
+
+      // 存储全部 API caller ID 列表（用于折叠后重新计算 pending 计数）
+      apiBwdByNodeRef.current.set(nodeId, externalCallerIds);
 
       // 存入 externalCallerNodes 和 externalCallerEdges
       if (externalCallers.length > 0 && isMountedRef.current) {
@@ -1096,21 +1125,19 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         });
 
         // 有外部 caller 时自动展开
+        if (unshownCallers.length === 0) return;
         setExpandedBwdByNode((prev) => {
           const next = new Map(prev);
           const current = new Set(next.get(nodeId) || []);
-          const totalAfterExpand = countAllExpanded(expandedFwdByNode, next) + displayedNodeCount;
-          const allowed = Math.min(
-            MAX_EXTERNAL_PER_EXPANSION,
-            externalCallerIds.length,
-            Math.max(0, MAX_TOTAL_NODES - totalAfterExpand)
-          );
-          if (allowed <= 0) {
+          const maxToAdd = Math.min(MAX_EXTERNAL_PER_EXPANSION, unshownCallers.length);
+          const spaceLeft = MAX_TOTAL_NODES - displayedNodeCountRef.current;
+          if (spaceLeft <= 0) {
             setGlobalError(`已达节点数上限（${MAX_TOTAL_NODES}），请先折叠部分节点`);
             return prev;
           }
+          const allowed = Math.min(maxToAdd, spaceLeft);
           for (let i = 0; i < allowed; i++) {
-            current.add(externalCallerIds[i]);
+            current.add(unshownCallers[i]);
           }
           next.set(nodeId, current);
           return next;
@@ -1129,7 +1156,117 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         });
       }
     }
-  }, [expandedFwdByNode, expandedBwdByNode, pendingBwdByNode, displayedNodeCount, countAllExpanded, collapseBwdRecursive, collectBwdDescendants, startExitAnimation]);
+  }, [expandedBwdByNode, pendingBwdByNode, collapseBwdRecursive, collectBwdDescendants, startExitAnimation]);
+
+  /**
+   * 一次性展开所有剩余外部 caller（Shift+Click 或 toolbar 按钮）
+   */
+  const toggleBwdAll = useCallback(async (nodeId: string) => {
+    setBwdLoadingSet((prev) => new Set(prev).add(nodeId));
+    try {
+      const { getCallers } = await import("@/api/call-edges");
+      const callers = await getCallers(nodeId).catch((e) => {
+        console.error("getCallers error:", e);
+        return [];
+      }) as any[];
+
+      const currentFileAstNodeIds = new Set<string>();
+      for (const n of (graphDataRef.current?.nodes || [])) {
+        const d = n.data as any;
+        if (d?.isCurrentFile || d?.isCallSite) currentFileAstNodeIds.add(n.id);
+      }
+      const externalCallers = callers.filter((item: any) => {
+        const caller = item.caller;
+        if (!caller) return false;
+        return !currentFileAstNodeIds.has(caller.id);
+      });
+
+      const externalCallerIds = externalCallers.map((item: any) => item.caller?.id).filter(Boolean) as string[];
+
+      // 标记已检查 + 子节点
+      for (const itemId of externalCallerIds) {
+        bwdCheckedSetRef.current.add(itemId);
+      }
+
+      // 将未显示的存入 pendingBwdByNode（语义：只存未显示的）
+      const currentExpanded = expandedBwdByNode.get(nodeId) || new Set();
+      const unshownCallers = externalCallerIds.filter(id => !currentExpanded.has(id));
+      setPendingBwdByNode((prev) => {
+        const next = new Map(prev);
+        next.set(nodeId, unshownCallers);
+        return next;
+      });
+
+      // 存储全部 API caller ID 列表
+      apiBwdByNodeRef.current.set(nodeId, externalCallerIds);
+
+      // 存入 externalCallerNodes/Edges
+      if (externalCallers.length > 0 && isMountedRef.current) {
+        setExternalCallerNodes((prev) => {
+          const next = new Map(prev);
+          for (const item of externalCallers) {
+            const caller = item.caller;
+            if (caller) next.set(caller.id, caller);
+          }
+          return next;
+        });
+        setExternalCallerEdges((prev) => {
+          const next = new Map(prev);
+          for (const item of externalCallers) {
+            const caller = item.caller;
+            if (caller) {
+              const edgeId = `bwd-${caller.id}-${nodeId}`;
+              const style = CALL_TYPE_STYLES[item.call_type] || CALL_TYPE_STYLES.unknown;
+              next.set(edgeId, {
+                id: edgeId,
+                source: caller.id,
+                target: nodeId,
+                type: "smoothstep",
+                animated: item.call_type === "dynamic",
+                style: { stroke: style.stroke, strokeDasharray: style.strokeDasharray, strokeWidth: style.width },
+                label: undefined,
+                labelStyle: { opacity: 0 },
+                labelBgStyle: { opacity: 0 },
+                data: { callName: item.call_name, callCount: 1 },
+                markerEnd: { type: "arrowclosed", width: 10, height: 10, color: style.stroke },
+              });
+            }
+          }
+          return next;
+        });
+
+        // 一次性全部展开
+        if (unshownCallers.length === 0) return;
+        setExpandedBwdByNode((prev) => {
+          const next = new Map(prev);
+          const current = new Set(next.get(nodeId) || []);
+          const spaceLeft = MAX_TOTAL_NODES - displayedNodeCountRef.current;
+          if (spaceLeft <= 0) {
+            setGlobalError(`已达节点数上限（${MAX_TOTAL_NODES}），请先折叠部分节点`);
+            return prev;
+          }
+          const allowed = Math.min(unshownCallers.length, spaceLeft);
+          for (let i = 0; i < allowed; i++) {
+            current.add(unshownCallers[i]);
+          }
+          next.set(nodeId, current);
+          return next;
+        });
+        setGlobalError(null);
+      }
+    } catch (e) {
+      console.error("toggleBwdAll fetch error:", e);
+      setGlobalError("获取外部调用者失败");
+    } finally {
+      if (isMountedRef.current) {
+        setBwdLoadingSet((prev) => {
+          const next = new Set(prev);
+          next.delete(nodeId);
+          return next;
+        });
+      }
+    }
+  }, [expandedBwdByNode]);
 
   /**
    * 计算每个节点的 pendingFwd/pendingBwd/expandedFwdCount/expandedBwdCount，
@@ -1161,14 +1298,23 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
     }
 
     for (const [callerId, allCallers] of pendingBwdByNode) {
-      const expanded = expandedBwdByNode.get(callerId) || new Set();
-      const remaining = allCallers.filter(id => !expanded.has(id));
-      pendingBwdCountByNode.set(callerId, remaining.length);
-      expandedBwdCountByNode.set(callerId, expanded.size);
+      // pendingBwdByNode 现在只存"尚未显示"的 caller，所以直接取长度
+      pendingBwdCountByNode.set(callerId, allCallers.length);
+      expandedBwdCountByNode.set(callerId, (expandedBwdByNode.get(callerId) || new Set()).size);
     }
 
     // 未通过 API 检查过的节点：用预计算的外部 caller 索引给出实际计数
     for (const [callerId, allCallers] of prebuiltBwdByNodeRef.current) {
+      if (!pendingBwdCountByNode.has(callerId)) {
+        const expanded = expandedBwdByNode.get(callerId) || new Set();
+        const remaining = allCallers.filter(id => !expanded.has(id));
+        pendingBwdCountByNode.set(callerId, remaining.length);
+        expandedBwdCountByNode.set(callerId, expanded.size);
+      }
+    }
+
+    // API 获取的外部 caller：用于折叠后重新计算 pending 计数
+    for (const [callerId, allCallers] of apiBwdByNodeRef.current) {
       if (!pendingBwdCountByNode.has(callerId)) {
         const expanded = expandedBwdByNode.get(callerId) || new Set();
         const remaining = allCallers.filter(id => !expanded.has(id));
@@ -1199,6 +1345,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         const expandedBwdCount = expandedBwdCountByNode.get(node.id) || 0;
         const bwdLoading = bwdLoadingSet.has(node.id);
         const bwdChecked = bwdCheckedSetRef.current.has(node.id);
+        const hasPotentialExternal = prebuiltBwdByNodeRef.current.has(node.id);
         const isExiting = exitingNodeIds.has(node.id);
         return {
           ...node,
@@ -1210,6 +1357,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
             expandedBwdCount,
             bwdLoading,
             bwdChecked,
+            hasPotentialExternal,
             isExiting,
             isFocusedMode: true,
             onToggleFwd: (e: React.MouseEvent) => {
@@ -1220,6 +1368,11 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
               e.stopPropagation();
               toggleBwd(node.id);
             },
+            onToggleBwdAll: (e: React.MouseEvent) => {
+              e.stopPropagation();
+              toggleBwdAll(node.id);
+            },
+            totalAvailableBwd: prebuiltBwdByNodeRef.current.get(node.id)?.length || 0,
           },
         };
       });
@@ -1271,6 +1424,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         const expandedBwdCount = expandedBwdCountByNode.get(node.id) || 0;
         const bwdLoading = bwdLoadingSet.has(node.id);
         const bwdChecked = bwdCheckedSetRef.current.has(node.id);
+        const hasPotentialExternal = prebuiltBwdByNodeRef.current.has(node.id);
         const isExiting = exitingNodeIds.has(node.id);
         visibleNodes.push({
           ...node,
@@ -1283,6 +1437,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
             expandedBwdCount,
             bwdLoading,
             bwdChecked,
+            hasPotentialExternal,
             isExiting,
             onToggleFwd: (e: React.MouseEvent) => {
               e.stopPropagation();
@@ -1292,6 +1447,11 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
               e.stopPropagation();
               toggleBwd(node.id);
             },
+            onToggleBwdAll: (e: React.MouseEvent) => {
+              e.stopPropagation();
+              toggleBwdAll(node.id);
+            },
+            totalAvailableBwd: prebuiltBwdByNodeRef.current.get(node.id)?.length || 0,
           },
         });
       }
@@ -1375,6 +1535,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
               isClass: CLASS_TYPES.has(callerData.node_type),
               isMember: MEMBER_TYPES.has(callerData.node_type),
               isCurrentFile: false,
+              fileId: callerData.file_id || callerData.id,
               filePath: callerData.file_path,
               callsMade: 0,
               callsReceived: 0,
@@ -1384,6 +1545,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
               expandedBwdCount: expandedBwdCountByNode.get(id) || 0,
               bwdLoading: bwdLoadingSet.has(id),
               bwdChecked: bwdCheckedSetRef.current.has(id),
+              hasPotentialExternal: prebuiltBwdByNodeRef.current.has(id),
               isExiting,
               onToggleFwd: (e: React.MouseEvent) => {
                 e.stopPropagation();
@@ -1393,6 +1555,11 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
                 e.stopPropagation();
                 toggleBwd(id);
               },
+              onToggleBwdAll: (e: React.MouseEvent) => {
+                e.stopPropagation();
+                toggleBwdAll(id);
+              },
+              totalAvailableBwd: prebuiltBwdByNodeRef.current.get(id)?.length || 0,
             },
           });
         }
@@ -1413,7 +1580,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
     }
 
     return { nodes: visibleNodes, edges: visibleEdges };
-  }, [graphData, focusedNodeId, expandedFwdByNode, expandedBwdByNode, exitingNodeIds, externalCallerNodes, externalCallerEdges, toggleFwd, toggleBwd, bwdLoadingSet, pendingBwdByNode]);
+  }, [graphData, focusedNodeId, expandedFwdByNode, expandedBwdByNode, exitingNodeIds, externalCallerNodes, externalCallerEdges, toggleFwd, toggleBwd, toggleBwdAll, bwdLoadingSet, pendingBwdByNode]);
 
   // 边 hover 事件
   const onEdgeMouseEnter = useCallback((_: React.MouseEvent, edge: Edge) => {
@@ -1507,12 +1674,12 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       const expanded = expandedFwdByNode.get(callerId) || new Set();
       sum += allCallees.filter(id => !expanded.has(id)).length;
     }
-    for (const [callerId, allCallers] of pendingBwdByNode) {
-      const expanded = expandedBwdByNode.get(callerId) || new Set();
-      sum += allCallers.filter(id => !expanded.has(id)).length;
+    for (const allCallers of pendingBwdByNode.values()) {
+      // pendingBwdByNode 现在只存未显示的 caller，直接累加长度
+      sum += allCallers.length;
     }
     return sum;
-  }, [expandedFwdByNode, expandedBwdByNode, pendingBwdByNode]);
+  }, [expandedFwdByNode, pendingBwdByNode]);
 
   const totalExpanded = useMemo(() => {
     let sum = 0;
@@ -1538,12 +1705,36 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
     });
   }, [expandedFwdByNode, expandedBwdByNode, startExitAnimation]);
 
+  // 当前文件节点列表（用于侧边栏快速定位导航）
+  const currentFileNodeList = useMemo(() => {
+    return displayedNodes.filter((node) => {
+      const d = node.data as any;
+      return d?.isCurrentFile || d?.isCallSite;
+    }).map((node) => ({
+      id: node.id,
+      label: (node.data as any)?.label || "",
+      nodeType: (node.data as any)?.nodeType || "",
+      nodeTypeLabel: (node.data as any)?.nodeTypeLabel || "",
+      icon: (node.data as any)?.icon || "",
+    }));
+  }, [displayedNodes]);
+
+  const handleNodeLocate = useCallback((nodeId: string) => {
+    if (reactFlowRef.current) {
+      reactFlowRef.current.setCenter(
+        displayedNodes.find(n => n.id === nodeId)?.position.x || 0,
+        displayedNodes.find(n => n.id === nodeId)?.position.y || 0,
+        { zoom: 1.5, duration: 500 }
+      );
+    }
+  }, [displayedNodes]);
+
   return (
     <div className="h-full flex flex-col">
       {isLoading ? (
         <div className="h-full flex items-center justify-center">
           <div className="text-center">
-            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
             <p className="text-sm text-[var(--text-muted)]">加载调用图...</p>
           </div>
         </div>
@@ -1556,14 +1747,14 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       ) : (
         <>
           {/* 顶部工具栏 */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-white/50 backdrop-blur flex-shrink-0">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)] bg-[var(--bg-card)]/50 backdrop-blur flex-shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               {focusedNodeId ? (
                 <>
                   <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">聚焦模式</span>
                   <button
                     onClick={() => setSelectedNodeForChain(focusedNodeId)}
-                    className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors font-medium whitespace-nowrap"
+                    className="text-xs px-2 py-1 rounded-md bg-brand/10 text-brand hover:bg-brand/20 transition-colors font-medium whitespace-nowrap"
                   >
                     🔗 查看调用链
                   </button>
@@ -1577,13 +1768,13 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
                   {totalExpanded > 0 && (
                     <button
                       onClick={collapseAll}
-                      className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors font-medium whitespace-nowrap"
+                      className="text-xs px-2 py-0.5 rounded-md bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--bg-card)] transition-colors font-medium whitespace-nowrap"
                     >
                       收起全部 ({totalExpanded})
                     </button>
                   )}
                   {totalPending > 0 && (
-                    <span className="text-xs text-blue-500 whitespace-nowrap">
+                    <span className="text-xs text-brand whitespace-nowrap">
                       待展开: {totalPending}
                     </span>
                   )}
@@ -1595,42 +1786,98 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
 
           {/* 全局错误提示 */}
           {globalError && (
-            <div className="px-4 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-700 flex items-center justify-between">
+            <div className="px-4 py-2 bg-status-warning/10 border-b border-status-warning/30 text-xs text-status-warning flex items-center justify-between">
               <span>⚠ {globalError}</span>
               <button
                 onClick={() => setGlobalError(null)}
-                className="text-amber-500 hover:text-amber-700 ml-2"
+                className="text-status-warning hover:text-status-error ml-2"
               >✕</button>
             </div>
           )}
 
           {/* ReactFlow 图 */}
-          <div className="flex-1">
-            <ReactFlow
-              nodes={displayedNodes}
-              edges={finalEdges}
-              nodeTypes={nodeTypes}
-              onNodeClick={onNodeClick}
-              onNodeContextMenu={onNodeContextMenu}
-              onPaneClick={onPaneClick}
-              onEdgeMouseEnter={onEdgeMouseEnter}
-              onEdgeMouseLeave={onEdgeMouseLeave}
-              fitView
-              minZoom={0.1}
-              maxZoom={3}
-              defaultViewport={{ x: 0, y: 0, zoom: 0.65 }}
-            >
-              <Background color="#e5e7eb" gap={16} />
-              <Controls />
-              <MiniMap
-                pannable
-                zoomable
-                nodeColor={(node) => {
-                  const nodeType = (node.data as any)?.nodeType || "function";
-                  return NODE_TYPE_CONFIG[nodeType]?.color || "#6b7280";
-                }}
-              />
-            </ReactFlow>
+          <div className="flex-1 flex relative">
+            {/* 悬浮球快速定位导航 */}
+            {currentFileNodeList.length > 0 && (
+              <>
+                <div className="absolute left-3 top-3 z-50">
+                  <button
+                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                    className="flex items-center justify-center w-8 h-8 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] shadow-lg transition-all duration-200 cursor-pointer hover:scale-110"
+                    title={sidebarOpen ? "收起节点列表" : "展开节点列表"}
+                  >
+                    <span className="text-xs font-bold leading-none">
+                      {sidebarOpen ? "✕" : currentFileNodeList.length}
+                    </span>
+                  </button>
+                  {sidebarOpen && (
+                    <>
+                      {/* 点击外部关闭 */}
+                      <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />
+                      <div className="absolute left-10 top-0 z-50 w-52 max-h-[60vh] bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden">
+                        <div className="px-3 py-2 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg-hover)]">
+                          <span>本文件节点</span>
+                          <span className="text-[9px] font-normal normal-case">{currentFileNodeList.length}</span>
+                        </div>
+                        <div className="overflow-y-auto max-h-[calc(60vh-32px)] py-1">
+                          {currentFileNodeList.map((node) => {
+                            const config = NODE_TYPE_CONFIG[node.nodeType];
+                            return (
+                              <button
+                                key={node.id}
+                                onClick={() => {
+                                  handleNodeLocate(node.id);
+                                  setSidebarOpen(false);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
+                                title={`定位到 ${node.label}`}
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: config?.color || "#6b7280" }}
+                                />
+                                <span className="truncate">{node.label}</span>
+                                {config?.icon && (
+                                  <span className="text-[9px] opacity-50 flex-shrink-0 ml-auto">{config.icon}</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+            <ReactFlowProvider>
+              <ReactFlow
+                nodes={displayedNodes}
+                edges={finalEdges}
+                nodeTypes={nodeTypes}
+                onNodeClick={onNodeClick}
+                onNodeContextMenu={onNodeContextMenu}
+                onPaneClick={onPaneClick}
+                onEdgeMouseEnter={onEdgeMouseEnter}
+                onEdgeMouseLeave={onEdgeMouseLeave}
+                onInit={(instance) => { reactFlowRef.current = instance; }}
+                fitView
+                minZoom={0.1}
+                maxZoom={3}
+                defaultViewport={{ x: 0, y: 0, zoom: 0.65 }}
+              >
+                <Background color="var(--border)" gap={16} />
+                <Controls />
+                <MiniMap
+                  pannable
+                  zoomable
+                  nodeColor={(node) => {
+                    const nodeType = (node.data as any)?.nodeType || "function";
+                    return NODE_TYPE_CONFIG[nodeType]?.color || "#6b7280";
+                  }}
+                />
+              </ReactFlow>
+            </ReactFlowProvider>
           </div>
 
           {/* 调用链面板 Modal */}

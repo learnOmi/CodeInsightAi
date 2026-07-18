@@ -140,9 +140,9 @@ function ChainNodeComponent({ data, selected }: any) {
       className="relative flex flex-col items-center justify-center cursor-pointer select-none rounded-lg"
       style={{
         width: NODE_W, height: NODE_H,
-        backgroundColor: isRoot ? `${cfg.color}20` : "rgba(243, 244, 246, 0.85)",
-        border: `2px solid ${selected ? "#3b82f6" : (hasError ? "#ef4444" : isRoot ? cfg.borderColor : "#d1d5db")}`,
-        boxShadow: selected ? "0 0 0 2px rgba(59, 130, 246, 0.3)" : "none",
+        backgroundColor: isRoot ? `${cfg.color}20` : "hsla(0 0% 100% / 0.85)",
+        border: `1.5px solid ${selected ? "var(--color-status-info)" : (hasError ? "var(--color-status-error)" : isRoot ? cfg.borderColor : "var(--border)")}`,
+        boxShadow: selected ? "0 0 0 2px hsla(217 91% 60% / 0.25)" : "0 1px 3px rgba(0,0,0,0.08)",
       }}
       title={hasError ? data.error : `${cfg.label}：${data.label}`}
     >
@@ -155,9 +155,9 @@ function ChainNodeComponent({ data, selected }: any) {
       {/* 待展开计数指示器：可点击加载更多 */}
       {hasPending && !data.loading && (
         <div
-          className="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-[9px] font-bold px-1.5 py-0.5 cursor-pointer hover:scale-110 transition-transform z-20"
+          className="absolute -top-1 -right-1 flex items-center justify-center rounded-full text-[9px] font-bold px-1.5 py-0.5 cursor-pointer hover:scale-110 transition-transform z-20 shadow-md"
           style={{
-            backgroundColor: hasError ? "#ef4444" : "#3b82f6",
+            backgroundColor: hasError ? "var(--color-status-error)" : "var(--color-brand)",
             color: "#ffffff",
           }}
           title={hasError
@@ -169,9 +169,9 @@ function ChainNodeComponent({ data, selected }: any) {
       )}
 
       <span className="text-xs font-bold" style={{ color: cfg.color }}>{cfg.icon}</span>
-      <span className="text-sm font-medium text-gray-800 truncate w-full px-2 text-center leading-tight">{data.label}</span>
+      <span className="text-sm font-medium text-[var(--text-primary)] truncate w-full px-2 text-center leading-tight">{data.label}</span>
       {data.filePath && (
-        <span className="text-[10px] text-gray-400 truncate w-full px-2 text-center leading-tight">{shortFilePath(data.filePath)}</span>
+        <span className="text-[10px] text-[var(--text-muted)] truncate w-full px-2 text-center leading-tight">{shortFilePath(data.filePath)}</span>
       )}
 
       <Handle id="source" type="source" position={Position.Bottom} style={{ background: cfg.color }} />
@@ -217,7 +217,7 @@ function ChainEdgeComponent({ sourceX, sourceY, targetX, targetY, label, data, s
       <path
         d={`M ${sourceX} ${sourceY} L ${targetX} ${targetY}`}
         fill="none" stroke={`#${color}`}
-        strokeWidth={hovered ? 3 : 2}
+        strokeWidth={hovered ? 2.5 : 1.5}
         strokeDasharray={isDynamic ? "5,5" : "0"}
         style={style}
         pointerEvents="none"
@@ -228,7 +228,7 @@ function ChainEdgeComponent({ sourceX, sourceY, targetX, targetY, label, data, s
             x={midX - 40}
             y={midY - 9}
             width={80} height={18} rx={4}
-            fill={hovered ? "#1f2937" : "rgba(255,255,255,0.85)"}
+            fill={hovered ? "var(--text-primary)" : "hsla(0 0% 100% / 0.85)"}
             stroke={`#${color}`}
             strokeWidth={0.5}
             opacity={hovered ? 1 : 0.75}
@@ -237,7 +237,7 @@ function ChainEdgeComponent({ sourceX, sourceY, targetX, targetY, label, data, s
             x={midX}
             y={midY + 4}
             textAnchor="middle"
-            fill={hovered ? "#ffffff" : "#374151"}
+            fill={hovered ? "hsl(0 0% 100%)" : "var(--text-secondary)"}
             style={{ fontSize: 10, fontWeight: 600 }}
           >
             {label.length > 12 ? `${label.slice(0, 11)}…` : label}
@@ -726,35 +726,36 @@ export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose, 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div
-        className="relative bg-white rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className="relative bg-[var(--bg-card)] rounded-xl shadow-2xl flex flex-col overflow-hidden border border-[var(--border)]"
         style={{ width: 960, maxWidth: "95vw", height: "85vh", minHeight: "60vh" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* 顶部栏 */}
-        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+        <div className="flex items-start justify-between px-5 py-3.5 border-b border-[var(--border)] shrink-0 relative">
+          <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-brand/40 via-brand/20 to-transparent" />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
               <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: NODE_TYPE_CONFIG[nodeType]?.color || "#6b7280" }} />
-              <h3 className="text-base font-semibold text-gray-900 truncate">{nodeName}</h3>
-              <span className="text-xs text-gray-400">{NODE_TYPE_CONFIG[nodeType]?.label || nodeType}</span>
+              <h3 className="text-base font-semibold text-[var(--text-primary)] truncate">{nodeName}</h3>
+              <span className="text-xs text-[var(--text-muted)]">{NODE_TYPE_CONFIG[nodeType]?.label || nodeType}</span>
             </div>
-            {filePath && <p className="mt-1 text-xs text-gray-400 truncate ml-6">{shortFilePath(filePath)}</p>}
+            {filePath && <p className="mt-1 text-xs text-[var(--text-muted)] truncate ml-6">{shortFilePath(filePath)}</p>}
           </div>
           <button
             onClick={onClose}
-            className="flex-shrink-0 ml-4 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors text-sm"
+            className="flex-shrink-0 ml-4 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors text-sm"
           >✕</button>
         </div>
 
         {/* 全局错误提示 */}
         {globalError && (
-          <div className="px-6 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-700 flex items-center justify-between">
+          <div className="px-5 py-2 bg-status-warning/10 border-b border-status-warning/30 text-xs text-status-warning flex items-center justify-between">
             <span>⚠ {globalError}</span>
             <button
               onClick={() => setGlobalError(null)}
-              className="text-amber-500 hover:text-amber-700 ml-2"
+              className="text-status-warning hover:text-status-error ml-2"
             >✕</button>
           </div>
         )}
@@ -781,19 +782,19 @@ export function CallChainPanel({ nodeId, nodeName, nodeType, filePath, onClose, 
         </div>
 
         {/* 底部栏 */}
-        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4 text-xs text-gray-400">
+        <div className="px-5 py-3 border-t border-[var(--border)] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-4 text-xs text-[var(--text-muted)]">
             {Object.entries(CALL_TYPE_COLORS).map(([k, v]) => (
               <span key={k} className="flex items-center gap-1">
                 <span className="w-3 h-0.5 inline-block" style={{ backgroundColor: `#${v}`, borderTop: k === "dynamic" ? "2px dashed" : undefined }} />
                 <span>{k}</span>
               </span>
             ))}
-            <span className="text-gray-300">|</span>
+            <span className="text-[var(--border)]">|</span>
             <span>节点: {nodes.length}/{MAX_TOTAL_NODES}</span>
             <span>边: {edges.length}</span>
-            <span className="text-gray-300">|</span>
-            <span className="text-gray-500">点击节点展开/折叠 · +N 加载更多 · 右键收起子树</span>
+            <span className="text-[var(--border)]">|</span>
+            <span className="text-[var(--text-muted)]">点击节点展开/折叠 · +N 加载更多 · 右键收起子树</span>
           </div>
         </div>
       </div>

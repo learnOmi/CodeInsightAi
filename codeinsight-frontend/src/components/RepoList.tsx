@@ -25,14 +25,14 @@ export function RepoList() {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-brand border-t-transparent"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="text-center text-red-600 py-8">
+      <div className="text-center text-status-error py-8">
         加载失败，请刷新重试
       </div>
     );
@@ -50,10 +50,10 @@ export function RepoList() {
           <button
             key={option.value}
             onClick={() => setFilter(option.value)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            className={`rounded-md text-xs font-medium px-3 py-1.5 transition-colors ${
               filter === option.value
-                ? "bg-blue-600 text-white"
-                : "bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
+                ? "bg-brand text-white"
+                : "border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
             }`}
           >
             {option.label}
@@ -66,7 +66,7 @@ export function RepoList() {
           {filter === "all" ? "暂无仓库" : `暂无${filterOptions.find((o) => o.value === filter)?.label}的仓库`}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredRepositories.map((repo) => (
             <RepoCard key={repo.id} repository={repo} />
           ))}

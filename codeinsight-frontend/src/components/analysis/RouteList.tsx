@@ -14,11 +14,11 @@ interface RouteListProps extends NavigableProps {
 
 /** HTTP 方法配色映射 */
 const HTTP_METHOD_STYLES: Record<string, string> = {
-  GET: "bg-green-100 text-green-700",
-  POST: "bg-blue-100 text-blue-700",
-  PUT: "bg-yellow-100 text-yellow-700",
-  DELETE: "bg-red-100 text-red-700",
-  PATCH: "bg-purple-100 text-purple-700",
+  GET: "bg-status-success/15 text-status-success",
+  POST: "bg-status-info/15 text-status-info",
+  PUT: "bg-status-warning/15 text-status-warning",
+  DELETE: "bg-status-error/15 text-status-error",
+  PATCH: "bg-purple-500/15 text-purple-500",
 };
 
 /** HTTP 方法过滤选项 */
@@ -60,7 +60,7 @@ function MethodTag({ method }: { method: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center justify-center rounded px-2 py-0.5 text-xs font-bold min-w-[56px] flex-shrink-0",
+        "inline-flex items-center justify-center rounded-sm px-2 py-0.5 text-[10px] font-bold min-w-[52px] tracking-wide flex-shrink-0",
         getMethodStyle(method)
       )}
     >
@@ -74,7 +74,7 @@ function MiddlewareBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
     <span
-      className="inline-flex items-center rounded-full bg-[var(--bg-hover)] px-2 py-0.5 text-xs text-[var(--text-muted)] flex-shrink-0"
+      className="inline-flex items-center rounded-sm bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] text-[var(--text-muted)] flex-shrink-0"
       title={`${count} 个中间件`}
     >
       MW: {count}
@@ -101,7 +101,7 @@ function FilterBar({
   frameworkOptions: string[];
 }) {
   const selectClass =
-    "h-8 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-400";
+    "h-8 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand";
 
   return (
     <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -137,7 +137,7 @@ function FilterBar({
         value={pathPattern}
         onChange={(e) => setPathPattern(e.target.value)}
         placeholder="搜索路径..."
-        className="h-8 flex-1 min-w-[160px] rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-400"
+        className="h-8 flex-1 min-w-[160px] rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
       />
     </div>
   );
@@ -167,14 +167,14 @@ function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onN
   return (
     <li>
       <div
-        className="flex items-center gap-3 py-2 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
+        className="flex items-center gap-3 py-1.5 px-3 rounded-md hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
         onClick={() => hasMiddlewares && setExpanded(!expanded)}
       >
         <MethodTag method={route.httpMethod} />
         <span className="font-mono text-sm text-[var(--text-primary)] truncate flex-1 min-w-0">
           {route.pathPattern}
         </span>
-        <span className="text-xs text-[var(--text-muted)] truncate max-w-[30%] hidden sm:inline">
+        <span className="text-xs text-[var(--text-secondary)] truncate max-w-[30%] hidden sm:inline">
           {route.handlerFunction}
         </span>
         <span className="text-xs text-[var(--text-muted)] flex-shrink-0 hidden md:inline">
@@ -187,7 +187,7 @@ function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onN
               e.stopPropagation();
               onNavigate({ component: "callgraph", fileId: fileId, label: route.handlerFile, detail: "调用图" });
             }}
-            className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors flex-shrink-0"
+            className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand hover:bg-brand/20 transition-colors flex-shrink-0"
             title="查看调用图"
           >
             ⊙调用图
@@ -202,8 +202,8 @@ function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onN
 
       {/* 展开的中间件链 */}
       {expanded && route.middlewares && route.middlewares.length > 0 && (
-        <div className="px-4 py-3 border-l-2 border-[var(--border)] ml-4 mb-1">
-          <div className="text-[10px] text-[var(--text-muted)] font-semibold mb-2">中间件链</div>
+        <div className="px-4 py-2.5 border-l-2 border-[var(--border)]/60 ml-4 mb-1">
+          <div className="text-[10px] text-[var(--text-muted)] font-semibold uppercase tracking-wider mb-2">中间件链</div>
           <MiddlewareChain middlewares={route.middlewares} />
         </div>
       )}
@@ -250,8 +250,8 @@ export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
 
   if (isLoading) {
     return (
-      <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">
+      <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
           API 路由
         </h3>
         <RouteSkeleton />
@@ -261,18 +261,18 @@ export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
 
   if (error) {
     return (
-      <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-        <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">
+      <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
           API 路由
         </h3>
-        <div className="text-red-500 text-sm">加载路由数据失败</div>
+        <div className="text-status-error text-sm">加载路由数据失败</div>
       </div>
     );
   }
 
   return (
-    <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-4">
-      <h3 className="text-lg font-semibold mb-3 text-[var(--text-primary)]">
+    <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
+      <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
         API 路由
       </h3>
 
@@ -287,7 +287,7 @@ export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
       />
 
       {!routes || routes.length === 0 ? (
-        <div className="text-[var(--text-muted)] text-sm py-8 text-center">
+        <div className="text-[var(--text-muted)] text-sm py-10 text-center">
           暂无 API 路由数据
         </div>
       ) : (

@@ -11,7 +11,7 @@ export function NodeBadge({ type, name }: { type: string; name: string }) {
     <span className="inline-flex items-center gap-1">
       <span
         className={cn(
-          "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium",
+          "inline-flex items-center gap-0.5 rounded-sm px-1.5 py-0.5 text-xs font-medium",
           config.color
         )}
       >

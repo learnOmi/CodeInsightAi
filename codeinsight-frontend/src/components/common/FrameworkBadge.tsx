@@ -19,27 +19,27 @@ interface FrameworkTagRule {
 
 const FRAMEWORK_TAG_RULES: FrameworkTagRule[] = [
   // React 系：蓝色
-  { prefixes: ["react-"], color: "bg-blue-100 text-blue-700" },
+  { prefixes: ["react-"], color: "bg-[var(--color-fw-react)]/15 text-[var(--color-fw-react)]" },
   // Vue 系：绿色
-  { prefixes: ["vue-"], color: "bg-green-100 text-green-700" },
+  { prefixes: ["vue-"], color: "bg-[var(--color-fw-vue)]/15 text-[var(--color-fw-vue)]" },
   // Angular 系：红色
-  { prefixes: ["angular-"], color: "bg-red-100 text-red-700" },
+  { prefixes: ["angular-"], color: "bg-[var(--color-fw-angular)]/15 text-[var(--color-fw-angular)]" },
   // HTTP / API：紫色
-  { prefixes: ["http-controller", "api-endpoint"], color: "bg-purple-100 text-purple-700" },
+  { prefixes: ["http-controller", "api-endpoint"], color: "bg-[var(--color-fw-default)]/15 text-[var(--color-fw-default)]" },
   // 业务服务 / 数据仓储：青色
-  { prefixes: ["business-service", "data-repository"], color: "bg-cyan-100 text-cyan-700" },
+  { prefixes: ["business-service", "data-repository"], color: "bg-[var(--color-fw-spring)]/15 text-[var(--color-fw-spring)]" },
   // Flask / FastAPI：橙色
-  { prefixes: ["flask-", "fastapi-"], color: "bg-orange-100 text-orange-700" },
+  { prefixes: ["flask-", "fastapi-"], color: "bg-[var(--color-fw-fastapi)]/15 text-[var(--color-fw-fastapi)]" },
   // Express / Koa：黄色（amber）
-  { prefixes: ["express-", "koa-"], color: "bg-amber-100 text-amber-700" },
+  { prefixes: ["express-", "koa-"], color: "bg-[var(--color-fw-express)]/15 text-[var(--color-fw-express)]" },
   // 通用工程语义：灰色
   {
     prefixes: ["dependency-injection", "transactional", "scheduled-task"],
-    color: "bg-gray-100 text-gray-700",
+    color: "bg-[var(--color-fw-default)]/15 text-[var(--color-fw-default)]",
   },
 ];
 
-const FRAMEWORK_TAG_DEFAULT_COLOR = "bg-gray-100 text-gray-700";
+const FRAMEWORK_TAG_DEFAULT_COLOR = "bg-gray-500/15 text-gray-500";
 
 /**
  * 根据 tag 名称获取对应的 Tailwind 配色类
@@ -79,7 +79,7 @@ export function FrameworkBadge({ tags }: FrameworkBadgeProps) {
         <span
           key={tag}
           className={cn(
-            "inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium leading-none",
+            "inline-flex items-center rounded-sm px-1.5 py-0.5 text-[10px] font-medium leading-none",
             getFrameworkTagColor(tag)
           )}
         >
