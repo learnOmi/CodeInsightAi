@@ -1,0 +1,445 @@
+"""
+Agent 模块单元测试（P3-02）
+
+测试 LangGraph 工作流的状态管理、节点执行、图编排和结构化输出解析。
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from pydantic import ValidationError
+
+from codeinsight.agents.graph import AnalysisGraph
+from codeinsight.agents.node import (
+    AlgorithmNode,
+    AnalysisNode,
+    ArchitectureNode,
+    DesignPatternNode,
+    DomainKnowledgeNode,
+    EngineeringNode,
+    _kp_adapter,
+)
+from codeinsight.agents.state import AnalysisState, _accumulate_knowledge_points
+from codeinsight.llm.client import LLMClient
+from codeinsight.schemas.knowledge import (
+    KnowledgePointExtraction,
+)
+
+# ============================================================
+# Fixtures
+# ============================================================
+
+
+@pytest.fixture
+def llm_client() -> LLMClient:
+    config = MagicMock()
+    config.provider = "claude"
+    config.model = "claude-3.5-sonnet-20241022"
+    config.api_key = "test-key"
+    config.temperature = 0.1
+    config.max_tokens = 4096
+    config.num_retries = 1
+    config.request_timeout = 30.0
+    config.embedding_timeout = 30.0
+    config.embedding_model = "text-embedding-3-small"
+    client = LLMClient(config)
+    return client
+
+
+@pytest.fixture
+def sample_state() -> AnalysisState:
+    return {
+        "repo_id": "test-repo-uuid",
+        "ast_data": [
+            {
+                "id": "node-1",
+                "node_type": "class",
+                "name": "OrderService",
+                "file_id": "file-1",
+                "start_line": 1,
+                "end_line": 50,
+                "qualified_name": "app.services.OrderService",
+            }
+        ],
+        "code_snippets": [
+            {
+                "file_path": "app/services/order.py",
+                "code": "class OrderService:\n    def create_order(self):\n        pass",
+            }
+        ],
+        "knowledge_points": [],
+        "current_category": "",
+        "progress": 0.0,
+        "error": None,
+        "messages": [],
+    }
+
+
+# ============================================================
+# Test: State
+# ============================================================
+
+
+class TestAnalysisState:
+    """状态管理测试"""
+
+    def test_create_initial_state(self, sample_state):
+        """创建初始状态"""
+        state = AnalysisGraph.create_initial_state(
+            repo_id="test-repo-uuid",
+            ast_data=[{"id": "node-1"}],
+            code_snippets=[{"file_path": "test.py", "code": "print('hello')"}],
+        )
+        assert state["repo_id"] == "test-repo-uuid"
+        assert state["ast_data"] == [{"id": "node-1"}]
+        assert state["code_snippets"] == [{"file_path": "test.py", "code": "print('hello')"}]
+        assert state["knowledge_points"] == []
+        assert state["current_category"] == ""
+        assert state["progress"] == 0.0
+        assert state["error"] is None
+        assert state["messages"] == []
+
+    def test_accumulate_knowledge_points_dedup(self):
+        """知识点按 title 去重"""
+        previous = [
+            {"title": "Factory Pattern", "category": "DP"},
+            {"title": "Singleton Pattern", "category": "DP"},
+        ]
+        new = [
+            {"title": "Factory Pattern", "category": "DP"},  # 重复
+            {"title": "Observer Pattern", "category": "DP"},  # 新
+        ]
+        result = _accumulate_knowledge_points(previous, new)
+        assert len(result) == 3
+        titles = [p["title"] for p in result]
+        assert titles == ["Factory Pattern", "Singleton Pattern", "Observer Pattern"]
+
+    def test_accumulate_knowledge_points_empty_previous(self):
+        """空已有列表时全部追加"""
+        new = [{"title": "A", "category": "DP"}, {"title": "B", "category": "DP"}]
+        result = _accumulate_knowledge_points([], new)
+        assert len(result) == 2
+
+    def test_accumulate_knowledge_points_empty_new(self):
+        """空新列表时返回已有列表"""
+        previous = [{"title": "A", "category": "DP"}]
+        result = _accumulate_knowledge_points(previous, [])
+        assert len(result) == 1
+
+
+# ============================================================
+# Test: KnowledgePointExtraction Schema
+# ============================================================
+
+
+class TestKnowledgePointExtraction:
+    """结构化输出解析测试"""
+
+    def test_valid_extraction(self):
+        """有效知识点解析"""
+        data = {
+            "category": "DP",
+            "prefix": "DP-Factory",
+            "title": "工厂方法模式",
+            "description": "定义创建对象的接口",
+            "confidence": 0.92,
+            "code_snippets": [
+                {
+                    "file": "app/factory.py",
+                    "start_line": 1,
+                    "end_line": 20,
+                    "content": "class Factory:",
+                    "highlighted_lines": [5],
+                }
+            ],
+            "tags": ["factory", "creation"],
+        }
+        kp = KnowledgePointExtraction(**data)
+        assert kp.category == "DP"
+        assert kp.title == "工厂方法模式"
+        assert kp.confidence == 0.92
+        assert len(kp.code_snippets) == 1
+        assert kp.code_snippets[0].file == "app/factory.py"
+
+    def test_minimal_extraction(self):
+        """最小字段知识点的默认值"""
+        data = {"category": "DP", "prefix": "DP-Test", "title": "Test", "description": "Test"}
+        kp = KnowledgePointExtraction(**data)
+        assert kp.confidence == 0.8  # 默认值
+        assert kp.code_snippets == []
+        assert kp.tags == []
+
+    def test_type_adapter_list(self):
+        """TypeAdapter 解析列表"""
+        data = [
+            {"category": "DP", "prefix": "DP-A", "title": "A", "description": "Desc A"},
+            {"category": "AD", "prefix": "AD-B", "title": "B", "description": "Desc B"},
+        ]
+        result = _kp_adapter.validate_python(data)
+        assert len(result) == 2
+        assert result[0].category == "DP"
+        assert result[1].category == "AD"
+
+    def test_type_adapter_invalid_missing_required(self):
+        """TypeAdapter 校验缺失必填字段"""
+        with pytest.raises(ValidationError):
+            _kp_adapter.validate_python([{"category": "DP"}])  # 缺少 title/description/prefix
+
+
+# ============================================================
+# Test: Node
+# ============================================================
+
+
+class TestAnalysisNode:
+    """节点基类测试"""
+
+    def test_execute_not_implemented(self, llm_client):
+        """基类 execute 抛出 NotImplementedError"""
+        node = AnalysisNode(llm_client)
+        with pytest.raises(NotImplementedError):
+            import asyncio
+
+            asyncio.run(node.execute({}))  # type: ignore[arg-type]
+
+    def test_build_code_context(self, sample_state):
+        """构建代码上下文"""
+        node = AnalysisNode(MagicMock())
+        context = node._build_code_context(sample_state)
+        assert "app/services/order.py" in context
+        assert "OrderService" in context
+
+    def test_build_code_context_empty(self):
+        """空片段时返回空字符串"""
+        node = AnalysisNode(MagicMock())
+        context = node._build_code_context({"code_snippets": []})  # type: ignore[typeddict-item]
+        assert context == ""
+
+
+class TestDesignPatternNode:
+    """设计模式节点测试"""
+
+    @pytest.mark.asyncio
+    async def test_execute_success(self, sample_state):
+        """成功执行"""
+        llm_client = MagicMock(spec=LLMClient)
+        mock_response = {
+            "content": '[{"category": "DP", "prefix": "DP-Factory", "title": "工厂模式", "description": "test", "confidence": 0.9}]'
+        }
+        llm_client.chat = AsyncMock(return_value=mock_response)
+
+        node = DesignPatternNode(llm_client)
+        result = await node.execute(sample_state)
+
+        assert len(result["knowledge_points"]) == 1
+        assert result["knowledge_points"][0]["title"] == "工厂模式"
+        assert result["current_category"] == "DP"
+        assert result["progress"] == 0.2
+
+    @pytest.mark.asyncio
+    async def test_execute_llm_error(self, sample_state):
+        """LLM 错误时记录 error"""
+        llm_client = MagicMock(spec=LLMClient)
+        from codeinsight.llm.errors import LLMError
+
+        llm_client.chat = AsyncMock(side_effect=LLMError("API Error"))
+
+        node = DesignPatternNode(llm_client)
+        result = await node.execute(sample_state)
+
+        assert "API Error" in (result["error"] or "")
+
+    @pytest.mark.asyncio
+    async def test_execute_empty_response(self, sample_state):
+        """空响应时返回空列表"""
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(return_value={"content": ""})
+        node = DesignPatternNode(llm_client)
+        result = await node.execute(sample_state)
+        assert len(result["knowledge_points"]) == 0
+
+
+class TestArchitectureNode:
+    """架构节点测试"""
+
+    @pytest.mark.asyncio
+    async def test_execute_success(self, sample_state):
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(
+            return_value={
+                "content": '[{"category": "AD", "prefix": "AD-MVC", "title": "MVC架构", "description": "test", "confidence": 0.85}]'
+            }
+        )
+        node = ArchitectureNode(llm_client)
+        result = await node.execute(sample_state)
+        assert len(result["knowledge_points"]) == 1
+        assert result["progress"] == 0.4
+
+
+class TestAlgorithmNode:
+    """算法节点测试"""
+
+    @pytest.mark.asyncio
+    async def test_execute_success(self, sample_state):
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(
+            return_value={
+                "content": '[{"category": "AL", "prefix": "AL-QuickSort", "title": "快速排序", "description": "test", "confidence": 0.9}]'
+            }
+        )
+        node = AlgorithmNode(llm_client)
+        result = await node.execute(sample_state)
+        assert len(result["knowledge_points"]) == 1
+        assert result["progress"] == 0.6
+
+
+class TestEngineeringNode:
+    """工程节点测试"""
+
+    @pytest.mark.asyncio
+    async def test_execute_success(self, sample_state):
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(
+            return_value={
+                "content": '[{"category": "ET", "prefix": "ET-Retry", "title": "重试模式", "description": "test", "confidence": 0.88}]'
+            }
+        )
+        node = EngineeringNode(llm_client)
+        result = await node.execute(sample_state)
+        assert len(result["knowledge_points"]) == 1
+        assert result["progress"] == 0.8
+
+
+class TestDomainKnowledgeNode:
+    """领域知识节点测试"""
+
+    @pytest.mark.asyncio
+    async def test_execute_success(self, sample_state):
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(
+            return_value={
+                "content": '[{"category": "DK", "prefix": "DK-Order", "title": "订单模型", "description": "test", "confidence": 0.9}]'
+            }
+        )
+        node = DomainKnowledgeNode(llm_client)
+        result = await node.execute(sample_state)
+        assert len(result["knowledge_points"]) == 1
+        assert result["progress"] == 1.0
+
+
+# ============================================================
+# Test: Graph
+# ============================================================
+
+
+class TestAnalysisGraph:
+    """图编排测试"""
+
+    def test_create_graph(self, llm_client):
+        """创建分析图"""
+        graph = AnalysisGraph(llm_client)
+        assert graph._graph is not None
+
+    def test_get_graph_info(self, llm_client):
+        """获取图信息"""
+        graph = AnalysisGraph(llm_client)
+        info = graph.get_graph_info()
+        assert len(info["nodes"]) == 5
+        assert info["entry_point"] == "design_pattern"
+        assert info["edges"][0] == {"from": "design_pattern", "to": "architecture"}
+        assert info["edges"][-1] == {"from": "domain_knowledge", "to": "END"}
+
+    @pytest.mark.asyncio
+    async def test_run_success(self, llm_client):
+        """运行分析图"""
+        # 所有节点都返回有效数据
+        mock_chat = AsyncMock(
+            return_value={
+                "content": '[{"category": "DP", "prefix": "DP-Test", "title": "Test", "description": "test"}]'
+            }
+        )
+        llm_client.chat = mock_chat
+
+        graph = AnalysisGraph(llm_client)
+        initial_state = AnalysisGraph.create_initial_state(
+            repo_id="test-repo-uuid",
+            ast_data=[{"id": "node-1", "node_type": "class", "name": "Test"}],
+            code_snippets=[{"file_path": "test.py", "code": "pass"}],
+        )
+        result = await graph.run(initial_state)
+        assert len(result["knowledge_points"]) >= 5  # 5 个节点，各至少 1 个
+        assert result["progress"] == 1.0
+
+    @pytest.mark.asyncio
+    async def test_run_node_error_propagates(self, llm_client):
+        """节点内部异常（非 LLMError）传播到 run() 调用方"""
+        mock_chat = AsyncMock(
+            side_effect=[{"content": "[]"}, {"content": "[]"}, Exception("Error"), {"content": "[]"}, {"content": "[]"}]
+        )
+        llm_client.chat = mock_chat
+
+        graph = AnalysisGraph(llm_client)
+        initial_state = AnalysisGraph.create_initial_state(
+            repo_id="test-repo-uuid",
+            ast_data=[],
+            code_snippets=[],
+        )
+        with pytest.raises(Exception, match="Error"):
+            await graph.run(initial_state)
+
+    @pytest.mark.asyncio
+    async def test_run_empty_data(self, llm_client):
+        """空数据时正常运行"""
+        mock_chat = AsyncMock(return_value={"content": "[]"})
+        llm_client.chat = mock_chat
+
+        graph = AnalysisGraph(llm_client)
+        initial_state = AnalysisGraph.create_initial_state(repo_id="test-repo-uuid", ast_data=[], code_snippets=[])
+        result = await graph.run(initial_state)
+        assert len(result["knowledge_points"]) == 0
+        assert result["progress"] == 1.0
+
+
+# ============================================================
+# Test: Parse Response
+# ============================================================
+
+
+class TestParseResponse:
+    """LLM 响应解析测试"""
+
+    def test_parse_valid_json_list(self):
+        """解析有效 JSON 数组"""
+        node = AnalysisNode(MagicMock())
+        response = {"content": '[{"category": "DP", "prefix": "DP-A", "title": "A", "description": "Desc"}]'}
+        result = node._parse_response(response, "DP")
+        assert len(result) == 1
+        assert result[0]["title"] == "A"
+        assert result[0]["category"] == "DP"
+
+    def test_parse_wrapped_object(self):
+        """解析包装对象（含 knowledge_points 字段）"""
+        node = AnalysisNode(MagicMock())
+        response = {
+            "content": '{"knowledge_points": [{"category": "DP", "prefix": "DP-A", "title": "A", "description": "Desc"}]}'
+        }
+        result = node._parse_response(response, "DP")
+        assert len(result) == 1
+        assert result[0]["title"] == "A"
+
+    def test_parse_empty_content(self):
+        """空内容返回空列表"""
+        node = AnalysisNode(MagicMock())
+        result = node._parse_response({"content": ""}, "DP")
+        assert result == []
+
+    def test_parse_fallback_on_invalid_json(self):
+        """无效 JSON 使用 fallback"""
+        node = AnalysisNode(MagicMock())
+        response = {"content": "不是 JSON 数据"}
+        result = node._parse_response(response, "DP")
+        assert len(result) == 1
+        assert "分析结果" in result[0]["title"]
+        assert result[0]["confidence"] == 0.8

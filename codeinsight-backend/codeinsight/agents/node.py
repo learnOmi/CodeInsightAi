@@ -10,6 +10,8 @@ import json
 import logging
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from codeinsight.agents.state import AnalysisState
 from codeinsight.llm.client import LLMClient
 from codeinsight.llm.errors import LLMError
@@ -20,6 +22,7 @@ from codeinsight.prompts import (
     load_domain_knowledge_prompt,
     load_engineering_prompt,
 )
+from codeinsight.schemas.knowledge import KnowledgePointExtraction
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,9 @@ CATEGORY_NAMES = {
 # Maximum number of code snippets to include in context for LLM analysis
 MAX_CODE_SNIPPETS = 20
 MAX_CODE_CHARS_PER_SNIPPET = 1000
+
+# Pydantic TypeAdapter for validating LLM output as a list of KnowledgePointExtraction
+_kp_adapter: TypeAdapter[list[KnowledgePointExtraction]] = TypeAdapter(list[KnowledgePointExtraction])
 
 
 class AnalysisNode:
@@ -107,82 +113,87 @@ class AnalysisNode:
                 snippets.append(f"文件: {file_path}\n{truncated_code}...")
         return "\n\n".join(snippets)
 
-    def _parse_response(self, response: dict | Any, category: str) -> list[dict[str, Any]]:
+    def _parse_response(self, response: Any, category: str) -> list[dict[str, Any]]:
         """
         解析 LLM 响应
 
-        尝试将 LLM 返回的内容解析为 JSON 数组，每个元素对应一个知识点。
-        如果解析失败，将原始内容作为单个知识点返回。
+        使用 Pydantic TypeAdapter 对 LLM 返回的 JSON 进行结构化校验，
+        确保输出符合 KnowledgePointExtraction 格式。
 
         Args:
-            response: LLM 响应
+            response: LLM 响应（dict 或原始字符串）
             category: 知识点分类
 
         Returns:
-            知识点列表
+            知识点列表（dict 格式，供 state 使用）
         """
         content = response.get("content", "") if isinstance(response, dict) else str(response)
 
         if not content:
             return []
 
-        # Try to parse as JSON array first
         try:
-            parsed_points = json.loads(content)
-            if isinstance(parsed_points, list):
-                return self._normalize_knowledge_points(parsed_points, category)
-        except (json.JSONDecodeError, TypeError):
-            pass
+            parsed = json.loads(content)
+            if not isinstance(parsed, list):
+                # 尝试从包装对象中提取列表
+                if isinstance(parsed, dict) and "knowledge_points" in parsed:
+                    parsed = parsed["knowledge_points"]
+                elif isinstance(parsed, dict) and "items" in parsed:
+                    parsed = parsed["items"]
+                else:
+                    parsed = [parsed]
 
-        # Fallback: treat raw content as a single knowledge point
-        return [
-            {
-                "category": category,
-                "category_name": CATEGORY_NAMES.get(category, "未知"),
-                "title": f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
-                "description": content,
-                "confidence": 0.8,
-                "tags": [],
-                "code_snippets": [],
-                "call_chain": [],
-                "expansion": {},
-                "metadata": {},
-            }
-        ]
+            # 用 Pydantic TypeAdapter 校验
+            validated = _kp_adapter.validate_python(parsed)
+            return self._normalize_knowledge_points(validated, category)
+
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("LLM 响应解析失败: %s, 原始内容: %s...", exc, content[:200])
+            # Fallback: treat raw content as a single knowledge point
+            return [
+                {
+                    "category": category,
+                    "category_name": CATEGORY_NAMES.get(category, "未知"),
+                    "title": f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
+                    "description": content,
+                    "confidence": 0.8,
+                    "tags": [],
+                    "code_snippets": [],
+                    "call_chain": [],
+                    "expansion": {},
+                    "metadata": {},
+                }
+            ]
 
     @staticmethod
-    def _normalize_knowledge_points(points: list[dict[str, Any]], category: str) -> list[dict[str, Any]]:
+    def _normalize_knowledge_points(points: list[KnowledgePointExtraction], category: str) -> list[dict[str, Any]]:
         """
         标准化知识点格式
 
-        确保每个知识点包含所有必需字段。
+        将 Pydantic validated 的 KnowledgePointExtraction 对象转换为 dict 格式，
+        确保包含所有必需字段。
 
         Args:
-            points: 原始知识点列表
+            points: 已验证的知识点列表
             category: 知识点分类
 
         Returns:
-            标准化后的知识点列表
+            标准化后的知识点列表（dict 格式）
         """
         normalized = []
         for point in points:
-            if not isinstance(point, dict):
-                continue
-            title = point.get("title", "")
-            if not title:
-                title = f"{CATEGORY_NAMES.get(category, '未知')}分析结果"
             normalized.append(
                 {
                     "category": category,
                     "category_name": CATEGORY_NAMES.get(category, "未知"),
-                    "title": title,
-                    "description": point.get("description", ""),
-                    "confidence": float(point.get("confidence", 0.8)),
-                    "tags": point.get("tags", []),
-                    "code_snippets": point.get("code_snippets", []),
-                    "call_chain": point.get("call_chain", []),
-                    "expansion": point.get("expansion", {}),
-                    "metadata": point.get("metadata", {}),
+                    "title": point.title or f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
+                    "description": point.description,
+                    "confidence": point.confidence,
+                    "tags": point.tags,
+                    "code_snippets": [s.model_dump() for s in point.code_snippets],
+                    "call_chain": [c.model_dump() for c in point.call_chain],
+                    "expansion": {},
+                    "metadata": {},
                 }
             )
         return normalized

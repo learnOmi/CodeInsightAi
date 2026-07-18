@@ -197,3 +197,47 @@ class KnowledgeStats(BaseModel):
     top_tags: list[dict[str, int]] = []
     files_covered: int = 0
     total_lines_analyzed: int = 0
+
+
+# ============================================================
+# LLM 提取输出 Schema（轻量级，用于 P3-02 Agent 输出）
+# ============================================================
+
+
+class CodeSnippetExtraction(BaseModel):
+    """LLM 输出的代码片段（简化版，不含 language/signature）"""
+
+    file: str
+    start_line: int
+    end_line: int
+    content: str = ""
+    highlighted_lines: list[int] = []
+
+
+class CallChainExtraction(BaseModel):
+    """LLM 输出的调用链节点（简化版）"""
+
+    node_id: str
+    node_type: str
+    file: str
+    name: str
+    lines: list[int] = []
+
+
+class KnowledgePointExtraction(BaseModel):
+    """LLM 提取的知识点（Agent 输出格式，非持久化模型）
+
+    与 KnowledgePoint 的区别：
+    - 无 id/version/repository_id/created_at/updated_at 等系统字段
+    - category 使用短格式（"DP" 而非 "DP-"）
+    - code_snippets 和 call_chain 使用简化版模型
+    """
+
+    category: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK)$")  # DP, AD, AL, ET, DK
+    prefix: str
+    title: str
+    description: str
+    confidence: float = 0.8
+    code_snippets: list[CodeSnippetExtraction] = []
+    call_chain: list[CallChainExtraction] = []
+    tags: list[str] = []

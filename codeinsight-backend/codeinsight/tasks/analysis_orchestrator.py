@@ -27,6 +27,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from codeinsight.agents.graph import AnalysisGraph as AgentAnalysisGraph
 from codeinsight.analyzers import (
     CallGraphBuilder,
     DependencyParser,
@@ -40,6 +41,7 @@ from codeinsight.constants.redis_keys import repo_active_task_key, task_cancel_k
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import async_session_factory
 from codeinsight.exceptions import CancelledError
+from codeinsight.llm.client import LLMClient
 from codeinsight.models import FileModel
 from codeinsight.parsers import ParserFactory
 from codeinsight.pipelines.structure_pipeline import StructureDataPipeline
@@ -51,6 +53,7 @@ from codeinsight.repositories import (
     ExternalDependencyDAO,
     FileDAO,
     FrameworkPatternDAO,
+    KnowledgePointDAO,
     ModuleDependencyDAO,
     RepositoryDAO,
 )
@@ -1401,7 +1404,79 @@ class AnalysisOrchestrator:
                 await self._update_analysis_version(
                     shared_db, TaskStatus.ANALYZING_MODULES, analyzed_files=self.total_files
                 )
+
+                # 构建 AST 数据
+                from pathlib import Path
+
+                ast_nodes = await self.ast_node_dao.get_by_repository(shared_db, self.repo_uuid)
+                ast_data = [
+                    {
+                        "id": str(n.id),
+                        "node_type": n.node_type,
+                        "name": n.name,
+                        "file_id": str(n.file_id),
+                        "start_line": n.start_line,
+                        "end_line": n.end_line,
+                        "qualified_name": n.qualified_name,
+                    }
+                    for n in ast_nodes
+                ]
+
+                # 构建代码片段
+                repo_path = await self._get_repo_path(shared_db)
+                files = await self.file_dao.list_by_repository(shared_db, self.repo_uuid, limit=500)
+                code_snippets = []
+                for f in files:
+                    try:
+                        file_path = Path(repo_path) / f.path if repo_path else Path(f.absolute_path)
+                        content = file_path.read_text(encoding="utf-8", errors="replace")
+                        code_snippets.append({"file_path": f.path, "code": content[:5000]})
+                    except Exception:
+                        pass
+
+                # 运行 AI 分析
+                logger.info(
+                    "开始 AI 分析: repo_id=%s, ast_nodes=%d, files=%d",
+                    self.repo_uuid,
+                    len(ast_data),
+                    len(code_snippets),
+                )
+                llm_client = LLMClient()
+                agent_graph = AgentAnalysisGraph(llm_client)
+                initial_state = AgentAnalysisGraph.create_initial_state(
+                    repo_id=str(self.repo_uuid),
+                    ast_data=ast_data,
+                    code_snippets=code_snippets,
+                )
+                final_state = await agent_graph.run(initial_state)
+
+                # 保存知识点到数据库
+                kp_dao = KnowledgePointDAO()
                 knowledge_points_count = 0
+                for kp in final_state["knowledge_points"]:
+                    try:
+                        kp_data = {
+                            "id": uuid.uuid4(),
+                            "version": self.version_tag,
+                            "repository_id": self.repo_uuid,
+                            "category": kp["category"],
+                            "category_name": kp["category_name"],
+                            "title": kp["title"],
+                            "description": kp["description"],
+                            "confidence": kp["confidence"],
+                            "tags": kp.get("tags", []),
+                            "code_snippets": kp.get("code_snippets", []),
+                            "call_chain": kp.get("call_chain", []),
+                            "expansion": kp.get("expansion", {}),
+                            "knowledge_metadata": kp.get("metadata", {}),
+                        }
+                        await kp_dao.create(shared_db, kp_data)
+                        knowledge_points_count += 1
+                    except Exception as exc:
+                        logger.warning("知识点保存失败: %s", exc)
+
+                await shared_db.commit()
+                logger.info("AI 分析完成: knowledge_points=%d", knowledge_points_count)
             else:
                 knowledge_points_count = 0
 
