@@ -1,18 +1,17 @@
 """
 嵌入客户端
 
-统一的嵌入生成封装，支持 litellm 进行向量嵌入。
+统一的嵌入生成封装，内部使用 LLMClient 进行嵌入调用。
+避免与 LLMClient 的 embed() 重复实现。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-import litellm
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from codeinsight.config import settings
+from codeinsight.llm.client import LLMClient
 from codeinsight.llm.errors import LLMError
 from codeinsight.models.knowledge_point import KnowledgePointModel
 
@@ -23,67 +22,32 @@ class EmbeddingClient:
     """
     嵌入客户端
 
-    使用 litellm 生成文本嵌入向量，支持批量和单条嵌入，
-    以及将嵌入向量存储到 pgvector 数据库。
+    使用 LLMClient 生成文本嵌入向量，支持批量、单条嵌入和向量存储。
+    不重复实现 litellm 调用逻辑，全部委托给 LLMClient.embed()。
     """
 
-    def __init__(self, model: str = "text-embedding-3-small"):
+    def __init__(self, llm_client: LLMClient | None = None):
         """
         初始化嵌入客户端
 
         Args:
-            model: 嵌入模型名称，默认为 "text-embedding-3-small"
+            llm_client: LLM 客户端实例，如果为 None 则创建默认实例
         """
-        self._model_name = model
+        self._llm_client = llm_client or LLMClient()
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """
         批量生成文本嵌入向量
 
-        使用 litellm.aembedding 进行异步批量嵌入调用。
+        委托给 LLMClient.embed() 实现。
 
         Args:
             texts: 需要生成嵌入的文本列表
 
         Returns:
-            嵌入向量列表，每个向量对应 texts 中的文本
-
-        Raises:
-            LLMError: 当嵌入调用失败时抛出
+            嵌入向量列表
         """
-        try:
-            kwargs: dict[str, Any] = {
-                "model": self._model_name,
-                "input": texts,
-                "timeout": settings.llm_timeout or 60.0,
-            }
-
-            if settings.llm_api_key:
-                kwargs["api_key"] = settings.llm_api_key
-
-            if settings.llm_provider == "ollama":
-                kwargs["api_base"] = settings.ollama_host
-                kwargs["model"] = f"ollama/{self._model_name}"
-
-            response = await litellm.aembedding(**kwargs)
-
-            embeddings: list[list[float]] = [data.get("embedding", []) for data in response.data]
-
-            logger.debug(
-                "批量嵌入生成完成: count=%d, model=%s",
-                len(texts),
-                self._model_name,
-            )
-            return embeddings
-
-        except Exception as exc:
-            error_msg = f"Embedding failed: {exc}"
-            logger.error(error_msg, exc_info=True)
-            raise LLMError(
-                error_msg,
-                provider=settings.llm_provider,
-                model=self._model_name,
-            ) from exc
+        return await self._llm_client.embed(texts)
 
     async def embed_single(self, text: str) -> list[float]:
         """
@@ -96,11 +60,11 @@ class EmbeddingClient:
             嵌入向量
 
         Raises:
-            LLMError: 当嵌入调用失败时抛出
+            LLMError: 当嵌入为空时抛出
         """
         embeddings = await self.embed([text])
         if not embeddings:
-            raise LLMError("Empty embedding returned", provider="", model=self._model_name)
+            raise LLMError("Empty embedding returned", provider="", model="")
         return embeddings[0]
 
     async def store(
@@ -140,5 +104,5 @@ class EmbeddingClient:
             raise LLMError(
                 error_msg,
                 provider="",
-                model=self._model_name,
+                model="",
             ) from exc

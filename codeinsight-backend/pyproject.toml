@@ -71,6 +71,9 @@ warn_unused_configs = true
 ignore_missing_imports = true
 exclude = ["alembic/"]
 
+[tool.setuptools.packages.find]
+include = ["codeinsight*"]
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.6.0",
