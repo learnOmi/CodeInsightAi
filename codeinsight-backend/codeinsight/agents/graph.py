@@ -1,7 +1,9 @@
 """
 分析图定义 (LangGraph Graph)
 
-使用 LangGraph 定义完整的代码知识分析工作流，连接各个分析节点。
+使用 LangGraph 定义完整的代码知识分析工作流，采用 fan-out/fan-in 并行架构：
+所有分析节点并行执行，结果汇聚到合并节点进行去重和排序，
+再进入 ExpansionNode 生成拓展内容。
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ import logging
 from typing import Any, cast
 
 from langgraph.graph import END, StateGraph
+from langgraph.types import Send
 
 from codeinsight.agents.node import (
     AlgorithmNode,
@@ -17,6 +20,8 @@ from codeinsight.agents.node import (
     DesignPatternNode,
     DomainKnowledgeNode,
     EngineeringNode,
+    ExpansionNode,
+    MergeNode,
 )
 from codeinsight.agents.state import AnalysisState
 from codeinsight.llm.client import LLMClient
@@ -32,12 +37,50 @@ ANALYSIS_NODES = [
 ]
 
 
+def _route_to_agents(state: AnalysisState) -> list[Send]:
+    """扇形分发到所有分析 Agent（并行执行）
+
+    使用 LangGraph Send API 将当前状态复制并发送到每个分析节点，
+    所有节点并行执行，结果通过 StateGraph 的 reducer 自动合并。
+
+    Args:
+        state: 当前分析状态
+
+    Returns:
+        Send 对象列表，每个对象包含目标节点名和状态拷贝
+    """
+    agent_names = ["design_pattern", "architecture", "algorithm", "engineering", "domain_knowledge"]
+    return [Send(name, state) for name in agent_names]
+
+
+def _route_to_expansion(state: AnalysisState) -> str:
+    """合并节点后路由到拓展节点或结束
+
+    如果合并后的知识点不为空，进入 ExpansionNode；
+    否则直接结束。
+
+    Args:
+        state: 合并后的分析状态
+
+    Returns:
+        目标节点名
+    """
+    if state.get("knowledge_points"):
+        return "expansion"
+    return END
+
+
 class AnalysisGraph:
     """
-    代码知识分析图
+    代码知识分析图（并行版本）
 
-    使用 LangGraph 构建的有向无环图，依次执行五种类型的知识分析节点，
-    最终生成完整的代码知识图谱。
+    使用 LangGraph 构建的 fan-out/fan-in 有向无环图：
+    1. 入口 → 扇形分发到 5 个分析节点（并行执行）
+    2. 所有分析节点汇聚到合并节点（去重 + 排序）
+    3. 合并后进入拓展节点（生成拓展内容）
+    4. 最终结束
+
+    相比线性版本，并行架构将分析耗时从 N 次 LLM 调用降低到 1 次。
     """
 
     def __init__(self, llm_client: LLMClient):
@@ -54,60 +97,71 @@ class AnalysisGraph:
         """
         构建 LangGraph 状态图
 
-        创建一个有向无环图，按顺序连接所有分析节点：
-        设计模式 -> 架构设计 -> 算法实现 -> 工程技术 -> 领域知识 -> END
+        创建 fan-out/fan-in 有向无环图：
+        - 并行：所有分析节点同时执行
+        - 汇聚：合并节点处理并行结果
+        - 串行：拓展节点在合并后执行
 
         Returns:
             构建完成的 StateGraph 实例
         """
         workflow = StateGraph(AnalysisState)
 
+        # 创建节点实例
         design_pattern_node = DesignPatternNode(self._llm_client)
         architecture_node = ArchitectureNode(self._llm_client)
         algorithm_node = AlgorithmNode(self._llm_client)
         engineering_node = EngineeringNode(self._llm_client)
         domain_knowledge_node = DomainKnowledgeNode(self._llm_client)
+        merge_node = MergeNode(self._llm_client)
+        expansion_node = ExpansionNode(self._llm_client)
 
+        # 注册节点
         workflow.add_node("design_pattern", design_pattern_node.execute)
         workflow.add_node("architecture", architecture_node.execute)
         workflow.add_node("algorithm", algorithm_node.execute)
         workflow.add_node("engineering", engineering_node.execute)
         workflow.add_node("domain_knowledge", domain_knowledge_node.execute)
+        workflow.add_node("merge", merge_node.execute)
+        workflow.add_node("expansion", expansion_node.execute)
 
-        workflow.set_entry_point("design_pattern")
+        # 入口 → 扇形分发到所有分析 Agent
+        workflow.add_conditional_edges("__start__", _route_to_agents)
 
-        workflow.add_edge("design_pattern", "architecture")
-        workflow.add_edge("architecture", "algorithm")
-        workflow.add_edge("algorithm", "engineering")
-        workflow.add_edge("engineering", "domain_knowledge")
-        workflow.add_edge("domain_knowledge", END)
+        # 所有 Agent 汇聚到合并节点
+        for name, _ in ANALYSIS_NODES:
+            workflow.add_edge(name, "merge")
 
-        logger.info("分析图构建完成，包含 %d 个节点", len(ANALYSIS_NODES))
+        # 合并 → 扩展 → 结束
+        workflow.add_conditional_edges("merge", _route_to_expansion)
+        workflow.add_edge("expansion", END)
+
+        logger.info("并行分析图构建完成，包含 %d 个分析节点 + merge + expansion", len(ANALYSIS_NODES))
         return workflow.compile()
 
     async def run(self, initial_state: AnalysisState) -> AnalysisState:
         """
         运行分析图
 
-        从入口节点开始执行整个分析工作流，依次经过所有分析节点，
+        从入口节点开始执行整个分析工作流，所有分析节点并行执行，
         最终返回包含所有知识点的完整状态。
 
         Args:
-            initial_state: 初始状态，包含 repo_id、ast_data 和 code_snippets
+            initial_state: 初始状态
 
         Returns:
-            最终分析状态，包含累积的知识点和进度信息
+            最终分析状态
 
         Raises:
-            Exception: 当分析过程中发生严重错误时抛出
+            Exception: 严重错误时抛出
         """
-        logger.info("开始执行分析图: repo_id=%s", initial_state["repo_id"])
+        logger.info("开始执行并行分析图: repo_id=%s", initial_state["repo_id"])
 
         try:
             final_state = cast(AnalysisState, await self._graph.ainvoke(initial_state))
 
             logger.info(
-                "分析图执行完成: repo_id=%s, knowledge_points=%d, progress=%.2f",
+                "并行分析图执行完成: repo_id=%s, knowledge_points=%d, progress=%.2f",
                 final_state["repo_id"],
                 len(final_state["knowledge_points"]),
                 final_state["progress"],
@@ -116,7 +170,7 @@ class AnalysisGraph:
             return final_state
 
         except Exception as exc:
-            error_msg = f"分析图执行失败: {exc}"
+            error_msg = f"并行分析图执行失败: {exc}"
             logger.error(error_msg, exc_info=True)
             raise
 
@@ -124,22 +178,23 @@ class AnalysisGraph:
         """
         获取分析图信息
 
-        返回图的结构信息，包括节点列表、边关系等。
-
         Returns:
             图信息字典
         """
         return {
-            "nodes": [{"id": node_id, "name": name} for node_id, name in ANALYSIS_NODES],
-            "edges": [
-                {"from": "design_pattern", "to": "architecture"},
-                {"from": "architecture", "to": "algorithm"},
-                {"from": "algorithm", "to": "engineering"},
-                {"from": "engineering", "to": "domain_knowledge"},
-                {"from": "domain_knowledge", "to": "END"},
+            "nodes": [{"id": node_id, "name": name} for node_id, name in ANALYSIS_NODES]
+            + [
+                {"id": "merge", "name": "结果合并"},
+                {"id": "expansion", "name": "拓展内容生成"},
             ],
-            "entry_point": "design_pattern",
-            "total_nodes": len(ANALYSIS_NODES),
+            "edges": [{"from": "entry", "to": node_id, "type": "parallel"} for node_id, _ in ANALYSIS_NODES]
+            + [{"from": node_id, "to": "merge", "type": "converge"} for node_id, _ in ANALYSIS_NODES]
+            + [
+                {"from": "merge", "to": "expansion", "type": "conditional"},
+                {"from": "expansion", "to": "END", "type": "direct"},
+            ],
+            "entry_point": "fan-out to all agents",
+            "total_nodes": len(ANALYSIS_NODES) + 2,
         }
 
     @staticmethod
@@ -150,8 +205,6 @@ class AnalysisGraph:
     ) -> AnalysisState:
         """
         创建初始分析状态
-
-        根据仓库 ID、AST 数据和代码片段构建初始状态对象。
 
         Args:
             repo_id: 仓库唯一标识符

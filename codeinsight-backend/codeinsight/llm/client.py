@@ -7,6 +7,7 @@ LLM 客户端
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from typing import Any, Literal, cast
@@ -39,6 +40,9 @@ class LLMConfig(BaseModel):
     num_retries: int = 3
     request_timeout: float = Field(default_factory=lambda: float(settings.llm_timeout))
     embedding_timeout: float = 60.0
+    max_concurrency: int = Field(
+        default_factory=lambda: settings.llm_max_concurrency, ge=1
+    )  # 最大并发 LLM 调用数，超出的请求自动排队
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -75,6 +79,7 @@ class LLMClient:
         """
         self.config = config or LLMConfig()
         self._model_name: str = self._resolve_model_name()
+        self._semaphore = asyncio.Semaphore(self.config.max_concurrency)
         logger.info(
             "LLMClient 初始化: provider=%s, model=%s",
             self.config.provider,
@@ -178,10 +183,11 @@ class LLMClient:
         """
         try:
             api_kwargs = self._get_api_kwargs()
-            response = await litellm.acompletion(
-                messages=messages,
-                **api_kwargs,
-            )
+            async with self._semaphore:
+                response = await litellm.acompletion(
+                    messages=messages,
+                    **api_kwargs,
+                )
             content = response.choices[0].message.content
 
             usage = getattr(response, "usage", None)
@@ -240,10 +246,11 @@ class LLMClient:
             api_kwargs = self._get_api_kwargs()
             api_kwargs["stream"] = True
 
-            response = await litellm.acompletion(
-                messages=messages,
-                **api_kwargs,
-            )
+            async with self._semaphore:
+                response = await litellm.acompletion(
+                    messages=messages,
+                    **api_kwargs,
+                )
 
             async for chunk in response:
                 content = chunk.choices[0].delta.content
@@ -385,7 +392,8 @@ class LLMClient:
             elif self.config.provider.lower() == "ollama":
                 kwargs["api_base"] = self.config.ollama_base_url
 
-            response = await litellm.aembedding(**kwargs)
+            async with self._semaphore:
+                response = await litellm.aembedding(**kwargs)
 
             embeddings: list[list[float]] = [data.get("embedding", []) for data in response.data]
 

@@ -1,8 +1,8 @@
 """
 分析状态定义 (LangGraph State)
 
-使用 LangGraph 的 TypedDict 定义知识分析工作流的状态，
-支持在多个 Agent 节点之间传递和累积分析结果。
+使用 LangGraph 的 TypedDict 定义知识分析工作流的状态。
+所有字段均使用 Annotated reducer 以支持并行 fan-out 执行。
 """
 
 from __future__ import annotations
@@ -35,12 +35,36 @@ def _accumulate_knowledge_points(previous: list[dict[str, Any]], new: list[dict[
     return previous + [n for n in new if n.get("title") not in existing_titles]
 
 
+def _keep_first(previous: Any, new: Any) -> Any:
+    """保留第一个值（用于并行分支中不需要更新的字段）"""
+    return previous if previous is not None else new
+
+
+def _keep_last(previous: Any, new: Any) -> Any:
+    """保留最后一个值（用于并行分支中需要覆盖的字段）"""
+    return new
+
+
+def _merge_messages(previous: list[dict[str, Any]], new: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """合并消息列表（按 role+content 去重）"""
+    if not previous:
+        return new
+    existing = {(m.get("role", ""), m.get("content", "")) for m in previous}
+    merged = list(previous)
+    for m in new:
+        key = (m.get("role", ""), m.get("content", ""))
+        if key not in existing:
+            existing.add(key)
+            merged.append(m)
+    return merged
+
+
 class AnalysisState(TypedDict):
     """
     代码知识分析状态
 
     在 LangGraph 工作流中，该状态在所有 Agent 节点之间共享和传递。
-    每个节点读取当前状态，进行分析，并返回更新后的状态。
+    所有字段使用 Annotated reducer 以支持并行 fan-out 执行。
 
     Attributes:
         repo_id: 仓库唯一标识符
@@ -53,11 +77,11 @@ class AnalysisState(TypedDict):
         messages: LLM 对话历史（用于上下文记忆）
     """
 
-    repo_id: str
-    ast_data: list[dict[str, Any]]
-    code_snippets: list[dict[str, Any]]
+    repo_id: Annotated[str, _keep_first]
+    ast_data: Annotated[list[dict[str, Any]], _keep_first]
+    code_snippets: Annotated[list[dict[str, Any]], _keep_first]
     knowledge_points: Annotated[list[dict[str, Any]], _accumulate_knowledge_points]
-    current_category: str  # DP, AD, AL, ET, DK
-    progress: float  # 0.0 to 1.0
-    error: str | None
-    messages: list[dict[str, Any]]
+    current_category: Annotated[str, _keep_last]
+    progress: Annotated[float, _keep_last]
+    error: Annotated[str | None, _keep_last]
+    messages: Annotated[list[dict[str, Any]], _merge_messages]

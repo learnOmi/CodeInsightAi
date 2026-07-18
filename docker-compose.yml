@@ -99,6 +99,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
+      LLM_MAX_CONCURRENCY: ${LLM_MAX_CONCURRENCY:-3}
 
       # --- 本地模型（可选） ---
       # 容器内 localhost 指向自身，如需访问宿主机 Ollama，请改为 http://host.docker.internal:11434
@@ -185,6 +186,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
+      LLM_MAX_CONCURRENCY: ${LLM_MAX_CONCURRENCY:-3}
 
       # --- 本地模型（可选） ---
       # 容器内 localhost 指向自身，如需访问宿主机 Ollama，请改为 http://host.docker.internal:11434

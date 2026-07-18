@@ -241,3 +241,4 @@ class KnowledgePointExtraction(BaseModel):
     code_snippets: list[CodeSnippetExtraction] = []
     call_chain: list[CallChainExtraction] = []
     tags: list[str] = []
+    expansion: ExpansionContent | None = None

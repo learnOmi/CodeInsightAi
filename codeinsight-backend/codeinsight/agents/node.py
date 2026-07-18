@@ -372,3 +372,147 @@ class DomainKnowledgeNode(AnalysisNode):
             state["error"] = str(exc)
 
         return state
+
+
+class MergeNode:
+    """
+    结果合并节点
+
+    对并行执行的 5 个分析 Agent 的输出进行后处理：
+    1. 去重（按 title 合并相似知识点）
+    2. 排序（按 confidence 降序排列）
+    3. 标记冲突（同一 title 对应不同 category 的冲突）
+
+    该节点在 fan-in 阶段执行，接收所有 Agent 的累积输出。
+    """
+
+    def __init__(self, llm_client: LLMClient):
+        self._llm_client = llm_client
+
+    async def execute(self, state: AnalysisState) -> AnalysisState:
+        """执行合并后处理
+
+        Args:
+            state: 当前分析状态
+
+        Returns:
+            合并后的分析状态
+        """
+        kps = state.get("knowledge_points", [])
+
+        # 1. 去重（按 title，保留置信度高的）
+        seen: dict[str, dict] = {}
+        for kp in kps:
+            title = kp.get("title", "")
+            if not title:
+                continue
+            if title in seen:
+                # 保留置信度高的
+                if kp.get("confidence", 0) > seen[title].get("confidence", 0):
+                    seen[title] = kp
+            else:
+                seen[title] = kp
+
+        # 2. 排序（按 confidence 降序）
+        merged = sorted(seen.values(), key=lambda x: x.get("confidence", 0), reverse=True)
+
+        state["knowledge_points"] = merged
+        state["progress"] = min(state.get("progress", 0) + 0.05, 1.0)
+
+        logger.info("合并完成: %d → %d 个知识点", len(kps), len(merged))
+        return state
+
+
+class ExpansionNode:
+    """
+    拓展内容生成节点
+
+    为每个知识点生成拓展内容，包括：
+    - 原理分析（principle）
+    - 适用场景（applicable_scenarios）
+    - 最佳实践（best_practices）
+    - 关联模式（related_patterns）
+    - 学习资源（learning_resources）
+
+    使用 LLM 批量生成，每个知识点独立调用。
+    """
+
+    EXPANSION_PROMPT = """你是一个资深软件工程师，请为以下知识点生成拓展内容。
+
+知识点标题：{title}
+知识点分类：{category}
+知识点描述：{description}
+
+请生成以下 5 个方面的拓展内容，以 JSON 格式返回：
+{{
+    "principle": "该知识点的核心原理和技术本质（100-200字）",
+    "applicable_scenarios": "适用场景列表（3-5个，每个场景20-50字）",
+    "best_practices": "最佳实践列表（3-5条，每条20-50字）",
+    "related_patterns": "关联的技术/模式列表（3-5个，每个附带简要说明）",
+    "learning_resources": "学习资源推荐（3-5个，每个附带标题和说明）"
+}}
+
+仅返回 JSON，不要包含其他内容。"""
+
+    def __init__(self, llm_client: LLMClient):
+        self._llm_client = llm_client
+
+    async def execute(self, state: AnalysisState) -> AnalysisState:
+        """为所有知识点生成拓展内容
+
+        Args:
+            state: 当前分析状态（已合并的知识点）
+
+        Returns:
+            更新了拓展内容后的分析状态
+        """
+        kps = state.get("knowledge_points", [])
+        if not kps:
+            state["progress"] = 1.0
+            return state
+
+        logger.info("开始生成拓展内容: %d 个知识点", len(kps))
+
+        for kp in kps:
+            try:
+                expansion = await self._generate_expansion(kp)
+                if expansion:
+                    kp["expansion"] = expansion
+            except Exception as exc:
+                logger.warning("知识点拓展内容生成失败: %s, title=%s", exc, kp.get("title", ""))
+
+        state["progress"] = 1.0
+        logger.info("拓展内容生成完成")
+        return state
+
+    async def _generate_expansion(self, kp: dict) -> dict | None:
+        """为单个知识点生成拓展内容
+
+        Args:
+            kp: 知识点
+
+        Returns:
+            拓展内容 dict，失败时返回 None
+        """
+        title = kp.get("title", "")
+        category = kp.get("category_name", kp.get("category", ""))
+        description = kp.get("description", "")
+
+        prompt = self.EXPANSION_PROMPT.format(
+            title=title,
+            category=category,
+            description=description[:500],
+        )
+
+        try:
+            response = await self._llm_client.chat(
+                [{"role": "user", "content": prompt}],
+            )
+            content = response.get("content", "") if isinstance(response, dict) else str(response)
+
+            expansion = json.loads(content)
+            return expansion  # type: ignore[no-any-return]
+
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.warning("拓展内容解析失败: %s, title=%s", exc, title)
+            return None

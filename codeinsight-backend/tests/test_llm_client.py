@@ -6,6 +6,8 @@ LLM 客户端单元测试
 
 from __future__ import annotations
 
+import asyncio
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -88,6 +90,44 @@ class TestLLMClientInit:
         config.provider = "unsupported"  # type: ignore[assignment]
         with pytest.raises(LLMError, match="Unsupported LLM provider"):
             LLMClient(config)
+
+    def test_semaphore_default_concurrency(self):
+        """Semaphore 默认并发数为 3"""
+        client = LLMClient()
+        assert client._semaphore._value == 3  # noqa: SLF001
+
+    def test_semaphore_custom_concurrency(self):
+        """Semaphore 支持自定义并发数"""
+        config = LLMConfig(provider="claude", model="claude-3.5-sonnet-20241022", max_concurrency=5)
+        client = LLMClient(config)
+        assert client._semaphore._value == 5  # noqa: SLF001
+
+    def test_semaphore_limits_concurrent_calls(self):
+        """Semaphore 限制并发调用数"""
+        config = LLMConfig(provider="claude", model="claude-3.5-sonnet-20241022", max_concurrency=2)
+        client = LLMClient(config)
+
+        # 模拟 litellm.acompletion 为延迟任务
+        async def slow_acompletion(**kwargs):
+            await asyncio.sleep(0.5)
+            mock = MagicMock()
+            mock.choices = [MagicMock()]
+            mock.choices[0].message.content = "test"
+            mock.usage.prompt_tokens = 10
+            mock.usage.completion_tokens = 10
+            return mock
+
+        with patch("litellm.acompletion", slow_acompletion):
+            async def run():
+                tasks = [client.chat([{"role": "user", "content": "hi"}]) for _ in range(4)]
+                start = time.monotonic()
+                await asyncio.gather(*tasks)
+                elapsed = time.monotonic() - start
+                return elapsed
+
+            # 4 个任务，并发数 2 → 至少需要 2 批（0.5 + 0.5 ≈ 1.0s）
+            elapsed = asyncio.run(run())
+            assert elapsed >= 1.0  # 2 批执行，每批 0.5s
 
 
 class TestLLMClientConfig:

@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-4-20250514"
     llm_temperature: float = 0.3
     llm_timeout: int = 120
+    llm_max_concurrency: int = 3  # 最大并发 LLM 调用数
 
     # 本地模型
     ollama_host: str = "http://localhost:11434"

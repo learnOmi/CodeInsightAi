@@ -19,9 +19,17 @@ from codeinsight.agents.node import (
     DesignPatternNode,
     DomainKnowledgeNode,
     EngineeringNode,
+    ExpansionNode,
+    MergeNode,
     _kp_adapter,
 )
-from codeinsight.agents.state import AnalysisState, _accumulate_knowledge_points
+from codeinsight.agents.state import (
+    AnalysisState,
+    _accumulate_knowledge_points,
+    _keep_first,
+    _keep_last,
+    _merge_messages,
+)
 from codeinsight.llm.client import LLMClient
 from codeinsight.schemas.knowledge import (
     KnowledgePointExtraction,
@@ -44,6 +52,7 @@ def llm_client() -> LLMClient:
     config.request_timeout = 30.0
     config.embedding_timeout = 30.0
     config.embedding_model = "text-embedding-3-small"
+    config.max_concurrency = 3
     client = LLMClient(config)
     return client
 
@@ -127,6 +136,30 @@ class TestAnalysisState:
         previous = [{"title": "A", "category": "DP"}]
         result = _accumulate_knowledge_points(previous, [])
         assert len(result) == 1
+
+    def test_keep_first_with_none_previous(self):
+        """_keep_first: previous 为 None 时返回 new"""
+        assert _keep_first(None, "new_value") == "new_value"
+
+    def test_keep_first_with_value(self):
+        """_keep_first: previous 有值时返回 previous"""
+        assert _keep_first("old", "new") == "old"
+
+    def test_keep_last(self):
+        """_keep_last 始终返回 new"""
+        assert _keep_last("old", "new") == "new"
+
+    def test_merge_messages_empty_previous(self):
+        """_merge_messages: 空已有列表时返回 new"""
+        result = _merge_messages([], [{"role": "user", "content": "hi"}])
+        assert len(result) == 1
+
+    def test_merge_messages_dedup(self):
+        """_merge_messages: 按 role+content 去重"""
+        previous = [{"role": "user", "content": "hi"}]
+        new = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+        result = _merge_messages(previous, new)
+        assert len(result) == 2
 
 
 # ============================================================
@@ -343,23 +376,38 @@ class TestAnalysisGraph:
         assert graph._graph is not None
 
     def test_get_graph_info(self, llm_client):
-        """获取图信息"""
+        """获取图信息（并行版本含 7 个节点：5 分析 + merge + expansion）"""
         graph = AnalysisGraph(llm_client)
         info = graph.get_graph_info()
-        assert len(info["nodes"]) == 5
-        assert info["entry_point"] == "design_pattern"
-        assert info["edges"][0] == {"from": "design_pattern", "to": "architecture"}
-        assert info["edges"][-1] == {"from": "domain_knowledge", "to": "END"}
+        assert len(info["nodes"]) == 7
+        assert info["entry_point"] == "fan-out to all agents"
+        assert info["edges"][0] == {"from": "entry", "to": "design_pattern", "type": "parallel"}
+        assert info["edges"][-1] == {"from": "expansion", "to": "END", "type": "direct"}
 
     @pytest.mark.asyncio
     async def test_run_success(self, llm_client):
-        """运行分析图"""
-        # 所有节点都返回有效数据
-        mock_chat = AsyncMock(
-            return_value={
-                "content": '[{"category": "DP", "prefix": "DP-Test", "title": "Test", "description": "test"}]'
-            }
-        )
+        """运行分析图（并行版本）"""
+        # 5 个 Agent 各返回 1 个知识点
+        agent_responses = [
+            {"content": '[{"category": "DP", "prefix": "DP-Test", "title": "Test", "description": "test"}]'},
+            {"content": '[{"category": "AD", "prefix": "AD-Test", "title": "Arch", "description": "test"}]'},
+            {"content": '[{"category": "AL", "prefix": "AL-Test", "title": "Algo", "description": "test"}]'},
+            {"content": '[{"category": "ET", "prefix": "ET-Test", "title": "Eng", "description": "test"}]'},
+            {"content": '[{"category": "DK", "prefix": "DK-Test", "title": "Domain", "description": "test"}]'},
+        ]
+        # ExpansionNode 为每个知识点生成拓展内容
+        expansion_response = {
+            "content": '{"principle": "test", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": ["l1"]}'
+        }
+
+        call_count = 0
+
+        async def mock_chat(messages, **kwargs):
+            nonlocal call_count
+            resp = agent_responses[call_count] if call_count < 5 else expansion_response
+            call_count += 1
+            return resp
+
         llm_client.chat = mock_chat
 
         graph = AnalysisGraph(llm_client)
@@ -369,15 +417,21 @@ class TestAnalysisGraph:
             code_snippets=[{"file_path": "test.py", "code": "pass"}],
         )
         result = await graph.run(initial_state)
-        assert len(result["knowledge_points"]) >= 5  # 5 个节点，各至少 1 个
+        assert len(result["knowledge_points"]) == 5
         assert result["progress"] == 1.0
 
     @pytest.mark.asyncio
     async def test_run_node_error_propagates(self, llm_client):
         """节点内部异常（非 LLMError）传播到 run() 调用方"""
-        mock_chat = AsyncMock(
-            side_effect=[{"content": "[]"}, {"content": "[]"}, Exception("Error"), {"content": "[]"}, {"content": "[]"}]
-        )
+        call_count = 0
+
+        async def mock_chat(messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 3:
+                raise Exception("Error")
+            return {"content": "[]"}
+
         llm_client.chat = mock_chat
 
         graph = AnalysisGraph(llm_client)
@@ -391,8 +445,14 @@ class TestAnalysisGraph:
 
     @pytest.mark.asyncio
     async def test_run_empty_data(self, llm_client):
-        """空数据时正常运行"""
-        mock_chat = AsyncMock(return_value={"content": "[]"})
+        """空数据时正常运行（无知识点 → 跳过 ExpansionNode）"""
+        call_count = 0
+
+        async def mock_chat(messages, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return {"content": "[]"}
+
         llm_client.chat = mock_chat
 
         graph = AnalysisGraph(llm_client)
@@ -400,11 +460,148 @@ class TestAnalysisGraph:
         result = await graph.run(initial_state)
         assert len(result["knowledge_points"]) == 0
         assert result["progress"] == 1.0
+        assert call_count == 5  # 5 个 Agent，无知识点 → 跳过 ExpansionNode
 
 
 # ============================================================
 # Test: Parse Response
 # ============================================================
+
+
+class TestMergeNode:
+    """合并节点测试"""
+
+    @pytest.mark.asyncio
+    async def test_dedup_by_title(self):
+        """按 title 去重"""
+        state: AnalysisState = {
+            "repo_id": "test",
+            "ast_data": [],
+            "code_snippets": [],
+            "knowledge_points": [
+                {"title": "A", "confidence": 0.9},
+                {"title": "A", "confidence": 0.95},  # 重复，保留高置信度
+                {"title": "B", "confidence": 0.8},
+            ],
+            "current_category": "",
+            "progress": 0.5,
+            "error": None,
+            "messages": [],
+        }
+        node = MergeNode(MagicMock())
+        result = await node.execute(state)
+        assert len(result["knowledge_points"]) == 2
+        assert result["knowledge_points"][0]["title"] == "A"
+        assert result["knowledge_points"][0]["confidence"] == 0.95
+
+    @pytest.mark.asyncio
+    async def test_sort_by_confidence(self):
+        """按 confidence 降序排列"""
+        state: AnalysisState = {
+            "repo_id": "test",
+            "ast_data": [],
+            "code_snippets": [],
+            "knowledge_points": [
+                {"title": "B", "confidence": 0.5},
+                {"title": "A", "confidence": 0.9},
+                {"title": "C", "confidence": 0.7},
+            ],
+            "current_category": "",
+            "progress": 0.5,
+            "error": None,
+            "messages": [],
+        }
+        node = MergeNode(MagicMock())
+        result = await node.execute(state)
+        assert result["knowledge_points"][0]["title"] == "A"
+        assert result["knowledge_points"][1]["title"] == "C"
+        assert result["knowledge_points"][2]["title"] == "B"
+
+    @pytest.mark.asyncio
+    async def test_empty_kps(self):
+        """空知识点列表"""
+        state: AnalysisState = {
+            "repo_id": "test",
+            "ast_data": [],
+            "code_snippets": [],
+            "knowledge_points": [],
+            "current_category": "",
+            "progress": 0.5,
+            "error": None,
+            "messages": [],
+        }
+        node = MergeNode(MagicMock())
+        result = await node.execute(state)
+        assert len(result["knowledge_points"]) == 0
+
+
+class TestExpansionNode:
+    """拓展节点测试"""
+
+    @pytest.mark.asyncio
+    async def test_generate_expansion(self):
+        """为知识点生成拓展内容"""
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(
+            return_value={
+                "content": '{"principle": "test principle", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": ["l1"]}'
+            }
+        )
+
+        state: AnalysisState = {
+            "repo_id": "test",
+            "ast_data": [],
+            "code_snippets": [],
+            "knowledge_points": [{"title": "Test", "category_name": "DP", "description": "desc"}],
+            "current_category": "",
+            "progress": 0.9,
+            "error": None,
+            "messages": [],
+        }
+        node = ExpansionNode(llm_client)
+        result = await node.execute(state)
+        assert result["progress"] == 1.0
+        assert "expansion" in result["knowledge_points"][0]
+        assert result["knowledge_points"][0]["expansion"]["principle"] == "test principle"
+
+    @pytest.mark.asyncio
+    async def test_skip_empty_kps(self):
+        """空知识点时跳过"""
+        node = ExpansionNode(MagicMock())
+        state: AnalysisState = {
+            "repo_id": "test",
+            "ast_data": [],
+            "code_snippets": [],
+            "knowledge_points": [],
+            "current_category": "",
+            "progress": 0.9,
+            "error": None,
+            "messages": [],
+        }
+        result = await node.execute(state)
+        assert result["progress"] == 1.0
+        assert len(result["knowledge_points"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_llm_error_graceful(self):
+        """LLM 错误时优雅跳过"""
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(side_effect=Exception("API Error"))
+
+        state: AnalysisState = {
+            "repo_id": "test",
+            "ast_data": [],
+            "code_snippets": [],
+            "knowledge_points": [{"title": "Test", "category_name": "DP", "description": "desc"}],
+            "current_category": "",
+            "progress": 0.9,
+            "error": None,
+            "messages": [],
+        }
+        node = ExpansionNode(llm_client)
+        result = await node.execute(state)
+        assert result["progress"] == 1.0
+        assert "expansion" not in result["knowledge_points"][0]
 
 
 class TestParseResponse:

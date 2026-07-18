@@ -11,6 +11,8 @@ from codeinsight.agents.node import (
     DesignPatternNode,
     DomainKnowledgeNode,
     EngineeringNode,
+    ExpansionNode,
+    MergeNode,
 )
 from codeinsight.agents.state import AnalysisState
 
@@ -22,4 +24,6 @@ __all__ = [
     "AlgorithmNode",
     "EngineeringNode",
     "DomainKnowledgeNode",
+    "MergeNode",
+    "ExpansionNode",
 ]
