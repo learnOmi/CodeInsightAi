@@ -23,14 +23,15 @@ logger = logging.getLogger(__name__)
 class LLMConfig(BaseModel):
     """LLM 客户端配置——从全局 Settings 读取"""
 
-    provider: Literal["claude", "gpt", "ollama"] = Field(
+    provider: Literal["claude", "gpt", "ollama", "openai"] = Field(
         default_factory=lambda: cast(
-            "Literal['claude', 'gpt', 'ollama']",
-            settings.llm_provider if settings.llm_provider in ("claude", "gpt", "ollama") else "claude",
+            "Literal['claude', 'gpt', 'ollama', 'openai']",
+            settings.llm_provider if settings.llm_provider in ("claude", "gpt", "ollama", "openai") else "claude",
         )
     )
     model: str = Field(default_factory=lambda: settings.llm_model or "")
     api_key: str | None = Field(default_factory=lambda: settings.llm_api_key or None)
+    api_base: str | None = Field(default_factory=lambda: settings.llm_api_base or None)
     ollama_base_url: str = Field(default_factory=lambda: settings.ollama_host)
     temperature: float = Field(default_factory=lambda: settings.llm_temperature)
     max_tokens: int = 4096
@@ -93,7 +94,7 @@ class LLMClient:
         if provider == "claude":
             model = self.config.model or "claude-3.5-sonnet-20241022"
             return model
-        elif provider == "gpt":
+        elif provider in ("gpt", "openai"):
             return self.config.model or "gpt-4o"
         elif provider == "ollama":
             model = self.config.model or "llama3.1:8b"
@@ -135,7 +136,9 @@ class LLMClient:
         if self.config.api_key:
             kwargs["api_key"] = self.config.api_key
 
-        if self.config.provider.lower() == "ollama":
+        if self.config.api_base:
+            kwargs["api_base"] = self.config.api_base
+        elif self.config.provider.lower() == "ollama":
             kwargs["api_base"] = self.config.ollama_base_url
 
         return kwargs
@@ -377,7 +380,9 @@ class LLMClient:
             if self.config.api_key:
                 kwargs["api_key"] = self.config.api_key
 
-            if self.config.provider.lower() == "ollama":
+            if self.config.api_base:
+                kwargs["api_base"] = self.config.api_base
+            elif self.config.provider.lower() == "ollama":
                 kwargs["api_base"] = self.config.ollama_base_url
 
             response = await litellm.aembedding(**kwargs)

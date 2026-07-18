@@ -57,7 +57,7 @@ class TestLLMClientInit:
         """无配置时使用默认值"""
         client = LLMClient()
         assert client.config is not None
-        assert client.config.provider in ("claude", "gpt", "ollama")
+        assert client.config.provider in ("claude", "gpt", "ollama", "openai")
         assert client._model_name is not None
 
     def test_claude_model_resolution(self, llm_client):
@@ -75,6 +75,12 @@ class TestLLMClientInit:
         config = LLMConfig(provider="ollama", model="llama3.1:8b")
         client = LLMClient(config)
         assert client._model_name == "ollama/llama3.1:8b"
+
+    def test_openai_model_resolution(self):
+        """OpenAI 模型名解析（openai 应映射到 gpt 品类）"""
+        config = LLMConfig(provider="openai", model="gpt-4o-mini", api_key="test-key")
+        client = LLMClient(config)
+        assert client._model_name == "gpt-4o-mini"
 
     def test_unsupported_provider(self):
         """不支持的提供商抛出异常"""

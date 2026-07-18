@@ -1,3 +1,16 @@
+# =============================================================================
+# CodeInsight AI 容器编排
+# =============================================================================
+#
+# 环境变量优先级（从高到低）：
+#   1. docker-compose.yml 中 ${VAR} 引用的 shell 环境变量
+#   2. 项目根目录 .env 文件（docker-compose 自动加载）
+#   3. docker-compose.yml 中 :- 提供的默认值
+#
+# 本地开发：使用 codeinsight-backend/.env + uv run
+# 容器部署：docker compose up（读取根目录 .env，若不存在则用默认值）
+# =============================================================================
+
 services:
   postgres:
     image: ankane/pgvector:latest
@@ -54,18 +67,80 @@ services:
       dockerfile: codeinsight-backend/Dockerfile
     container_name: codeinsight-backend
     environment:
+      # --- 应用 ---
+      APP_ENV: ${APP_ENV:-development}
+      APP_NAME: ${APP_NAME:-CodeInsight AI}
+      APP_VERSION: ${APP_VERSION:-0.1.0}
+      DEBUG: ${DEBUG:-true}
+
+      # --- 数据库 ---
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-codeinsight}
       POSTGRES_USER: ${POSTGRES_USER:-codeinsight}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeinsight}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-20}
+      DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-10}
+
+      # --- Redis ---
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_POOL_MAX_CONNECTIONS: ${REDIS_POOL_MAX_CONNECTIONS:-50}
+      REDIS_POOL_SOCKET_TIMEOUT: ${REDIS_POOL_SOCKET_TIMEOUT:-2}
+
+      # --- Meilisearch ---
       MEILISEARCH_HOST: http://meilisearch:7700
-      MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY:-codeinsight_master_key}
+      MEILISEARCH_MASTER_KEY: ${MEILI_MASTER_KEY:-codeinsight_master_key}
+
+      # --- LLM ---
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_BASE: ${LLM_API_BASE:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
+
+      # --- 本地模型（可选） ---
+      # 容器内 localhost 指向自身，如需访问宿主机 Ollama，请改为 http://host.docker.internal:11434
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+
+      # --- JWT ---
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-here}
-      ALGORITHM: HS256
-      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+
+      # --- API Key 认证 ---
+      API_KEY: ${API_KEY:-}
+
+      # --- CORS ---
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CORS_ALLOWED_METHODS: ${CORS_ALLOWED_METHODS:-GET,POST,PUT,DELETE,PATCH,OPTIONS}
+      CORS_ALLOWED_HEADERS: ${CORS_ALLOWED_HEADERS:-Authorization,Content-Type,X-API-Key}
+
+      # --- 文件上传 ---
+      MAX_REPOSITORY_PATH_LENGTH: ${MAX_REPOSITORY_PATH_LENGTH:-500}
+      MAX_REQUEST_SIZE: ${MAX_REQUEST_SIZE:-10485760}
+      MAX_FILE_SIZE_BYTES: ${MAX_FILE_SIZE_BYTES:-10485760}
+
+      # --- 增量分析 ---
+      INCREMENTAL_MAX_CHANGE_RATIO: ${INCREMENTAL_MAX_CHANGE_RATIO:-0.3}
+      INCREMENTAL_MAX_PROPAGATION_DEPTH: ${INCREMENTAL_MAX_PROPAGATION_DEPTH:-3}
+      INCREMENTAL_MAX_SNAPSHOT_VERSIONS: ${INCREMENTAL_MAX_SNAPSHOT_VERSIONS:-5}
+
+      # --- Celery ---
+      # 生产部署请设为 false，由 celery-worker 容器异步执行任务
+      CELERY_TASK_ALWAYS_EAGER: ${CELERY_TASK_ALWAYS_EAGER:-false}
+
+      # --- Redis TTL ---
+      REDIS_TASK_MAPPING_TTL: ${REDIS_TASK_MAPPING_TTL:-604800}
+      REDIS_CANCEL_FLAG_TTL: ${REDIS_CANCEL_FLAG_TTL:-60}
+
+      # --- 数据入库 ---
+      INGEST_BATCH_SIZE: ${INGEST_BATCH_SIZE:-500}
+
+      # --- 向量嵌入 ---
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+
     ports:
       - "8000:8000"
     depends_on:
@@ -82,17 +157,51 @@ services:
       context: .
       dockerfile: codeinsight-backend/Dockerfile
     container_name: codeinsight-celery-worker
-    command: ["uv", "run", "celery", "-A", "tasks", "worker", "--loglevel=info"]
+    command: ["uv", "run", "celery", "-A", "codeinsight.tasks", "worker", "--loglevel=info"]
     environment:
+      # --- 数据库 ---
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${POSTGRES_DB:-codeinsight}
       POSTGRES_USER: ${POSTGRES_USER:-codeinsight}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codeinsight}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-20}
+      DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-10}
+
+      # --- Redis ---
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      REDIS_POOL_MAX_CONNECTIONS: ${REDIS_POOL_MAX_CONNECTIONS:-50}
+      REDIS_POOL_SOCKET_TIMEOUT: ${REDIS_POOL_SOCKET_TIMEOUT:-2}
+
+      # --- Meilisearch ---
       MEILISEARCH_HOST: http://meilisearch:7700
-      MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY:-codeinsight_master_key}
+      MEILISEARCH_MASTER_KEY: ${MEILI_MASTER_KEY:-codeinsight_master_key}
+
+      # --- LLM ---
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_API_BASE: ${LLM_API_BASE:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.3}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-120}
+
+      # --- 本地模型（可选） ---
+      # 容器内 localhost 指向自身，如需访问宿主机 Ollama，请改为 http://host.docker.internal:11434
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+
+      # --- 增量分析 ---
+      INCREMENTAL_MAX_CHANGE_RATIO: ${INCREMENTAL_MAX_CHANGE_RATIO:-0.3}
+      INCREMENTAL_MAX_PROPAGATION_DEPTH: ${INCREMENTAL_MAX_PROPAGATION_DEPTH:-3}
+      INCREMENTAL_MAX_SNAPSHOT_VERSIONS: ${INCREMENTAL_MAX_SNAPSHOT_VERSIONS:-5}
+
+      # --- API Key 认证 ---
+      API_KEY: ${API_KEY:-}
+
+      # --- 向量嵌入 ---
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -106,6 +215,10 @@ services:
     build:
       context: .
       dockerfile: codeinsight-frontend/Dockerfile
+      # ⚠️ Next.js 的 NEXT_PUBLIC_* 变量在构建时注入，不是运行时。
+      # 如需自定义 API_URL，在 Dockerfile 的 builder 阶段添加 --build-arg：
+      #   args:
+      #     NEXT_PUBLIC_API_URL: "http://backend-host:8000"
     container_name: codeinsight-frontend
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}

@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
-COPY uv.lock* .
+COPY codeinsight-backend/pyproject.toml .
+COPY codeinsight-backend/uv.lock* .
 
 RUN pip install --no-cache-dir uv
 

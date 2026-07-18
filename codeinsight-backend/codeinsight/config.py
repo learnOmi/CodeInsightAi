@@ -5,7 +5,9 @@
 """
 
 from functools import lru_cache
+from typing import Any
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -52,8 +54,9 @@ class Settings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}/0"
 
     # LLM
-    llm_provider: str = "anthropic"
+    llm_provider: str = "claude"
     llm_api_key: str = ""
+    llm_api_base: str = ""  # 自定义 API 端点（中转站/私有部署），为空则用 litellm 默认
     llm_model: str = "claude-sonnet-4-20250514"
     llm_temperature: float = 0.3
     llm_timeout: int = 120
@@ -73,6 +76,22 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     cors_allowed_methods: list[str] = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     cors_allowed_headers: list[str] = ["Authorization", "Content-Type", "X-API-Key"]
+
+    @field_validator("cors_origins", "cors_allowed_methods", "cors_allowed_headers", mode="before")
+    @classmethod
+    def parse_list_from_string(cls, v: Any) -> Any:
+        """支持 .env 中使用逗号分隔或纯字符串形式的列表字段"""
+        if isinstance(v, str):
+            # 尝试 JSON 解析（支持 ["a","b"] 格式）
+            import json
+
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                pass
+            # 逗号分隔回退（支持 a,b,c 格式）
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return v
 
     # 文件上传
     max_repository_path_length: int = 500
@@ -94,8 +113,8 @@ class Settings(BaseSettings):
     # 数据入库批量大小
     ingest_batch_size: int = 500
 
-    # 向量嵌入维度（M-4 修复：pgvector 维度集中配置，默认 1536 对应 OpenAI text-embedding-3-small）
-    embedding_dimension: int = 1536
+    # 向量嵌入维度（默认 768 对应流行的 Sentence-Transformer 模型；若使用 OpenAI text-embedding-3-small 需改 1536）
+    embedding_dimension: int = 768
 
     model_config = {
         "env_file": ".env",
