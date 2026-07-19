@@ -5,6 +5,7 @@
 """
 
 from dataclasses import dataclass
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -32,7 +33,7 @@ class FakeAstNode:
     language: str = "python"
     signature: str | None = None
     docstring: str | None = None
-    tags: list = None
+    tags: list[Any] | None = None
     created_at: str = "2026-07-09T00:00:00Z"
 
     def __post_init__(self):

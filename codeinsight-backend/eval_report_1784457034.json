@@ -1,0 +1,47 @@
+{
+  "summary": {
+    "categories_evaluated": 1,
+    "total_test_cases": 5,
+    "total_extracted": 5,
+    "overall_f1": 1.0,
+    "total_time_seconds": 0.0,
+    "timestamp": "2026-07-19T18:30:34"
+  },
+  "by_language": {
+    "unknown": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "extracted": 5,
+      "expected": 5,
+      "cases": 5,
+      "avg_confidence": 0.94,
+      "time_seconds": 0.0
+    }
+  },
+  "by_category": {
+    "DP": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "extracted": 5,
+      "expected": 5,
+      "cases": 5,
+      "avg_confidence": 0.94,
+      "time_seconds": 0.0
+    }
+  },
+  "by_language_category": {
+    "unknown": {
+      "DP": {
+        "f1": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "extracted": 5,
+        "expected": 5,
+        "cases": 5
+      }
+    }
+  },
+  "regressions": []
+}
