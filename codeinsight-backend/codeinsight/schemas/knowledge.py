@@ -22,18 +22,18 @@ class KnowledgeCategory(StrEnum):
     """
     知识点分类枚举
 
-    DP-: 设计模式 (Design Pattern)
-    AD-: 架构决策 (Architecture Decision)
-    AL-: 算法实现 (Algorithm)
-    ET-: 工程技巧 (Engineering Tip)
-    DK-: 领域知识 (Domain Knowledge)
+    DP: 设计模式 (Design Pattern)
+    AD: 架构决策 (Architecture Decision)
+    AL: 算法实现 (Algorithm)
+    ET: 工程技巧 (Engineering Tip)
+    DK: 领域知识 (Domain Knowledge)
     """
 
-    DESIGN_PATTERN = "DP-"
-    ARCHITECTURE_DECISION = "AD-"
-    ALGORITHM = "AL-"
-    ENGINEERING_TIP = "ET-"
-    DOMAIN_KNOWLEDGE = "DK-"
+    DESIGN_PATTERN = "DP"
+    ARCHITECTURE_DECISION = "AD"
+    ALGORITHM = "AL"
+    ENGINEERING_TIP = "ET"
+    DOMAIN_KNOWLEDGE = "DK"
 
 
 class CodeSnippet(BaseModel):
@@ -208,9 +208,9 @@ class CodeSnippetExtraction(BaseModel):
     """LLM 输出的代码片段（简化版，不含 language/signature）"""
 
     file: str
-    start_line: int
-    end_line: int
-    content: str = ""
+    start_line: int = Field(..., gt=0)
+    end_line: int = Field(..., gt=0)
+    content: str = Field(default="", min_length=0)
     highlighted_lines: list[int] = []
 
 
@@ -218,7 +218,7 @@ class CallChainExtraction(BaseModel):
     """LLM 输出的调用链节点（简化版）"""
 
     node_id: str
-    node_type: str
+    node_type: Literal["function", "class", "method", "function_call", "import", "module"]
     file: str
     name: str
     lines: list[int] = []
@@ -234,10 +234,10 @@ class KnowledgePointExtraction(BaseModel):
     """
 
     category: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK)$")  # DP, AD, AL, ET, DK
-    prefix: str
-    title: str
-    description: str
-    confidence: float = 0.8
+    prefix: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK)-.+$")  # DP-Factory, AD-MVC, etc.
+    title: str = Field(..., min_length=1)
+    description: str = Field(..., min_length=1)
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
     code_snippets: list[CodeSnippetExtraction] = []
     call_chain: list[CallChainExtraction] = []
     tags: list[str] = []

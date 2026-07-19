@@ -19,16 +19,9 @@ from codeinsight.evaluation.metrics import (
     EvaluationResult,
     MetricCalculator,
 )
+from codeinsight.schemas.constants import CATEGORY_NAMES
 
 logger = logging.getLogger(__name__)
-
-CATEGORY_NAMES = {
-    "DP": "设计模式",
-    "AD": "架构设计",
-    "AL": "算法实现",
-    "ET": "工程技术",
-    "DK": "领域知识",
-}
 
 
 class KnowledgePointEvaluator:

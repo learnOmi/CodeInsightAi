@@ -220,6 +220,108 @@ class TestKnowledgePointExtraction:
         with pytest.raises(ValidationError):
             _kp_adapter.validate_python([{"category": "DP"}])  # 缺少 title/description/prefix
 
+    # ============================================================
+    # P3-05: 边界校验测试
+    # ============================================================
+
+    def test_invalid_confidence_above_range(self):
+        """置信度超过 1.0 应拒绝"""
+        with pytest.raises(ValidationError):
+            KnowledgePointExtraction(
+                category="DP",
+                prefix="DP-Factory",
+                title="Test",
+                description="Test",
+                confidence=1.5,
+            )
+
+    def test_invalid_confidence_below_range(self):
+        """置信度低于 0.0 应拒绝"""
+        with pytest.raises(ValidationError):
+            KnowledgePointExtraction(
+                category="DP",
+                prefix="DP-Factory",
+                title="Test",
+                description="Test",
+                confidence=-0.1,
+            )
+
+    def test_invalid_category_format(self):
+        """category 格式错误应拒绝"""
+        with pytest.raises(ValidationError):
+            KnowledgePointExtraction(
+                category="DP-",  # 不应包含 -
+                prefix="DP-Factory",
+                title="Test",
+                description="Test",
+            )
+
+    def test_invalid_prefix_format(self):
+        """prefix 格式错误应拒绝"""
+        with pytest.raises(ValidationError):
+            KnowledgePointExtraction(
+                category="DP",
+                prefix="InvalidPrefix",  # 缺少 category- 前缀
+                title="Test",
+                description="Test",
+            )
+
+    def test_empty_title(self):
+        """空 title 应拒绝"""
+        with pytest.raises(ValidationError):
+            KnowledgePointExtraction(
+                category="DP",
+                prefix="DP-Factory",
+                title="",
+                description="Test",
+            )
+
+    def test_empty_description(self):
+        """空 description 应拒绝"""
+        with pytest.raises(ValidationError):
+            KnowledgePointExtraction(
+                category="DP",
+                prefix="DP-Factory",
+                title="Test",
+                description="",
+            )
+
+    def test_code_snippet_negative_line(self):
+        """负行号应拒绝"""
+        with pytest.raises(ValidationError):
+            KnowledgePointExtraction(
+                category="DP",
+                prefix="DP-Factory",
+                title="Test",
+                description="Test",
+                code_snippets=[
+                    {
+                        "file": "test.py",
+                        "start_line": -1,
+                        "end_line": 10,
+                        "content": "code",
+                    }
+                ],
+            )
+
+    def test_call_chain_node_type_invalid(self):
+        """无效的 node_type 应拒绝"""
+        with pytest.raises(ValidationError):
+            KnowledgePointExtraction(
+                category="DP",
+                prefix="DP-Factory",
+                title="Test",
+                description="Test",
+                call_chain=[
+                    {
+                        "node_id": "n1",
+                        "node_type": "invalid_type",  # 不在 Literal 中
+                        "file": "test.py",
+                        "name": "test",
+                    }
+                ],
+            )
+
 
 # ============================================================
 # Test: Node

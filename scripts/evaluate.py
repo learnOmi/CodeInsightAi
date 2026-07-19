@@ -221,6 +221,7 @@ async def main(args: argparse.Namespace) -> int:
         report_format=args.format,
         threshold_f1_drop=args.threshold_f1_drop,
         data_dir=args.data_dir,
+        output=args.output,
         verbose=args.verbose,
         prompt_version=args.prompt_version,
     )

@@ -43,7 +43,7 @@ async def list_knowledge_points(
     db: DbSession,
     dao: KnowledgePointDaoDep,
     version: Annotated[str | None, Query(description="分析版本号，不传则使用当前版本")] = None,
-    category: Annotated[str | None, Query(description="按分类筛选：DP-/AD-/AL-/ET-/DK-")] = None,
+    category: Annotated[str | None, Query(description="按分类筛选：DP/AD/AL/ET/DK")] = None,
     tag: Annotated[str | None, Query(description="按标签筛选")] = None,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
     page_size: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 20,

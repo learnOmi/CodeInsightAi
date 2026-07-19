@@ -33,7 +33,7 @@ async def test_dao_create(mock_session):
     dao = KnowledgePointDAO()
     data = {
         "title": "Factory Pattern",
-        "category": "DP-",
+        "category": "DP",
         "version": "v1",
         "repository_id": str(uuid4()),
         "confidence": 0.92,
@@ -51,7 +51,7 @@ async def test_dao_create(mock_session):
 
     kp = await dao.create(mock_session, data)
     assert kp.title == "Factory Pattern"
-    assert kp.category == "DP-"
+    assert kp.category == "DP"
     mock_session.add.assert_called_once()
     mock_session.flush.assert_called_once()
 
@@ -99,7 +99,7 @@ async def test_dao_list_with_filters(mock_session):
     """测试：DAO list 带版本/分类/标签筛选"""
     dao = KnowledgePointDAO()
     mock_result = MagicMock()
-    mock_kps = [MagicMock(id=str(uuid4()), category="DP-")]
+    mock_kps = [MagicMock(id=str(uuid4()), category="DP")]
     mock_result.scalars.return_value.all.return_value = mock_kps
     mock_session.execute = AsyncMock(return_value=mock_result)
 
@@ -107,7 +107,7 @@ async def test_dao_list_with_filters(mock_session):
         mock_session,
         repository_id=str(uuid4()),
         version="v1",
-        category="DP-",
+        category="DP",
         tag="Factory",
         skip=0,
         limit=20,
@@ -132,7 +132,7 @@ async def test_dao_count_with_category(mock_session):
     dao = KnowledgePointDAO()
     mock_session.execute = AsyncMock(return_value=MagicMock(scalar=MagicMock(return_value=5)))
 
-    total = await dao.count(mock_session, repository_id=str(uuid4()), category="AD-")
+    total = await dao.count(mock_session, repository_id=str(uuid4()), category="AD")
     assert total == 5
 
 
@@ -187,7 +187,7 @@ async def test_api_list_knowledge_points():
         {
             "id": str(uuid4()),
             "title": f"Point {i}",
-            "category": "DP-",
+            "category": "DP",
             "category_name": "设计模式",
             "description": "desc",
             "confidence": 0.9,
@@ -237,7 +237,7 @@ async def test_api_list_knowledge_points_with_category_filter():
 
     result = await list_knowledge_points(
         repository_id=str(uuid4()),
-        category="AD-",
+        category="AD",
         page=1,
         page_size=20,
         version=None,
@@ -287,7 +287,7 @@ async def test_api_get_knowledge_point_found():
     mock_kp = MagicMock(
         id=str(uuid4()),
         title="Factory Pattern",
-        category="DP-",
+        category="DP",
         confidence=0.92,
         version="v1",
         repository_id=str(uuid4()),
@@ -331,11 +331,11 @@ async def test_api_get_knowledge_stats():
     # 模拟第一次查询结果（by_category 分组）
     mock_category_result = MagicMock()
     mock_category_result.tuples.return_value = [
-        ("DP-", 5),
-        ("AD-", 2),
-        ("AL-", 1),
-        ("ET-", 1),
-        ("DK-", 1),
+        ("DP", 5),
+        ("AD", 2),
+        ("AL", 1),
+        ("ET", 1),
+        ("DK", 1),
     ]
 
     # 模拟第二次查询结果（total 计数）
@@ -366,7 +366,7 @@ async def test_api_get_knowledge_stats():
         dao=mock_dao,
     )
     assert result.total_points == 10
-    assert result.by_category["DP-"] == 5
+    assert result.by_category["DP"] == 5
     assert result.by_confidence["high"] == 7
     assert result.by_confidence["medium"] == 2
     assert result.by_confidence["low"] == 1

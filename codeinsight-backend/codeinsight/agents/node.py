@@ -22,17 +22,10 @@ from codeinsight.prompts import (
     load_domain_knowledge_prompt,
     load_engineering_prompt,
 )
+from codeinsight.schemas.constants import CATEGORY_NAMES
 from codeinsight.schemas.knowledge import KnowledgePointExtraction
 
 logger = logging.getLogger(__name__)
-
-CATEGORY_NAMES = {
-    "DP": "设计模式",
-    "AD": "架构设计",
-    "AL": "算法实现",
-    "ET": "工程技术",
-    "DK": "领域知识",
-}
 
 # Maximum number of code snippets to include in context for LLM analysis
 MAX_CODE_SNIPPETS = 20
@@ -154,6 +147,7 @@ class AnalysisNode:
                 {
                     "category": category,
                     "category_name": CATEGORY_NAMES.get(category, "未知"),
+                    "prefix": f"{category}-Unknown",
                     "title": f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
                     "description": content,
                     "confidence": 0.8,
@@ -182,17 +176,19 @@ class AnalysisNode:
         """
         normalized = []
         for point in points:
+            expansion = point.expansion.model_dump() if point.expansion else {}
             normalized.append(
                 {
                     "category": category,
                     "category_name": CATEGORY_NAMES.get(category, "未知"),
+                    "prefix": point.prefix,
                     "title": point.title or f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
                     "description": point.description,
                     "confidence": point.confidence,
                     "tags": point.tags,
                     "code_snippets": [s.model_dump() for s in point.code_snippets],
                     "call_chain": [c.model_dump() for c in point.call_chain],
-                    "expansion": {},
+                    "expansion": expansion,
                     "metadata": {},
                 }
             )
