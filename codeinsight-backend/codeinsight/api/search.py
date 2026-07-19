@@ -2,6 +2,7 @@
 搜索路由
 
 提供代码的全局文本搜索功能（基于 SQL 模糊匹配，不涉及 AI/向量搜索）。
+知识点搜索使用 Meilisearch 全文索引。
 """
 
 import logging
@@ -16,6 +17,7 @@ from codeinsight.auth import get_api_key_dependency
 from codeinsight.config import settings
 from codeinsight.db.session import get_db_session
 from codeinsight.models import AstNodeModel, FileModel
+from codeinsight.services.meilisearch_client import MeiliSearchClient
 
 logger = logging.getLogger(__name__)
 
@@ -141,3 +143,42 @@ async def search_suggestions(
     suggestions = [{"text": row[0], "type": row[1], "count": row[2]} for row in rows]
 
     return {"query": q, "suggestions": suggestions}
+
+
+@router.get("/search/knowledge-points")
+async def search_knowledge_points(
+    q: str,
+    repository_id: Annotated[UUID | None, Query(description="限定搜索的仓库")] = None,
+    category: Annotated[str | None, Query(description="限定分类：DP/AD/AL/ET/DK")] = None,
+    limit: Annotated[int, Query(ge=1, le=100, description="返回条数上限")] = 20,
+    offset: Annotated[int, Query(ge=0, description="偏移量")] = 0,
+):
+    """
+    全文搜索知识点
+
+    使用 Meilisearch 对知识点的标题、描述、标签进行全文搜索，
+    支持按分类和仓库筛选，按置信度排序。
+    """
+    if not q or not q.strip():
+        return {"hits": [], "total": 0, "query": q}
+
+    client = MeiliSearchClient()
+    filter_params: list[str] = []
+    if repository_id:
+        filter_params.append(f"repository_id = {repository_id}")
+    if category:
+        filter_params.append(f"category = {category}")
+
+    result = client.search(
+        query=q.strip(),
+        limit=limit,
+        offset=offset,
+        filter_params=filter_params or None,
+        sort=["confidence:desc"],
+    )
+
+    return {
+        "hits": result.get("hits", []),
+        "total": result.get("totalHits", 0) or result.get("estimatedTotalHits", 0),
+        "query": q,
+    }

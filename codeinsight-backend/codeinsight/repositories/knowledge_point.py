@@ -2,14 +2,18 @@
 KnowledgePoint 数据访问对象
 
 提供知识点实体的 CRUD 操作。
+知识点更新/删除时同步到 Meilisearch 索引。
 """
 
+import logging
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.models import KnowledgePointModel
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgePointDAO:
@@ -156,6 +160,29 @@ class KnowledgePointDAO:
 
         await db.flush()
         await db.refresh(kp)
+
+        # 同步到 Meilisearch 索引
+        try:
+            from codeinsight.services.meilisearch_client import MeiliSearchClient
+
+            meili_client = MeiliSearchClient()
+            meili_client.add_document(
+                {
+                    "id": str(kp.id),
+                    "title": kp.title,
+                    "description": kp.description,
+                    "category": kp.category,
+                    "category_name": kp.category_name,
+                    "tags": kp.tags or [],
+                    "confidence": kp.confidence,
+                    "repository_id": str(kp.repository_id),
+                    "version": kp.version,
+                    "created_at": kp.created_at.isoformat() if kp.created_at else "",
+                }
+            )
+        except Exception as exc:
+            logger.warning("知识点同步到 Meilisearch 失败（update）: id=%s, error=%s", point_id, exc)
+
         return kp
 
     async def delete(self, db: AsyncSession, point_id: UUID) -> bool:
@@ -175,4 +202,14 @@ class KnowledgePointDAO:
 
         await db.delete(kp)
         await db.flush()
+
+        # 从 Meilisearch 索引删除
+        try:
+            from codeinsight.services.meilisearch_client import MeiliSearchClient
+
+            meili_client = MeiliSearchClient()
+            meili_client.delete_document(point_id)
+        except Exception as exc:
+            logger.warning("知识点从 Meilisearch 删除失败: id=%s, error=%s", point_id, exc)
+
         return True

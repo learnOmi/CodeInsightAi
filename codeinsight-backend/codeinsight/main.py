@@ -28,6 +28,7 @@ from codeinsight.api import (
 )
 from codeinsight.config import settings
 from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
+from codeinsight.services.meilisearch_client import MeiliSearchClient
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,14 @@ async def lifespan(app: FastAPI):
     except ValueError as exc:
         logger.error("[STARTUP] Config validation FAILED: %s", exc)
         raise
+
+    # 初始化 Meilisearch 索引
+    try:
+        meili_client = MeiliSearchClient()
+        meili_client.ensure_index()
+        logger.info("[STARTUP] Meilisearch index initialized")
+    except Exception as exc:
+        logger.warning("[STARTUP] Meilisearch initialization skipped: %s", exc)
 
     yield
     # 关闭时执行

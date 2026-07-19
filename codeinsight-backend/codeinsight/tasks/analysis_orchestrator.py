@@ -61,6 +61,7 @@ from codeinsight.repositories import (
 from codeinsight.scanners.git_scanner import GitScanner, ScanResult
 from codeinsight.schemas import AnalysisMode, TaskStatus
 from codeinsight.services import IncrementalAnalyzer, IncrementalDiff, SnapshotManager
+from codeinsight.services.meilisearch_client import MeiliSearchClient
 
 logger = logging.getLogger(__name__)
 
@@ -1484,6 +1485,15 @@ class AnalysisOrchestrator:
 
                 await shared_db.commit()
                 logger.info("AI 分析完成: knowledge_points=%d", knowledge_points_count)
+
+                # 同步知识点到 Meilisearch 索引
+                if knowledge_points_count > 0:
+                    try:
+                        meili_client = MeiliSearchClient()
+                        meili_client.add_documents(final_state["knowledge_points"])
+                        logger.info("知识点已同步到 Meilisearch: count=%d", knowledge_points_count)
+                    except Exception as exc:
+                        logger.warning("知识点同步到 Meilisearch 失败: %s", exc)
             else:
                 knowledge_points_count = 0
 
