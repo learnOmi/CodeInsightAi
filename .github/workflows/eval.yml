@@ -38,32 +38,35 @@ jobs:
 
       - name: Run evaluation (all categories)
         id: eval-all
+        working-directory: codeinsight-backend
         run: |
-          python scripts/evaluate.py \
+          uv run python ../scripts/evaluate.py \
             --format console \
             --save-snapshot \
             --prompt-version "${{ github.sha }}" \
-            --snapshot-path codeinsight-backend/codeinsight/evaluation/history/snapshots.jsonl
+            --snapshot-path codeinsight/evaluation/history/snapshots.jsonl
 
       - name: Run evaluation (Python only)
         id: eval-python
+        working-directory: codeinsight-backend
         run: |
-          python scripts/evaluate.py \
+          uv run python ../scripts/evaluate.py \
             --languages python \
             --format json \
-            --output codeinsight-backend/eval_report_python.json \
+            --output eval_report_python.json \
             --save-snapshot \
-            --snapshot-path codeinsight-backend/codeinsight/evaluation/history/snapshots.jsonl
+            --snapshot-path codeinsight/evaluation/history/snapshots.jsonl
 
       - name: Run evaluation (TypeScript only)
         id: eval-typescript
+        working-directory: codeinsight-backend
         run: |
-          python scripts/evaluate.py \
+          uv run python ../scripts/evaluate.py \
             --languages typescript \
             --format json \
-            --output codeinsight-backend/eval_report_typescript.json \
+            --output eval_report_typescript.json \
             --save-snapshot \
-            --snapshot-path codeinsight-backend/codeinsight/evaluation/history/snapshots.jsonl
+            --snapshot-path codeinsight/evaluation/history/snapshots.jsonl
 
       - name: Check for regressions
         id: regressions
@@ -76,7 +79,7 @@ jobs:
           if regressions:
               print('=== Regressions Detected ===')
               for r in regressions:
-                  print(f'[{r[\"severity\"].upper()}] {r[\"dimension\"]}: {r[\"previous_f1\"]:.4f} -> {r[\"current_f1\"]:.4f} (drop {r[\"drop\"]:.4f})')
+                  print(f'[{r["severity"].upper()}] {r["dimension"]}: {r["previous_f1"]:.4f} -> {r["current_f1"]:.4f} (drop {r["drop"]:.4f})')
               exit(1)
           else:
               print('No regressions detected')

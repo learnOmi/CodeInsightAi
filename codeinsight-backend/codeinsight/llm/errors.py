@@ -19,3 +19,14 @@ class LLMError(Exception):
         self.provider = provider
         self.model = model
         super().__init__(f"LLM error [{provider}/{model}]: {message}")
+
+
+class OllamaUnavailableError(LLMError):
+    """
+    Ollama 服务不可用异常
+
+    当 Ollama 服务无法连接或响应超时时抛出，用于触发路由降级策略。
+    """
+
+    def __init__(self, message: str = "Ollama 服务不可用", provider: str = "ollama", model: str = ""):
+        super().__init__(message, provider=provider, model=model)

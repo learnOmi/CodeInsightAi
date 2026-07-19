@@ -497,11 +497,16 @@ class ExpansionNode:
                 .replace("{description}", description[:500])
             )
 
+            # 简单知识点（描述短）路由到本地模型以节省成本
+            # 复杂知识点（描述长）留在云端以保证质量
+            task_type = "summarization" if len(description) < 200 else "default"
+
             for attempt in range(self.MAX_RETRIES + 1):
                 try:
                     async with self._semaphore:
-                        response = await self._llm_client.chat(
+                        response = await self._llm_client.chat_for_task(
                             [{"role": "user", "content": prompt}],
+                            task_type=task_type,
                         )
                     content = response.get("content", "") if isinstance(response, dict) else str(response)
 

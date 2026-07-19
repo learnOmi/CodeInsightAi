@@ -276,6 +276,61 @@ class TestLLMClientTaskRouting:
         )
         assert result["content"] == '{"result": "test"}'
 
+    @patch("codeinsight.llm.client.litellm.acompletion")
+    async def test_chat_for_task_routing_disabled(self, mock_acompletion, llm_client, mock_acompletion_result):
+        """路由关闭时即使匹配简单任务也不切本地模型"""
+        from codeinsight.config import settings
+
+        # 保存原始值并关闭路由
+        orig = settings.ollama_task_routing
+        settings.ollama_task_routing = False
+        mock_acompletion.return_value = mock_acompletion_result
+
+        try:
+            result = await llm_client.chat_for_task(
+                [{"role": "user", "content": "hello"}],
+                task_type="classification",  # SIMPLE_TASK_MODELS 中有此类型
+            )
+            # 应走云端 chat() 而非路由到 Ollama
+            assert result["content"] == '{"result": "test"}'
+            assert result.get("provider") != "ollama"
+        finally:
+            settings.ollama_task_routing = orig
+
+    @patch("httpx.AsyncClient")
+    async def test_ollama_health_check_success(self, mock_http_client, llm_client):
+        """Ollama 健康检查成功"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_http_client.return_value.__aenter__.return_value.get.return_value = mock_response
+
+        result = await llm_client.check_ollama_health()
+        assert result is True
+
+    @patch("httpx.AsyncClient")
+    async def test_ollama_health_check_failure(self, mock_http_client, llm_client):
+        """Ollama 健康检查失败"""
+        mock_http_client.return_value.__aenter__.return_value.get.side_effect = Exception("Connection refused")
+
+        result = await llm_client.check_ollama_health()
+        assert result is False
+
+    @patch("codeinsight.llm.client.litellm.acompletion")
+    async def test_chat_records_cost(self, mock_acompletion, llm_client, mock_acompletion_result, mock_cost_tracker):
+        """chat() 记录成本到 CostTracker"""
+        mock_acompletion.return_value = mock_acompletion_result
+        mock_cost_tracker.reset_mock()
+
+        result = await llm_client.chat([{"role": "user", "content": "hello"}])
+        assert result["content"] == '{"result": "test"}'
+        # 应调用 CostTracker.record
+        mock_cost_tracker.record.assert_called_once()
+        call_args = mock_cost_tracker.record.call_args[1]
+        assert call_args["model"] == "claude-3.5-sonnet-20241022"
+        assert call_args["provider"] == "claude"
+        assert call_args["prompt_tokens"] == 100
+        assert call_args["completion_tokens"] == 50
+
 
 @pytest.mark.asyncio
 class TestLLMClientEmbed:
@@ -517,3 +572,11 @@ def mock_acompletion_result():
     mock_response.usage.prompt_tokens = 100
     mock_response.usage.completion_tokens = 50
     return mock_response
+
+
+@pytest.fixture
+def mock_cost_tracker(monkeypatch):
+    """模拟全局 CostTracker 单例"""
+    tracker = MagicMock(spec=CostTracker)
+    monkeypatch.setattr("codeinsight.llm.cost._tracker", tracker)
+    return tracker

@@ -16,6 +16,7 @@ import litellm
 from pydantic import BaseModel, Field
 
 from codeinsight.config import settings
+from codeinsight.llm.cost import get_cost_tracker
 from codeinsight.llm.errors import LLMError
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,9 @@ class LLMClient:
         "summarization": "ollama/llama3.1:8b",
         "extraction": "ollama/mistral:7b",
     }
+
+    # 本地模型成本（近似为 0，因为本地运行不计费）
+    LOCAL_MODEL_COST = 0.0
 
     def __init__(self, config: LLMConfig | None = None):
         """
@@ -160,6 +164,32 @@ class LLMClient:
         costs = self.MODEL_COST_MAP.get(model_key, {"input": 0.0, "output": 0.0})
         return costs["input"] / 1_000_000, costs["output"] / 1_000_000
 
+    # ────────── Ollama 健康检查 ──────────
+
+    async def check_ollama_health(self) -> bool:
+        """
+        检查 Ollama 服务是否可用
+
+        向 Ollama API 的 /api/tags 端点发送 GET 请求，
+        验证服务是否正常运行。
+
+        Returns:
+            True 如果 Ollama 服务可用，否则 False
+        """
+        if self.config.provider.lower() == "ollama":
+            return True  # 已在用 Ollama，视为可用
+
+        try:
+            import httpx
+
+            base_url = self.config.ollama_base_url.rstrip("/")
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{base_url}/api/tags")
+                return resp.status_code == 200
+        except Exception:
+            logger.debug("Ollama 健康检查失败", exc_info=True)
+            return False
+
     # ────────── 核心接口 ──────────
 
     async def chat(
@@ -213,7 +243,20 @@ class LLMClient:
             }
 
             input_cost, output_cost = self._get_cost_per_token(self._get_model_key())
-            result["cost"] = (prompt_tokens * input_cost) + (completion_tokens * output_cost)
+            call_cost = (prompt_tokens * input_cost) + (completion_tokens * output_cost)
+            result["cost"] = call_cost
+
+            # 记录成本到 CostTracker
+            try:
+                get_cost_tracker().record(
+                    model=self._get_model_key(),
+                    provider=self.config.provider,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cost=call_cost,
+                )
+            except Exception:
+                logger.debug("成本记录失败", exc_info=True)
 
             return result
 
@@ -321,6 +364,7 @@ class LLMClient:
         按任务类型智能路由
 
         简单任务（分类、摘要等）自动切到本地模型以节省成本。
+        路由前先检查 Ollama 服务可用性，不可用时自动回退到云端。
 
         Args:
             messages: 对话消息列表
@@ -330,12 +374,25 @@ class LLMClient:
         Returns:
             包含 'content' 和 token 计数的字典
         """
+        # 检查路由开关
+        if not settings.ollama_task_routing:
+            return await self.chat(messages)  # type: ignore[return-value]
+
         if task_type in self.SIMPLE_TASK_MODELS:
             local_model = self.SIMPLE_TASK_MODELS[task_type]
             if self.config.provider.lower() != "ollama":
+                # 路由前检查 Ollama 可用性
+                if not await self.check_ollama_health():
+                    logger.warning(
+                        "Ollama 不可用，任务 '%s' 留在云端: %s",
+                        task_type,
+                        self._model_name,
+                    )
+                    return await self.chat(messages)  # type: ignore[return-value]
+
+                old_provider = self.config.provider
+                old_model = self.config.model
                 try:
-                    old_provider = self.config.provider
-                    old_model = self.config.model
                     self.config.provider = "ollama"  # type: ignore[assignment]
                     self.config.model = local_model.replace("ollama/", "")
                     self._model_name = self._resolve_model_name()
@@ -350,6 +407,7 @@ class LLMClient:
 
                     if isinstance(result, dict):
                         result["provider"] = "ollama"
+                        result["cost"] = self.LOCAL_MODEL_COST  # 本地模型不计费
                     return result  # type: ignore[return-value]
                 except Exception as exc:
                     logger.warning("本地模型 %s 失败，回退到云端: %s", local_model, exc)
