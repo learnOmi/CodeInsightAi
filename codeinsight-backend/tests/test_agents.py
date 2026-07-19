@@ -6,6 +6,7 @@ Agent 模块单元测试（P3-02）
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -640,17 +641,9 @@ class TestMergeNode:
 class TestExpansionNode:
     """拓展节点测试"""
 
-    @pytest.mark.asyncio
-    async def test_generate_expansion(self):
-        """为知识点生成拓展内容"""
-        llm_client = MagicMock(spec=LLMClient)
-        llm_client.chat = AsyncMock(
-            return_value={
-                "content": '{"principle": "test principle", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": ["l1"]}'
-            }
-        )
-
-        state: AnalysisState = {
+    @pytest.fixture
+    def base_state(self) -> AnalysisState:
+        return {
             "repo_id": "test",
             "ast_data": [],
             "code_snippets": [],
@@ -660,11 +653,38 @@ class TestExpansionNode:
             "error": None,
             "messages": [],
         }
+
+    @pytest.fixture
+    def valid_expansion_json(self) -> str:
+        return json.dumps(
+            {
+                "principle": "test principle content",
+                "applicable_scenarios": ["scenario 1", "scenario 2"],
+                "best_practices": ["practice 1", "practice 2"],
+                "related_patterns": ["Singleton pattern", "Factory pattern"],
+                "learning_resources": [
+                    {"title": "Refactoring Guru", "url": "https://refactoring.guru/", "type": "article"},
+                    {"title": "Design Patterns Book", "url": "https://example.com/dp", "type": "book"},
+                ],
+            }
+        )
+
+    @pytest.mark.asyncio
+    async def test_generate_expansion(self, base_state, valid_expansion_json):
+        """为知识点生成拓展内容"""
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(return_value={"content": valid_expansion_json})
+
+        state = base_state
         node = ExpansionNode(llm_client)
         result = await node.execute(state)
         assert result["progress"] == 1.0
-        assert "expansion" in result["knowledge_points"][0]
-        assert result["knowledge_points"][0]["expansion"]["principle"] == "test principle"
+        kp = result["knowledge_points"][0]
+        assert "expansion" in kp
+        assert kp["expansion"]["principle"] == "test principle content"
+        assert len(kp["expansion"]["applicable_scenarios"]) == 2
+        assert len(kp["expansion"]["learning_resources"]) == 2
+        assert kp["expansion"]["learning_resources"][0]["type"] == "article"
 
     @pytest.mark.asyncio
     async def test_skip_empty_kps(self):
@@ -685,16 +705,127 @@ class TestExpansionNode:
         assert len(result["knowledge_points"]) == 0
 
     @pytest.mark.asyncio
-    async def test_llm_error_graceful(self):
+    async def test_llm_error_graceful(self, base_state):
         """LLM 错误时优雅跳过"""
         llm_client = MagicMock(spec=LLMClient)
         llm_client.chat = AsyncMock(side_effect=Exception("API Error"))
+
+        node = ExpansionNode(llm_client)
+        result = await node.execute(base_state)
+        assert result["progress"] == 1.0
+        assert "expansion" not in result["knowledge_points"][0]
+
+    @pytest.mark.asyncio
+    async def test_validate_expansion_content(self):
+        """TypeAdapter 校验拓展内容结构"""
+        node = ExpansionNode(MagicMock())
+
+        # 有效的拓展内容
+        valid = {
+            "principle": "原理说明",
+            "applicable_scenarios": ["场景1"],
+            "best_practices": ["实践1"],
+            "related_patterns": ["模式1"],
+            "learning_resources": [
+                {"title": "资源1", "url": "https://example.com", "type": "article"},
+            ],
+        }
+        result = node._expansion_adapter.validate_python(valid)
+        assert result.principle == "原理说明"
+        assert len(result.learning_resources) == 1
+
+    @pytest.mark.asyncio
+    async def test_validate_expansion_content_invalid_learning_resource(self):
+        """TypeAdapter 校验非法学习资源"""
+        node = ExpansionNode(MagicMock())
+
+        # learning_resources 缺少必要字段
+        invalid = {
+            "principle": "原理说明",
+            "applicable_scenarios": ["场景1"],
+            "best_practices": ["实践1"],
+            "related_patterns": ["模式1"],
+            "learning_resources": [
+                {"title": "资源1"},  # 缺少 url 和 type
+            ],
+        }
+        with pytest.raises(ValidationError):
+            node._expansion_adapter.validate_python(invalid)
+
+    @pytest.mark.asyncio
+    async def test_parse_and_validate_direct(self):
+        """直接解析 JSON"""
+        node = ExpansionNode(MagicMock())
+        content = '{"principle": "test", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": []}'
+        result = await node._parse_and_validate(content)
+        assert result is not None
+        assert result["principle"] == "test"
+
+    @pytest.mark.asyncio
+    async def test_parse_and_validate_code_block(self):
+        """从代码块中提取 JSON"""
+        node = ExpansionNode(MagicMock())
+        content = 'Some text\n```json\n{"principle": "test", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": []}\n```'
+        result = await node._parse_and_validate(content)
+        assert result is not None
+        assert result["principle"] == "test"
+
+    @pytest.mark.asyncio
+    async def test_parse_and_validate_invalid(self):
+        """非法 JSON 返回 None"""
+        node = ExpansionNode(MagicMock())
+        content = "not json at all"
+        result = await node._parse_and_validate(content)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_generate_expansion_retry_then_succeed(self, base_state):
+        """首次失败后重试成功"""
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(
+            side_effect=[
+                Exception("First failure"),
+                {
+                    "content": '{"principle": "retry success", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": []}'
+                },
+            ]
+        )
+
+        node = ExpansionNode(llm_client)
+        result = await node.execute(base_state)
+        assert result["progress"] == 1.0
+        assert result["knowledge_points"][0]["expansion"]["principle"] == "retry success"
+
+    @pytest.mark.asyncio
+    async def test_generate_expansion_retry_exhausted(self, base_state):
+        """重试耗尽后返回 None"""
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(side_effect=Exception("Persistent failure"))
+
+        node = ExpansionNode(llm_client)
+        result = await node.execute(base_state)
+        assert result["progress"] == 1.0
+        assert "expansion" not in result["knowledge_points"][0]
+
+    @pytest.mark.asyncio
+    async def test_generate_expansion_multiple_kps(self):
+        """多个知识点并发生成"""
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.chat = AsyncMock(
+            return_value={
+                "content": '{"principle": "p", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": []}'
+            }
+        )
 
         state: AnalysisState = {
             "repo_id": "test",
             "ast_data": [],
             "code_snippets": [],
-            "knowledge_points": [{"title": "Test", "category_name": "DP", "description": "desc"}],
+            "knowledge_points": [
+                {"title": "KP1", "category_name": "DP", "description": "desc1"},
+                {"title": "KP2", "category_name": "AD", "description": "desc2"},
+                {"title": "KP3", "category_name": "AL", "description": "desc3"},
+            ],
             "current_category": "",
             "progress": 0.9,
             "error": None,
@@ -703,7 +834,9 @@ class TestExpansionNode:
         node = ExpansionNode(llm_client)
         result = await node.execute(state)
         assert result["progress"] == 1.0
-        assert "expansion" not in result["knowledge_points"][0]
+        for kp in result["knowledge_points"]:
+            assert "expansion" in kp
+            assert kp["expansion"]["principle"] == "p"
 
 
 class TestParseResponse:

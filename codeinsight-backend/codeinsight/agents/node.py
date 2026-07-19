@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -21,9 +22,10 @@ from codeinsight.prompts import (
     load_design_pattern_prompt,
     load_domain_knowledge_prompt,
     load_engineering_prompt,
+    load_expansion_prompt,
 )
 from codeinsight.schemas.constants import CATEGORY_NAMES
-from codeinsight.schemas.knowledge import KnowledgePointExtraction
+from codeinsight.schemas.knowledge import ExpansionContent, KnowledgePointExtraction
 
 logger = logging.getLogger(__name__)
 
@@ -430,28 +432,18 @@ class ExpansionNode:
     - 关联模式（related_patterns）
     - 学习资源（learning_resources）
 
-    使用 LLM 批量生成，每个知识点独立调用。
+    使用 LLM 并发生成，支持结构化校验和重试机制。
     """
 
-    EXPANSION_PROMPT = """你是一个资深软件工程师，请为以下知识点生成拓展内容。
+    _expansion_adapter: TypeAdapter[ExpansionContent] = TypeAdapter(ExpansionContent)
 
-知识点标题：{title}
-知识点分类：{category}
-知识点描述：{description}
-
-请生成以下 5 个方面的拓展内容，以 JSON 格式返回：
-{{
-    "principle": "该知识点的核心原理和技术本质（100-200字）",
-    "applicable_scenarios": "适用场景列表（3-5个，每个场景20-50字）",
-    "best_practices": "最佳实践列表（3-5条，每条20-50字）",
-    "related_patterns": "关联的技术/模式列表（3-5个，每个附带简要说明）",
-    "learning_resources": "学习资源推荐（3-5个，每个附带标题和说明）"
-}}
-
-仅返回 JSON，不要包含其他内容。"""
+    MAX_RETRIES = 2
+    MAX_CONCURRENCY = 5
 
     def __init__(self, llm_client: LLMClient):
         self._llm_client = llm_client
+        self._prompt_template = load_expansion_prompt()
+        self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENCY)
 
     async def execute(self, state: AnalysisState) -> AnalysisState:
         """为所有知识点生成拓展内容
@@ -475,14 +467,18 @@ class ExpansionNode:
                 if expansion:
                     kp["expansion"] = expansion
             except Exception as exc:
-                logger.warning("知识点拓展内容生成失败: %s, title=%s", exc, kp.get("title", ""))
+                logger.warning(
+                    "知识点拓展内容生成失败: %s, title=%s",
+                    exc,
+                    kp.get("title", ""),
+                )
 
         state["progress"] = 1.0
         logger.info("拓展内容生成完成")
         return state
 
     async def _generate_expansion(self, kp: dict) -> dict | None:
-        """为单个知识点生成拓展内容
+        """为单个知识点生成拓展内容，支持重试
 
         Args:
             kp: 知识点
@@ -490,25 +486,73 @@ class ExpansionNode:
         Returns:
             拓展内容 dict，失败时返回 None
         """
-        title = kp.get("title", "")
-        category = kp.get("category_name", kp.get("category", ""))
-        description = kp.get("description", "")
-
-        prompt = self.EXPANSION_PROMPT.format(
-            title=title,
-            category=category,
-            description=description[:500],
-        )
-
         try:
-            response = await self._llm_client.chat(
-                [{"role": "user", "content": prompt}],
+            title = kp.get("title", "")
+            category = kp.get("category_name", kp.get("category", ""))
+            description = kp.get("description", "")
+
+            prompt = (
+                self._prompt_template.replace("{title}", title)
+                .replace("{category}", category)
+                .replace("{description}", description[:500])
             )
-            content = response.get("content", "") if isinstance(response, dict) else str(response)
 
-            expansion = json.loads(content)
-            return expansion  # type: ignore[no-any-return]
+            for attempt in range(self.MAX_RETRIES + 1):
+                try:
+                    async with self._semaphore:
+                        response = await self._llm_client.chat(
+                            [{"role": "user", "content": prompt}],
+                        )
+                    content = response.get("content", "") if isinstance(response, dict) else str(response)
 
+                    # 尝试解析并校验
+                    result = await self._parse_and_validate(content)
+                    if result is not None:
+                        return result
+
+                    if attempt < self.MAX_RETRIES:
+                        logger.debug("拓展内容 JSON 解析失败，重试: title=%s, attempt=%d", title, attempt + 1)
+                        continue
+                    logger.warning("拓展内容 JSON 解析失败: title=%s", title)
+                    return None
+
+                except Exception as exc:
+                    if attempt < self.MAX_RETRIES:
+                        logger.debug("拓展内容生成失败，重试: title=%s, attempt=%d, error=%s", title, attempt + 1, exc)
+                        await asyncio.sleep(1)
+                        continue
+                    logger.warning("拓展内容生成失败: title=%s, error=%s", title, exc)
+                    return None
+
+            return None
+        except Exception as exc:
+            logger.warning("拓展内容生成异常: title=%s, error=%s", kp.get("title", ""), exc)
+            return None
+
+    async def _parse_and_validate(self, content: str) -> dict | None:
+        """解析并校验 JSON 内容
+
+        Args:
+            content: LLM 响应文本
+
+        Returns:
+            校验通过的 dict，失败时返回 None
+        """
+        try:
+            parsed = json.loads(content)
+            validated = self._expansion_adapter.validate_python(parsed)
+            return validated.model_dump()
         except (json.JSONDecodeError, Exception) as exc:
-            logger.warning("拓展内容解析失败: %s, title=%s", exc, title)
+            logger.debug("JSON 解析/校验失败: %s", exc)
+            # 尝试从代码块中提取
+            import re
+
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
+            if match:
+                try:
+                    parsed = json.loads(match.group(1))
+                    validated = self._expansion_adapter.validate_python(parsed)
+                    return validated.model_dump()
+                except Exception:
+                    pass
             return None

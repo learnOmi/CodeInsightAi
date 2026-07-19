@@ -95,6 +95,16 @@ def load_domain_knowledge_prompt() -> str:
     return _load_prompt("domain.md")
 
 
+def load_expansion_prompt() -> str:
+    """
+    加载拓展内容生成提示词
+
+    Returns:
+        拓展内容生成提示词内容
+    """
+    return _load_prompt("expansion.md")
+
+
 __all__ = [
     "load_base_prompt",
     "load_design_pattern_prompt",
@@ -102,4 +112,5 @@ __all__ = [
     "load_algorithm_prompt",
     "load_engineering_prompt",
     "load_domain_knowledge_prompt",
+    "load_expansion_prompt",
 ]

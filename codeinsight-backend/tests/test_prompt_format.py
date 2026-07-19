@@ -80,6 +80,8 @@ class TestPromptJsonValidity:
         """JSON 示例包含所有必选字段"""
         if fname == "base.md":
             pytest.skip("base.md 是模板，不包含完整示例")
+        if fname == "expansion.md":
+            pytest.skip("expansion.md 生成 ExpansionContent 而非 KnowledgePointExtraction")
         content = (PROMPT_DIR / fname).read_text(encoding="utf-8")
         json_blocks = extract_json_blocks(content)
         for block in json_blocks:
