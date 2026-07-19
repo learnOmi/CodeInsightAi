@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-dk-go",
+  "category": "DK",
+  "language": "go",
+  "description": "Domain knowledge models implemented in Go",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DK-GO-001",
+      "description": "Container orchestration domain",
+      "code_snippets": [{
+        "file": "src/domain/orchestration/cluster.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package orchestration\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype ContainerState string\n\nconst (\n\tStatePending   ContainerState = \"pending\"\n\tStateRunning   ContainerState = \"running\"\n\tStateStopped   ContainerState = \"stopped\"\n\tStateFailed    ContainerState = \"failed\"\n\tStateCompleted ContainerState = \"completed\"\n)\n\ntype Container struct {\n\tID          string\n\tImage       string\n\tReplicas    int\n\tCPU         float64\n\tMemoryMB    int\n\tState       ContainerState\n\tNodeID      string\n\tCreatedAt   time.Time\n\tUpdatedAt   time.Time\n}\n\ntype Node struct {\n\tID            string\n\tHostname      string\n\tCPUAvailable  float64\n\tMemoryAvailable int\n\tContainers    map[string]*Container\n\tStatus        string\n}\n\ntype ClusterManager struct {\n\tmu     sync.RWMutex\n\tnodes  map[string]*Node\n\ttasks  map[string]*Container\n}\n\nfunc NewClusterManager() *ClusterManager {\n\treturn &ClusterManager{\n\t\tnodes: make(map[string]*Node),\n\t\ttasks: make(map[string]*Container),\n\t}\n}\n\nfunc (cm *ClusterManager) RegisterNode(node *Node) error {\n\tcm.mu.Lock()\n\tdefer cm.mu.Unlock()\n\n\tif _, exists := cm.nodes[node.ID]; exists {\n\t\treturn fmt.Errorf(\"node %s already registered\", node.ID)\n\t}\n\n\tnode.Containers = make(map[string]*Container)\n\tcm.nodes[node.ID] = node\n\treturn nil\n}\n\nfunc (cm *ClusterManager) Schedule(container *Container) error {\n\tcm.mu.Lock()\n\tdefer cm.mu.Unlock()\n\n\tbestNode := cm.findBestNode(container)\n\tif bestNode == nil {\n\t\treturn fmt.Errorf(\"no suitable node found for container %s\", container.ID)\n\t}\n\n\tcontainer.State = StateRunning\n\tcontainer.NodeID = bestNode.ID\n\tbestNode.Containers[container.ID] = container\n\tbestNode.CPUAvailable -= container.CPU\n\tbestNode.MemoryAvailable -= container.MemoryMB\n\tcm.tasks[container.ID] = container\n\treturn nil\n}\n\nfunc (cm *ClusterManager) findBestNode(container *Container) *Node {\n\tvar best *Node\n\tfor _, node := range cm.nodes {\n\t\tif node.Status != \"ready\" {\n\t\t\tcontinue\n\t\t}\n\t\tif node.CPUAvailable >= container.CPU && node.MemoryAvailable >= container.MemoryMB {\n\t\t\tif best == nil || node.CPUAvailable < best.CPUAvailable {\n\t\t\t\tbest = node\n\t\t\t}\n\t\t}\n\t}\n\treturn best\n}\n\nfunc (cm *ClusterManager) GetClusterStatus() map[string]interface{} {\n\tcm.mu.RLock()\n\tdefer cm.mu.RUnlock()\n\n\ttotalNodes := len(cm.nodes)\n\trunningTasks := 0\n\tfor _, task := range cm.tasks {\n\t\tif task.State == StateRunning {\n\t\t\trunningTasks++\n\t\t}\n\t}\n\n\treturn map[string]interface{}{\n\t\t\"total_nodes\":    totalNodes,\n\t\t\"running_tasks\":  runningTasks,\n\t\t\"total_tasks\":    len(cm.tasks),\n\t}\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-OrchestrationGo",
+        "title": "容器编排领域",
+        "description": "实现容器编排系统的核心领域模型。ClusterManager管理节点和容器的调度。RegisterNode注册新节点到集群，Schedule将容器调度到资源充足的节点（选择CPU最接近的节点）。findBestNode遍历所有就绪节点，找到同时满足CPU和内存需求的节点中资源最紧张的（最佳适配策略）。Container记录状态、镜像、副本数和资源需求。Node跟踪可用资源和已运行容器。GetClusterStatus提供集群概览。这种领域模型模拟了Kubernetes的核心调度逻辑。",
+        "confidence": 0.95,
+        "alternative_titles": ["Container Orchestration", "Cluster Management", "Scheduling"]
+      }]
+    },
+    {
+      "id": "DK-GO-002",
+      "description": "Distributed ledger domain",
+      "code_snippets": [{
+        "file": "src/domain/ledger/blockchain.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package ledger\n\nimport (\n\t\"crypto/sha256\"\n\t\"encoding/hex\"\n\t\"fmt\"\n\t\"time\"\n)\n\ntype Transaction struct {\n\tID        string\n\tFrom      string\n\tTo        string\n\tAmount    float64\n\tTimestamp time.Time\n\tPrevHash  string\n\tHash      string\n}\n\nfunc (t *Transaction) CalculateHash() string {\n\th := sha256.New()\n\th.Write([]byte(t.ID + t.From + t.To + fmt.Sprintf(\"%.2f\", t.Amount) + t.PrevHash + t.Timestamp.String()))\n\treturn hex.EncodeToString(h.Sum(nil))\n}\n\ntype Block struct {\n\tIndex        int\n\tTimestamp    time.Time\n\tTransactions []Transaction\n\tPreviousHash string\n\tHash         string\n\tNonce        int\n}\n\nfunc (b *Block) CalculateHash() string {\n\th := sha256.New()\n\th.Write([]byte(fmt.Sprintf(\"%d\", b.Index) + b.PreviousHash + b.Timestamp.String() + b.Hash))\n\treturn hex.EncodeToString(h.Sum(nil))\n}\n\ntype Blockchain struct {\n\tChain []*Block\n\tMutex sync.RWMutex\n}\n\nfunc NewBlockchain() *Blockchain {\n\tgenesis := createGenesisBlock()\n\treturn &Blockchain{Chain: []*Block{genesis}}\n}\n\nfunc (bc *Blockchain) AddBlock(newBlock *Block) error {\n\tbc.Mutex.Lock()\n\tdefer bc.Mutex.Unlock()\n\n\tpreviousBlock := bc.Chain[len(bc.Chain)-1]\n\tnewBlock.PreviousHash = previousBlock.Hash\n\tnewBlock.Hash = newBlock.CalculateHash()\n\n\tif !bc.IsChainValid() {\n\t\treturn fmt.Errorf(\"invalid chain\")\n\t}\n\n\tbc.Chain = append(bc.Chain, newBlock)\n\treturn nil\n}\n\nfunc (bc *Blockchain) IsChainValid() bool {\n\tfor i := 1; i < len(bc.Chain); i++ {\n\t\tcurrent := bc.Chain[i]\n\t\tprevious := bc.Chain[i-1]\n\n\t\tif current.PreviousHash != previous.Hash {\n\t\t\treturn false\n\t\t}\n\t\tif current.CalculateHash() != current.Hash {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}\n\nfunc createGenesisBlock() *Block {\n\treturn &Block{\n\t\tIndex:   0,\n\t\tTimestamp: time.Now(),\n\t\tHash:    \"00000000000000000000000000000000\",\n\t}\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-LedgerGo",
+        "title": "分布式账本技术",
+        "description": "实现区块链分布式账本的核心数据结构。Transaction包含发送方、接收方、金额和时间戳，通过SHA256计算唯一哈希。Block包含索引、时间戳、交易列表和前一个区块的哈希，形成链式结构。Blockchain维护区块列表，AddBlock验证链的完整性后追加新区块。IsChainValid检查每个区块的哈希和前驱哈希是否正确。createGenesisBlock创建创世区块。这种不可篡改的链式结构确保了分布式系统中数据的一致性和可信度。",
+        "confidence": 0.94,
+        "alternative_titles": ["Distributed Ledger", "Blockchain", "Immutable Chain"]
+      }]
+    },
+    {
+      "id": "DK-GO-003",
+      "description": "Service mesh domain",
+      "code_snippets": [{
+        "file": "src/domain/mesh/servicemesh.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package mesh\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype ServiceEntry struct {\n\tName      string\n\tHost      string\n\tPort      int\n\tInstances []Instance\n\tHealth    string\n}\n\ntype Instance struct {\n\tID          string\n\tIP          string\n\tPort        int\n\tHealthy     bool\n\tLastChecked time.Time\n\tRequests    int\n\tErrors      int\n}\n\ntype LoadBalancer interface {\n\tSelect(instances []Instance) *Instance\n}\n\ntype RoundRobinLB struct {\n\tcounter int\n\tmu      sync.Mutex\n}\n\nfunc (rr *RoundRobinLB) Select(instances []Instance) *Instance {\n\trr.mu.Lock()\n\tdefer rr.mu.Unlock()\n\n\thealthy := filterHealthy(instances)\n\tif len(healthy) == 0 {\n\t\treturn nil\n\t}\n\n\tidx := rr.counter % len(healthy)\n\trr.counter++\n\treturn &healthy[idx]\n}\n\nfunc filterHealthy(instances []Instance) []Instance {\n\tvar healthy []Instance\n\tfor _, inst := range instances {\n\t\tif inst.Healthy {\n\t\t\thealthy = append(healthy, inst)\n\t\t}\n\t}\n\treturn healthy\n}\n\ntype SidecarProxy struct {\n\tserviceName string\n\tlb          LoadBalancer\n\tregistry    *ServiceRegistry\n}\n\ntype ServiceRegistry struct {\n\tmu      sync.RWMutex\n\tservices map[string]*ServiceEntry\n}\n\nfunc NewServiceRegistry() *ServiceRegistry {\n\treturn &ServiceRegistry{services: make(map[string]*ServiceEntry)}\n}\n\nfunc (sr *ServiceRegistry) RegisterService(svc *ServiceEntry) {\n\tsr.mu.Lock()\n\tdefer sr.mu.Unlock()\n\tsr.services[svc.Name] = svc\n}\n\nfunc (sr *ServiceRegistry) Discover(serviceName string) ([]Instance, error) {\n\tsr.mu.RLock()\n\tdefer sr.mu.RUnlock()\n\n\tsvc, ok := sr.services[serviceName]\n\tif !ok {\n\t\treturn nil, fmt.Errorf(\"service %s not found\", serviceName)\n\t}\n\treturn svc.Instances, nil\n}\n\nfunc main() {\n\tregistry := NewServiceRegistry()\n\tregistry.RegisterService(&ServiceEntry{Name: \"user-service\", Instances: []Instance{\n\t\t{ID: \"u1\", IP: \"10.0.0.1\", Port: 8080, Healthy: true},\n\t\t{ID: \"u2\", IP: \"10.0.0.2\", Port: 8080, Healthy: true},\n\t}})\n\n\tproxy := &SidecarProxy{\n\t\tserviceName: \"user-service\",\n\t\tlb:          &RoundRobinLB{},\n\t\tregistry:    registry,\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-SMGo",
+        "title": "服务网格架构",
+        "description": "实现服务网格的核心组件。ServiceRegistry管理服务发现，RegisterService注册服务实例，Discover按名称查找健康实例。LoadBalancer接口定义实例选择策略，RoundRobinLB实现轮询算法，filterHealthy过滤掉不健康的实例。SidecarProxy作为服务的边车代理，使用负载均衡器选择目标实例。Instance跟踪健康状态、请求数和错误数。这种模式将网络通信、服务发现、负载均衡等横切功能从应用代码分离到独立的sidecar进程。",
+        "confidence": 0.94,
+        "alternative_titles": ["Service Mesh", "Service Discovery", "Sidecar Proxy"]
+      }]
+    },
+    {
+      "id": "DK-GO-004",
+      "description": "CI/CD pipeline domain",
+      "code_snippets": [{
+        "file": "src/domain/cicd/pipeline.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package cicd\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\ntype StageStatus string\n\nconst (\n\tStagePending   StageStatus = \"pending\"\n\tStageRunning   StageStatus = \"running\"\n\tStagePassed    StageStatus = \"passed\"\n\tStageFailed    StageStatus = \"failed\"\n\tStageSkipped   StageStatus = \"skipped\"\n)\n\ntype Stage struct {\n\tName        string\n\tCommands    []string\n\tStatus      StageStatus\n\tStartedAt   time.Time\n\tFinishedAt  time.Time\n\tDuration    time.Duration\n\tDependsOn   []string\n}\n\ntype Pipeline struct {\n\tID        string\n\tBranch    string\n\tCommitSHA string\n\tStages    []Stage\n\tStatus    PipelineStatus\n\tCreatedAt time.Time\n}\n\ntype PipelineStatus string\n\nconst (\n\tPipelineQueued   PipelineStatus = \"queued\"\n\tPipelineRunning  PipelineStatus = \"running\"\n\tPipelinePassed   PipelineStatus = \"passed\"\n\tPipelineFailed   PipelineStatus = \"failed\"\n\tPipelineManual   PipelineStatus = \"manual\"\n)\n\nfunc (p *Pipeline) CanRun(stage *Stage) bool {\n\tfor _, dep := range stage.DependsOn {\n\t\tdepStage := p.findStageByName(dep)\n\t\tif depStage == nil || depStage.Status != StagePassed {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}\n\nfunc (p *Pipeline) findStageByName(name string) *Stage {\n\tfor i := range p.Stages {\n\t\tif p.Stages[i].Name == name {\n\t\t\treturn &p.Stages[i]\n\t\t}\n\t}\n\treturn nil\n}\n\nfunc (p *Pipeline) ExecuteNext() (*Stage, error) {\n\tfor i := range p.Stages {\n\t\tstage := &p.Stages[i]\n\t\tif stage.Status == StagePending && p.CanRun(stage) {\n\t\t\tstage.Status = StageRunning\n\t\t\tstage.StartedAt = time.Now()\n\t\t\treturn stage, nil\n\t\t}\n\t}\n\treturn nil, fmt.Errorf(\"no stages can be executed\")\n}\n\nfunc (p *Pipeline) MarkStageComplete(stageName string, success bool) {\n\tstage := p.findStageByName(stageName)\n\tif stage == nil {\n\t\treturn\n\t}\n\n\tstage.FinishedAt = time.Now()\n\tstage.Duration = stage.FinishedAt.Sub(stage.StartedAt)\n\n\tif success {\n\t\tstage.Status = StagePassed\n\t} else {\n\t\tstage.Status = StageFailed\n\t\tp.Status = PipelineFailed\n\t\treturn\n\t}\n\n\t// Check if all stages are complete\n\tallComplete := true\n\tfor _, s := range p.Stages {\n\t\tif s.Status != StagePassed && s.Status != StageSkipped {\n\t\t\tallComplete = false\n\t\t}\n\t}\n\tif allComplete {\n\t\tp.Status = PipelinePassed\n\t}\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-CICDGo",
+        "title": "CI/CD流水线领域",
+        "description": "实现CI/CD流水线的领域模型。Pipeline包含多个Stage，每个Stage有命令列表、依赖关系和执行状态。CanRun检查所有前置阶段是否通过。ExecuteNext找到第一个可以执行的pending阶段并标记为running。MarkStageComplete更新阶段完成状态，失败则整个pipeline标记为failed，全部通过后标记为passed。StageStatus和PipelineStatus枚举管理状态流转。这种模型支持GitHub Actions、GitLab CI等工具的流水线编排逻辑。",
+        "confidence": 0.95,
+        "alternative_titles": ["CI/CD Pipeline", "Build Pipeline", "Deployment Pipeline"]
+      }]
+    },
+    {
+      "id": "DK-GO-005",
+      "description": "Log aggregation domain",
+      "code_snippets": [{
+        "file": "src/domain/logging/aggregator.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package logging\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype LogLevel string\n\nconst (\n\tLevelTrace LogLevel = \"TRACE\"\n\tLevelDebug LogLevel = \"DEBUG\"\n\tLevelInfo  LogLevel = \"INFO\"\n\tLevelWarn  LogLevel = \"WARN\"\n\tLevelError LogLevel = \"ERROR\"\n\tLevelFatal LogLevel = \"FATAL\"\n)\n\ntype LogEntry struct {\n\tTimestamp time.Time\n\tLevel     LogLevel\n\tService   string\n\tMessage   string\n\tFields    map[string]string\n}\n\ntype LogAggregator struct {\n\tmu       sync.Mutex\n\tentries  []LogEntry\n\tfilters  []Filter\n\tbuffer   []LogEntry\n\tmaxSize  int\n}\n\nfunc NewLogAggregator(maxSize int) *LogAggregator {\n\treturn &LogAggregator{\n\t\tbuffer: make([]LogEntry, 0, maxSize),\n\t\tmaxSize: maxSize,\n\t}\n}\n\nfunc (la *LogAggregator) AddEntry(entry LogEntry) {\n\tla.mu.Lock()\n\tdefer la.mu.Unlock()\n\n\tif !la.passesFilters(entry) {\n\t\treturn\n\t}\n\n\tla.buffer = append(la.buffer, entry)\n\tif len(la.buffer) > la.maxSize {\n\t\tla.entries = append(la.entries, la.buffer[0])\n\t\tla.buffer = la.buffer[1:]\n\t}\n}\n\nfunc (la *LogAggregator) Query(level LogLevel, service string, since time.Time) []LogEntry {\n\tla.mu.Lock()\n\tdefer la.mu.Unlock()\n\n\tvar results []LogEntry\n\tallEntries := append(la.entries, la.buffer...)\n\n\tfor _, entry := range allEntries {\n\t\tif entry.Level != level {\n\t\t\tcontinue\n\t\t}\n\t\tif service != \"\" && entry.Service != service {\n\t\t\tcontinue\n\t\t}\n\t\tif !entry.Timestamp.After(since) {\n\t\t\tcontinue\n\t\t}\n\t\tresults = append(results, entry)\n\t}\n\n\treturn results\n}\n\nfunc (la *LogAggregator) passesFilters(entry LogEntry) bool {\n\tfor _, f := range la.filters {\n\t\tif !f.Matches(entry) {\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}\n\nfunc (la *LogAggregator) GetStats() map[string]int {\n\tstats := make(map[string]int)\n\tallEntries := append(la.entries, la.buffer...)\n\tfor _, entry := range allEntries {\n\t\tstats[string(entry.Level)]++\n\t}\n\treturn stats\n}\n\ntype Filter interface {\n\tMatches(entry LogEntry) bool\n}\n\ntype LevelFilter struct {\n\tMinLevel LogLevel\n}\n\nfunc (f LevelFilter) Matches(entry LogEntry) bool {\n\tlevels := []LogLevel{LevelTrace, LevelDebug, LevelInfo, LevelWarn, LevelError, LevelFatal}\n\tfor i, l := range levels {\n\t\tif l == f.MinLevel {\n\t\t\tfor j := i; j < len(levels); j++ {\n\t\t\t\tif entry.Level == levels[j] {\n\t\t\t\t\treturn true\n\t\t\t\t}\n\t\t\t}\n\t\t\treturn false\n\t\t}\n\t}\n\treturn true\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-LogAggGo",
+        "title": "日志聚合系统",
+        "description": "实现日志聚合系统用于收集和分析多服务日志。LogAggregator维护环形缓冲区（buffer）和历史记录（entries），AddEntry添加日志条目并通过Filter链过滤。Query方法按级别、服务和时间范围查询日志。passesFilters使用Filter接口支持可扩展的过滤策略。LevelFilter按最低级别过滤日志。GetStats统计各级别日志数量。缓冲区的固定大小防止内存无限增长，超出时自动淘汰旧数据。这种模式支持ELK、Loki等日志聚合系统的核心功能。",
+        "confidence": 0.94,
+        "alternative_titles": ["Log Aggregation", "Centralized Logging", "Log Analysis"]
+      }]
+    },
+    {
+      "id": "DK-GO-006",
+      "description": "Load balancing domain",
+      "code_snippets": [{
+        "file": "src/domain/loadbalancer/balancer.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package loadbalancer\n\nimport (\n\t\"fmt\"\n\t\"math/rand\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype Backend struct {\n\tAddress    string\n\tWeight     int\n\tActiveConn int\n\tTotalReq   int\n\tFailCount  int\n\tHealthy    bool\n}\n\ntype Strategy interface {\n\tSelect(backends []*Backend) *Backend\n}\n\ntype WeightedRoundRobin struct {\n\tmu         sync.Mutex\n\tcurrentIndex int\n}\n\nfunc (wrr *WeightedRoundRobin) Select(backends []*Backend) *Backend {\n\twrr.mu.Lock()\n\tdefer wrr.mu.Unlock()\n\n\thealthy := make([]*Backend, 0)\n\tfor _, b := range backends {\n\t\tif b.Healthy && b.Weight > 0 {\n\t\t\thealthy = append(healthy, b)\n\t\t}\n\t}\n\n\tif len(healthy) == 0 {\n\t\treturn nil\n\t}\n\n\ttotalWeight := 0\n\tfor _, b := range healthy {\n\t\ttotalWeight += b.Weight\n\t}\n\n\twrr.currentIndex = (wrr.currentIndex + 1) % totalWeight\n\tcurrent := 0\n\tfor _, b := range healthy {\n\t\tcurrent += b.Weight\n\t\tif wrr.currentIndex < current {\n\t\t\treturn b\n\t\t}\n\t}\n\treturn healthy[0]\n}\n\ntype LeastConnections struct{}\n\nfunc (lc *LeastConnections) Select(backends []*Backend) *Backend {\n\tvar best *Backend\n\tfor _, b := range backends {\n\t\tif !b.Healthy {\n\t\t\tcontinue\n\t\t}\n\t\tif best == nil || b.ActiveConn < best.ActiveConn {\n\t\t\tbest = b\n\t\t}\n\t}\n\treturn best\n}\n\ntype RandomStrategy struct{}\n\nfunc (rs *RandomStrategy) Select(backends []*Backend) *Backend {\n\thealthy := make([]*Backend, 0)\n\tfor _, b := range backends {\n\t\tif b.Healthy {\n\t\t\thealthy = append(healthy, b)\n\t\t}\n\t}\n\tif len(healthy) == 0 {\n\t\treturn nil\n\t}\n\treturn healthy[rand.Intn(len(healthy))]\n}\n\ntype LoadBalancer struct {\n\tbackends []*Backend\n\tstrategy Strategy\n\tmu       sync.Mutex\n}\n\nfunc NewLoadBalancer(strategy Strategy) *LoadBalancer {\n\treturn &LoadBalancer{strategy: strategy}\n}\n\nfunc (lb *LoadBalancer) AddBackend(addr string, weight int) {\n\tlb.mu.Lock()\n\tdefer lb.mu.Unlock()\n\tlb.backends = append(lb.backends, &Backend{\n\t\tAddress: addr,\n\t\tWeight:  weight,\n\t\tHealthy: true,\n\t})\n}\n\nfunc (lb *LoadBalancer) Next() (*Backend, error) {\n\tlb.mu.Lock()\n\tdefer lb.mu.Unlock()\n\n\tbackend := lb.strategy.Select(lb.backends)\n\tif backend == nil {\n\t\treturn nil, fmt.Errorf(\"no healthy backends available\")\n\t}\n\n\tbackend.ActiveConn++\n\tbackend.TotalReq++\n\treturn backend, nil\n}\n\nfunc (lb *LoadBalancer) Release(backend *Backend) {\n\tbackend.ActiveConn--\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-LBGo",
+        "title": "负载均衡算法",
+        "description": "实现多种负载均衡策略。Strategy接口定义选择后端的契约。WeightedRoundRobin按权重轮询，将总权重分为区间，按索引分配给对应权重的后端。LeastConnections选择活跃连接最少的健康后端。RandomStrategy随机选择健康后端。LoadBalancer组合后端列表和策略，Next方法选择后端并增加活跃连接计数，Release释放连接。所有公共方法用mutex保护并发安全。这种设计支持动态添加后端和运行时切换策略。",
+        "confidence": 0.95,
+        "alternative_titles": ["Load Balancing", "Request Distribution", "Traffic Routing"]
+      }]
+    },
+    {
+      "id": "DK-GO-007",
+      "description": "Secret management domain",
+      "code_snippets": [{
+        "file": "src/domain/secrets/manager.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package secrets\n\nimport (\n\t\"crypto/rand\"\n\t\"encoding/base64\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype Secret struct {\n\tKey         string\n\tValue       string\n\tCreatedAt   time.Time\n\tExpiresAt   time.Time\n\tRotationDay int\n\tVersion     int\n}\n\ntype SecretStore struct {\n\tmu       sync.RWMutex\n\tsecrets  map[string]*Secret\n\thistory  map[string][]*Secret\n}\n\nfunc NewSecretStore() *SecretStore {\n\treturn &SecretStore{\n\t\tsecrets: make(map[string]*Secret),\n\t\thistory: make(map[string][]*Secret),\n\t}\n}\n\nfunc (ss *SecretStore) Set(key, value string, ttl time.Duration) error {\n\tss.mu.Lock()\n\tdefer ss.mu.Unlock()\n\n\texisting, exists := ss.secrets[key]\n\tversion := 1\n\tif exists {\n\t\tversion = existing.Version + 1\n\t}\n\n\tsecret := &Secret{\n\t\tKey:       key,\n\t\tValue:     value,\n\t\tCreatedAt: time.Now(),\n\t\tExpiresAt: time.Now().Add(ttl),\n\t\tVersion:   version,\n\t}\n\n\tif exists {\n\t\tss.history[key] = append(ss.history[key], existing)\n\t}\n\n\tss.secrets[key] = secret\n\treturn nil\n}\n\nfunc (ss *SecretStore) Get(key string) (string, error) {\n\tss.mu.RLock()\n\tdefer ss.mu.RUnlock()\n\n\tsecret, exists := ss.secrets[key]\n\tif !exists {\n\t\treturn \"\", fmt.Errorf(\"secret not found: %s\", key)\n\t}\n\n\tif time.Now().After(secret.ExpiresAt) {\n\t\tdelete(ss.secrets, key)\n\t\treturn \"\", fmt.Errorf(\"secret expired: %s\", key)\n\t}\n\n\treturn secret.Value, nil\n}\n\nfunc (ss *SecretStore) Rotate(key string, newValue string) error {\n\tss.mu.Lock()\n\tdefer ss.mu.Unlock()\n\n\told, exists := ss.secrets[key]\n\tif !exists {\n\t\treturn fmt.Errorf(\"secret not found: %s\", key)\n\t}\n\n\tnewSecret := &Secret{\n\t\tKey:       key,\n\t\tValue:     newValue,\n\t\tCreatedAt: time.Now(),\n\t\tExpiresAt: old.ExpiresAt,\n\t\tVersion:   old.Version + 1,\n\t}\n\n\tss.history[key] = append(ss.history[key], old)\n\tss.secrets[key] = newSecret\n\treturn nil\n}\n\nfunc GenerateRandomSecret(length int) string {\n\tbytes := make([]byte, length)\n\trand.Read(bytes)\n\treturn base64.StdEncoding.EncodeToString(bytes)\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-SecretsGo",
+        "title": "密钥管理系统",
+        "description": "实现密钥管理系统的核心功能。SecretStore使用map存储密钥，Set方法创建带TTL和版本的密钥，自动递增版本号并在覆盖时将旧密钥移入历史。Get方法返回当前值并在过期时删除。Rotate方法用新值替换密钥，保留旧版本在历史中。GenerateRandomSecret使用crypto/rand生成加密安全的随机密钥。所有操作通过RWMutex保证并发安全。这种模式支持API密钥、数据库密码、TLS证书等敏感数据的生命周期管理。",
+        "confidence": 0.94,
+        "alternative_titles": ["Secret Management", "Credential Store", "Key Rotation"]
+      }]
+    },
+    {
+      "id": "DK-GO-008",
+      "description": "Deployment pipeline domain",
+      "code_snippets": [{
+        "file": "src/domain/deploy/pipeline.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package deploy\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\ntype DeploymentStatus string\n\nconst (\n\tStatusBuilding    DeploymentStatus = \"building\"\n\tStatusTesting     DeploymentStatus = \"testing\"\n\tStatusStaging     DeploymentStatus = \"staging\"\n\tStatusProduction  DeploymentStatus = \"production\"\n\tStatusFailed      DeploymentStatus = \"failed\"\n\tStatusRollingBack DeploymentStatus = \"rolling_back\"\n)\n\ntype DeploymentStage struct {\n\tName        string\n\tStatus      DeploymentStatus\n\tStartedAt   time.Time\n\tCompletedAt time.Time\n\tImageTag    string\n\tNotes       string\n}\n\ntype Deployment struct {\n\tID          string\n\tRepository  string\n\tBranch      string\n\tCommitSHA   string\n\tStages      []DeploymentStage\n\tCurrentStage int\n\tStatus      DeploymentStatus\n\tCreatedAt   time.Time\n\tDeployedBy  string\n}\n\ntype DeploymentPipeline struct {\n\tdeployments map[string]*Deployment\n}\n\nfunc NewDeploymentPipeline() *DeploymentPipeline {\n\treturn &DeploymentPipeline{\n\t\tdeployments: make(map[string]*Deployment),\n\t}\n}\n\nfunc (dp *DeploymentPipeline) StartDeployment(repo, branch, commitSHA, deployedBy string) (*Deployment, error) {\n\tid := fmt.Sprintf(\"deploy-%d\", time.Now().UnixNano())\n\t\n\tdeployment := &Deployment{\n\t\tID:         id,\n\t\tRepository: repo,\n\t\tBranch:     branch,\n\t\tCommitSHA:  commitSHA,\n\t\tStatus:     StatusBuilding,\n\t\tCreatedAt:  time.Now(),\n\t\tDeployedBy: deployedBy,\n\t\tStages: []DeploymentStage{\n\t\t\t{Name: \"build\", Status: StatusBuilding},\n\t\t\t{Name: \"test\", Status: StatusFailed},\n\t\t\t{Name: \"staging\", Status: StatusFailed},\n\t\t\t{Name: \"production\", Status: StatusFailed},\n\t\t},\n\t}\n\n\tdp.deployments[id] = deployment\n\treturn deployment, nil\n}\n\nfunc (dp *DeploymentPipeline) AdvanceStage(deploymentID string) error {\n\tdeployment := dp.deployments[deploymentID]\n\tif deployment == nil {\n\t\treturn fmt.Errorf(\"deployment not found\")\n\t}\n\n\tif deployment.CurrentStage >= len(deployment.Stages) {\n\t\treturn fmt.Errorf(\"deployment already completed\")\n\t}\n\n\tstage := &deployment.Stages[deployment.CurrentStage]\n\tstage.Status = StatusProduction\n\tstage.CompletedAt = time.Now()\n\tdeployment.CurrentStage++\n\n\tif deployment.CurrentStage >= len(deployment.Stages) {\n\t\tdeployment.Status = StatusProduction\n\t}\n\n\treturn nil\n}\n\nfunc (dp *DeploymentPipeline) Rollback(deploymentID string) error {\n\tdeployment := dp.deployments[deploymentID]\n\tif deployment == nil {\n\t\treturn fmt.Errorf(\"deployment not found\")\n\t}\n\n\tdeployment.Status = StatusRollingBack\n\tfor i := range deployment.Stages {\n\t\tif deployment.Stages[i].Status != StatusFailed {\n\t\t\tdeployment.Stages[i].Status = StatusFailed\n\t\t}\n\t}\n\treturn nil\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-DeployGo",
+        "title": "部署流水线领域",
+        "description": "实现部署流水线的领域模型。DeploymentPipeline管理多个部署实例，每个部署包含构建、测试、预发、生产四个阶段。StartDeployment创建新部署并初始化各阶段为失败状态，当前阶段标记为构建中。AdvanceStage将当前阶段标记为完成并推进到下一阶段，所有阶段完成后状态变为production。Rollback将所有阶段回滚到失败状态。Deployment记录仓库、分支、commit SHA和部署者信息。这种模型支持蓝绿部署、金丝雀发布等部署策略。",
+        "confidence": 0.95,
+        "alternative_titles": ["Deployment Pipeline", "Release Pipeline", "Continuous Deployment"]
+      }]
+    }
+  ]
+}

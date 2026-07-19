@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-al-go",
+  "category": "AL",
+  "language": "go",
+  "description": "Algorithms implemented in Go",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AL-GO-001",
+      "description": "Concurrent Merge Sort implementation",
+      "code_snippets": [{
+        "file": "src/algorithms/merge_sort.go",
+        "start_line": 1,
+        "end_line": 60,
+        "content": "package algorithms\n\nimport (\n\t\"sort\"\n\t\"sync\"\n)\n\nfunc MergeSort(arr []int) []int {\n\tif len(arr) <= 1 {\n\t\treturn arr\n\t}\n\n\tmid := len(arr) / 2\n\tleft := make([]int, mid)\n\tright := make([]int, len(arr)-mid)\n\n\tcopy(left, arr[:mid])\n\tcopy(right, arr[mid:])\n\n\tvar wg sync.WaitGroup\n\twg.Add(2)\n\n\tgo func() {\n\t\tdefer wg.Done()\n\t\tleft = MergeSort(left)\n\t}()\n\n\tgo func() {\n\t\tdefer wg.Done()\n\t\tright = MergeSort(right)\n\t}()\n\n\twg.Wait()\n\treturn merge(left, right)\n}\n\nfunc merge(left, right []int) []int {\n\tresult := make([]int, 0, len(left)+len(right))\n\ti, j := 0, 0\n\n\tfor i < len(left) && j < len(right) {\n\t\tif left[i] <= right[j] {\n\t\t\tresult = append(result, left[i])\n\t\t\ti++\n\t\t} else {\n\t\t\tresult = append(result, right[j])\n\t\t\tj++\n\t\t}\n\t}\n\n\tresult = append(result, left[i:]...)\n\tresult = append(result, right[j:]...)\n\n\treturn result\n}\n\nfunc ParallelMergeSort(arr []int, threshold int) []int {\n\tif len(arr) <= threshold {\n\t\tsort.Ints(arr)\n\t\treturn arr\n\t}\n\n\tmid := len(arr) / 2\n\tleft := make([]int, mid)\n\tright := make([]int, len(arr)-mid)\n\tcopy(left, arr[:mid])\n\tcopy(right, arr[mid:])\n\n\tvar wg sync.WaitGroup\n\twg.Add(2)\n\n\tgo func() {\n\t\tdefer wg.Done()\n\t\tleft = ParallelMergeSort(left, threshold)\n\t}()\n\n\tgo func() {\n\t\tdefer wg.Done()\n\t\tright = ParallelMergeSort(right, threshold)\n\t}()\n\n\twg.Wait()\n\treturn merge(left, right)\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50, 60]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-ConcMergeGo",
+        "title": "并发归并排序算法",
+        "description": "实现使用goroutine和sync.WaitGroup的并发归并排序。MergeSort将数组分成两半，分别启动两个goroutine递归排序左半和右半，然后WaitGroup等待两者完成后再合并。merge函数将两个有序数组合并为一个有序数组。ParallelMergeSort增加threshold参数，当子数组足够小时切换到顺序sort.Ints避免goroutine开销。这种并发策略利用多核CPU加速排序，在大数据集上性能显著优于顺序归并排序。",
+        "confidence": 0.95,
+        "alternative_titles": ["Concurrent Merge Sort", "Parallel Sorting", "Goroutine Sort"]
+      }]
+    },
+    {
+      "id": "AL-GO-002",
+      "description": "Dijkstra with heap optimization",
+      "code_snippets": [{
+        "file": "src/algorithms/dijkstra.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package algorithms\n\nimport (\n\t\"container/heap\"\n\t\"math\"\n)\n\ntype Edge struct {\n\tTo     int\n\tWeight float64\n}\n\ntype Graph map[int][]Edge\n\ntype Item struct {\n\tIndex    int\n\tNode     int\n\tDistance float64\n}\n\ntype PriorityQueue []*Item\n\nfunc (pq PriorityQueue) Len() int            { return len(pq) }\nfunc (pq PriorityQueue) Less(i, j int) bool  { return pq[i].Distance < pq[j].Distance }\nfunc (pq PriorityQueue) Swap(i, j int)       { pq[i], pq[j] = pq[j], pq[i]; pq[i].Index = i; pq[j].Index = j }\nfunc (pq *PriorityQueue) Push(x interface{}) { n := len(*pq); item := x.(*Item); item.Index = n; *pq = append(*pq, item) }\nfunc (pq *PriorityQueue) Pop() interface{}   { old := *pq; n := len(old); item := old[n-1]; old[n-1] = nil; *pq = old[:n-1]; return item }\n\nfunc Dijkstra(graph Graph, start int) map[int]float64 {\n\tdistances := make(map[int]float64)\n\tfor node := range graph {\n\t\tdistances[node] = math.Inf(1)\n\t}\n\tdistances[start] = 0\n\n\tpq := &PriorityQueue{}\n\theap.Init(pq)\n\theap.Push(pq, &Item{Node: start, Distance: 0})\n\n\tvisited := make(map[int]bool)\n\n\tfor pq.Len() > 0 {\n\t\tcurrent := heap.Pop(pq).(*Item)\n\t\tif visited[current.Node] {\n\t\t\tcontinue\n\t\t}\n\t\tvisited[current.Node] = true\n\n\t\tfor _, edge := range graph[current.Node] {\n\t\t\tnewDist := current.Distance + edge.Weight\n\t\t\tif newDist < distances[edge.To] {\n\t\t\t\tdistances[edge.To] = newDist\n\t\t\t\theap.Push(pq, &Item{Node: edge.To, Distance: newDist})\n\t\t\t}\n\t\t}\n\t}\n\n\treturn distances\n}\n\nfunc FindShortestPath(graph Graph, start, end int) ([]int, float64) {\n\tdistances := Dijkstra(graph, start)\n\tpath := reconstructPath(graph, start, end, distances)\n\treturn path, distances[end]\n}\n\nfunc reconstructPath(graph Graph, start, end int, distances map[int]float64) []int {\n\tpath := []int{end}\n\tcurrent := end\n\tfor current != start {\n\t\tbestPrev := -1\n\t\tbestDist := math.Inf(1)\n\t\tfor _, edge := range graph[current] {\n\t\t\tcandidate := distances[edge.To] + edge.Weight\n\t\t\tif candidate < bestDist {\n\t\t\t\tbestDist = candidate\n\t\t\t\tbestPrev = edge.To\n\t\t\t}\n\t\t}\n\t\tif bestPrev == -1 {\n\t\t\tbreak\n\t\t}\n\t\tpath = append(path, bestPrev)\n\t\tcurrent = bestPrev\n\t}\n\treverse(path)\n\treturn path\n}\n\nfunc reverse(arr []int) {\n\tfor i, j := 0, len(arr)-1; i < j; i, j = i+1, j-1 {\n\t\tarr[i], arr[j] = arr[j], arr[i]\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-DijkstraHeapGo",
+        "title": "堆优化Dijkstra最短路径算法",
+        "description": "使用Go标准库container/heap实现优先队列优化的Dijkstra算法。PriorityQueue实现heap.Interface，按距离升序排列。Dijkstra初始化所有节点距离为正无穷，起点为0，将起点加入最小堆。每次弹出距离最小的未访问节点，对其邻居进行松弛操作：如果新距离更短则更新并加入堆。visited集合避免重复处理。reconstructPath通过反向追踪 predecessor 重建最短路径。时间复杂度O((V+E)log V)。",
+        "confidence": 0.94,
+        "alternative_titles": ["Dijkstra Algorithm", "Heap Optimized Shortest Path", "Priority Queue Graph Search"]
+      }]
+    },
+    {
+      "id": "AL-GO-003",
+      "description": "Trie for autocomplete",
+      "code_snippets": [{
+        "file": "src/algorithms/trie.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package algorithms\n\ntype TrieNode struct {\n\tchildren map[rune]*TrieNode\n\tisEnd    bool\n\tvalue    string\n}\n\ntype Trie struct {\n\troot *TrieNode\n}\n\nfunc NewTrie() *Trie {\n\treturn &Trie{\n\t\troot: &TrieNode{children: make(map[rune]*TrieNode)},\n\t}\n}\n\nfunc (t *Trie) Insert(word, value string) {\n\tnode := t.root\n\tfor _, char := range word {\n\t\tif _, ok := node.children[char]; !ok {\n\t\t\tnode.children[char] = &TrieNode{children: make(map[rune]*TrieNode)}\n\t\t}\n\t\tnode = node.children[char]\n\t}\n\tnode.isEnd = true\n\tnode.value = value\n}\n\nfunc (t *Trie) Search(word string) string {\n\tnode := t.findNode(word)\n\tif node == nil || !node.isEnd {\n\t\treturn \"\"\n\t}\n\treturn node.value\n}\n\nfunc (t *Trie) StartsWith(prefix string) bool {\n\treturn t.findNode(prefix) != nil\n}\n\nfunc (t *Trie) Autocomplete(prefix string, limit int) []string {\n\tnode := t.findNode(prefix)\n\tif node == nil {\n\t\treturn nil\n\t}\n\n\tresults := make([]string, 0)\n\tvar dfs func(n *TrieNode, current string)\n\tdfs = func(n *TrieNode, current string) {\n\t\tif len(results) >= limit {\n\t\t\treturn\n\t\t}\n\t\tif n.isEnd {\n\t\t\tresults = append(results, prefix+current)\n\t\t}\n\t\tfor char, child := range n.children {\n\t\t\tdfs(child, current+string(char))\n\t\t}\n\t}\n\tdfs(node, \"\")\n\treturn results\n}\n\nfunc (t *Trie) findNode(prefix string) *TrieNode {\n\tnode := t.root\n\tfor _, char := range prefix {\n\t\tchild, ok := node.children[char]\n\t\tif !ok {\n\t\t\treturn nil\n\t\t}\n\t\tnode = child\n\t}\n\treturn node\n}\n\nfunc (t *Trie) Delete(word string) bool {\n\treturn t.deleteHelper(t.root, word, 0)\n}\n\nfunc (t *Trie) deleteHelper(node *TrieNode, word string, depth int) bool {\n\tif depth == len(word) {\n\t\tif !node.isEnd {\n\t\t\treturn false\n\t\t}\n\t\tnode.isEnd = false\n\t\treturn len(node.children) == 0\n\t}\n\n\tchar := rune(word[depth])\n\tchild, ok := node.children[char]\n\tif !ok {\n\t\treturn false\n\t}\n\n\tshouldDelete := t.deleteHelper(child, word, depth+1)\n\tif shouldDelete {\n\t\tdelete(node.children, char)\n\t\treturn !node.isEnd && len(node.children) == 0\n\t}\n\treturn false\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-TrieGo",
+        "title": "自动补全Trie字典树",
+        "description": "实现Trie字典树用于单词自动补全。TrieNode包含子节点map和词尾标记。Insert逐个字符构建路径并在词尾存储值。Search查找完整单词返回关联值。StartsWith检查前缀是否存在。Autocomplete使用DFS从给定前缀节点收集所有以该前缀开头的单词，最多返回limit个结果。findNode辅助方法定位前缀对应节点。Delete递归删除单词并清理空节点。Trie特别适合前缀搜索场景，查找和前缀匹配的时间复杂度为O(m)，m为键长。",
+        "confidence": 0.95,
+        "alternative_titles": ["Trie", "Prefix Tree", "Autocomplete Dictionary"]
+      }]
+    },
+    {
+      "id": "AL-GO-004",
+      "description": "Goroutine-based Producer-Consumer pattern",
+      "code_snippets": [{
+        "file": "src/algorithms/producer_consumer.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package algorithms\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype Task struct {\n\tID   int\n\tData string\n}\n\ntype Result struct {\n\tTaskID int\n\tOutput string\n}\n\nfunc Producer(numTasks int, jobs chan<- Task, wg *sync.WaitGroup) {\n\tdefer wg.Done()\n\tfor i := 1; i <= numTasks; i++ {\n\t\tjobs <- Task{ID: i, Data: fmt.Sprintf(\"task-%d\", i)}\n\t}\n\tclose(jobs)\n}\n\nfunc Consumer(id int, jobs <-chan Task, results chan<- Result, wg *sync.WaitGroup) {\n\tdefer wg.Done()\n\tfor task := range jobs {\n\t\ttime.Sleep(50 * time.Millisecond)\n\t\tresults <- Result{\n\t\t\tTaskID: task.ID,\n\t\t\tOutput: fmt.Sprintf(\"worker-%d processed: %s\", id, task.Data),\n\t\t}\n\t}\n}\n\nfunc RunProducerConsumer(numWorkers, numTasks int) []Result {\n\tjobs := make(chan Task, numTasks)\n\tresults := make(chan Result, numTasks)\n\n\tvar producerWg, consumerWg sync.WaitGroup\n\n\tproducerWg.Add(1)\n\tgo Producer(numTasks, jobs, &producerWg)\n\n\tfor i := 0; i < numWorkers; i++ {\n\t\tconsumerWg.Add(1)\n\t\tgo Consumer(i, jobs, results, &consumerWg)\n\t}\n\n\tgo func() {\n\t\tproducerWg.Wait()\n\t\tconsumerWg.Wait()\n\t\tclose(results)\n\t}()\n\n\tvar output []Result\n\tfor r := range results {\n\t\toutput = append(output, r)\n\t}\n\n\treturn output\n}\n\nfunc main() {\n\tresults := RunProducerConsumer(4, 20)\n\tfor _, r := range results {\n\t\tfmt.Println(r.Output)\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-ProducerConsumerGo",
+        "title": "协程生产者消费者模式",
+        "description": "实现基于goroutine的生产者-消费者并发模型。Producer向有缓冲的jobs通道发送任务并关闭通道。多个Consumer goroutine从jobs通道接收任务处理并将结果发送到results通道。使用两个WaitGroup分别跟踪生产者和消费者的完成状态，当所有生产者完成且所有消费者完成后关闭results通道。主goroutine通过range读取results直到通道关闭。这种模式解耦了任务生成和处理，支持动态调整工作线程数量。",
+        "confidence": 0.94,
+        "alternative_titles": ["Producer-Consumer", "Worker Pool", "Goroutine Pipeline"]
+      }]
+    },
+    {
+      "id": "AL-GO-005",
+      "description": "Context-aware BFS",
+      "code_snippets": [{
+        "file": "src/algorithms/bfs.go",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "package algorithms\n\nimport (\n\t\"context\"\n\t\"fmt\"\n)\n\ntype Node struct {\n\tID       int\n\tNeighbors []int\n}\n\ntype Graph struct {\n\tNodes map[int]*Node\n}\n\nfunc NewGraph() *Graph {\n\treturn &Graph{Nodes: make(map[int]*Node)}\n}\n\nfunc (g *Graph) AddNode(id int, neighbors []int) {\n\tg.Nodes[id] = &Node{ID: id, Neighbors: neighbors}\n}\n\nfunc BFS(ctx context.Context, graph *Graph, start, target int) ([]int, error) {\n\tvisited := make(map[int]bool)\n\tqueue := []int{start}\n\tparents := make(map[int]int)\n\n\tfor len(queue) > 0 {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\treturn nil, ctx.Err()\n\t\tdefault:\n\t\t}\n\n\t\tcurrent := queue[0]\n\t\tqueue = queue[1:]\n\n\t\tif current == target {\n\t\t\treturn reconstructPath(parents, start, target), nil\n\t\t}\n\n\t\tif visited[current] {\n\t\t\tcontinue\n\t\t}\n\t\tvisited[current] = true\n\n\t\tnode := graph.Nodes[current]\n\t\tif node == nil {\n\t\t\tcontinue\n\t\t}\n\n\t\tfor _, neighbor := range node.Neighbors {\n\t\t\tif !visited[neighbor] {\n\t\t\t\tparents[neighbor] = current\n\t\t\t\tqueue = append(queue, neighbor)\n\t\t\t}\n\t\t}\n\t}\n\n\treturn nil, fmt.Errorf(\"target %d not reachable from %d\", target, start)\n}\n\nfunc reconstructPath(parents map[int]int, start, target int) []int {\n\tpath := []int{target}\n\tfor target != start {\n\t\tparent, ok := parents[target]\n\t\tif !ok {\n\t\t\treturn nil\n\t\t}\n\t\tpath = append(path, parent)\n\t\ttarget = parent\n\t}\n\treverse(path)\n\treturn path\n}\n\nfunc reverse(arr []int) {\n\tfor i, j := 0, len(arr)-1; i < j; i, j = i+1, j-1 {\n\t\tarr[i], arr[j] = arr[j], arr[i]\n\t}\n}\n\nfunc main() {\n\tgraph := NewGraph()\n\tgraph.AddNode(0, []int{1, 2})\n\tgraph.AddNode(1, []int{0, 3})\n\tgraph.AddNode(2, []int{0, 4})\n\tgraph.AddNode(3, []int{1, 5})\n\tgraph.AddNode(4, []int{2, 5})\n\tgraph.AddNode(5, []int{3, 4})\n\n\tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)\n\tdefer cancel()\n\n\tpath, err := BFS(ctx, graph, 0, 5)\n\tif err != nil {\n\t\tfmt.Println(err)\n\t\treturn\n\t}\n\tfmt.Printf(\"Path: %v\\n\", path)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-BFSGo",
+        "title": "上下文感知的BFS广度优先搜索",
+        "description": "实现支持context取消的BFS广度优先搜索算法。BFS接收context.Context参数，在每轮迭代开始时通过select监听ctx.Done()检测取消信号。使用队列维护待访问节点，visited集合防止重复访问，parents map记录路径以便重建。当找到目标节点时调用reconstructPath回溯路径。main函数创建图并设置5秒超时。这种设计使BFS能够响应外部取消请求，适用于长时间运行的图搜索或需要超时的场景。",
+        "confidence": 0.94,
+        "alternative_titles": ["BFS", "Breadth-First Search", "Context-Aware Search"]
+      }]
+    },
+    {
+      "id": "AL-GO-006",
+      "description": "Mutex-based LRU Cache",
+      "code_snippets": [{
+        "file": "src/algorithms/lru_cache.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package algorithms\n\nimport (\n\t\"container/list\"\n\t\"sync\"\n)\n\ntype lruEntry struct {\n\tkey   string\n\tvalue interface{}\n}\n\ntype LRUCache struct {\n\tmu       sync.Mutex\n\tcapacity int\n\tcache    map[string]*list.Element\n\torder    *list.List\n}\n\nfunc NewLRUCache(capacity int) *LRUCache {\n\treturn &LRUCache{\n\t\tcapacity: capacity,\n\t\tcache:    make(map[string]*list.Element),\n\t\torder:    list.New(),\n\t}\n}\n\nfunc (c *LRUCache) Get(key string) (interface{}, bool) {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\n\tif elem, ok := c.cache[key]; ok {\n\t\tc.order.MoveToFront(elem)\n\t\treturn elem.Value.(*lruEntry).value, true\n\t}\n\treturn nil, false\n}\n\nfunc (c *LRUCache) Put(key string, value interface{}) {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\n\tif elem, ok := c.cache[key]; ok {\n\t\telem.Value.(*lruEntry).value = value\n\t\tc.order.MoveToFront(elem)\n\t\treturn\n\t}\n\n\tif c.order.Len() >= c.capacity {\n\t\tback := c.order.Back()\n\t\tif back != nil {\n\t\t\tc.order.Remove(back)\n\t\t\tdelete(c.cache, back.Value.(*lruEntry).key)\n\t\t}\n\t}\n\n\tentry := &lruEntry{key: key, value: value}\n\telem := c.order.PushFront(entry)\n\tc.cache[key] = elem\n}\n\nfunc (c *LRUCache) Delete(key string) bool {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\n\tif elem, ok := c.cache[key]; ok {\n\t\tc.order.Remove(elem)\n\t\tdelete(c.cache, key)\n\t\treturn true\n\t}\n\treturn false\n}\n\nfunc (c *LRUCache) Size() int {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n\treturn c.order.Len()\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-LRUGo",
+        "title": "互斥锁LRU缓存",
+        "description": "使用container/list和sync.Mutex实现线程安全的LRU缓存。LRUCache使用双向链表维护访问顺序（前端最新，后端最旧），map存储key到链表元素的映射。Get操作移动元素到前端。Put操作：若key存在则更新并移到前端；若满则移除链表尾部（最久未使用）；否则创建新节点放前端。Delete从map和list中同时移除。所有公共方法都用mutex保护，确保并发安全。时间复杂度O(1)。",
+        "confidence": 0.95,
+        "alternative_titles": ["LRU Cache", "Least Recently Used", "Thread-Safe Cache"]
+      }]
+    },
+    {
+      "id": "AL-GO-007",
+      "description": "Select-based Timeout Pattern",
+      "code_snippets": [{
+        "file": "src/algorithms/timeout.go",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "package algorithms\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\ntype TaskResult struct {\n\tValue string\n\tErr   error\n}\n\nfunc WithTimeout(fn func() (string, error), timeout time.Duration) (string, error) {\n\tresultCh := make(chan TaskResult, 1)\n\n\tgo func() {\n\t\tvalue, err := fn()\n\t\tresultCh <- TaskResult{Value: value, Err: err}\n\t}()\n\n\tselect {\n\tcase result := <-resultCh:\n\t\treturn result.Value, result.Err\n\tcase <-time.After(timeout):\n\t\treturn \"\", fmt.Errorf(\"operation timed out after %v\", timeout)\n\t}\n}\n\nfunc WithDeadline(fn func() (string, error), deadline time.Time) (string, error) {\n\tresultCh := make(chan TaskResult, 1)\n\n\tgo func() {\n\t\tvalue, err := fn()\n\t\tresultCh <- TaskResult{Value: value, Err: err}\n\t}()\n\n\tselect {\n\tcase result := <-resultCh:\n\t\treturn result.Value, result.Err\n\tcase <-time.After(time.Until(deadline)):\n\t\treturn \"\", fmt.Errorf(\"deadline exceeded\")\n\t}\n}\n\nfunc FanOutWithTimeout(tasks []func() string, timeout time.Duration) []string {\n\tresults := make([]string, len(tasks))\n\terrCh := make(chan error, len(tasks))\n\n\tfor i, task := range tasks {\n\t\tgo func(idx int, fn func() string) {\n\t\t\tresults[idx] = fn()\n\t\t}(i, task)\n\t}\n\n\ttimer := time.NewTimer(timeout)\n\tdefer timer.Stop()\n\n\tdone := make(chan struct{})\n\tgo func() {\n\t\tdefer close(done)\n\t\tfor range results {\n\t\t\t// wait for all\n\t\t}\n\t}()\n\n\tselect {\n\tcase <-done:\n\t\treturn results\n\tcase <-timer.C:\n\t\terrCh <- fmt.Errorf(\"fan-out timed out\")\n\t\treturn results\n\t}\n}\n\nfunc main() {\n\tresult, err := WithTimeout(func() (string, error) {\n\t\ttime.Sleep(2 * time.Second)\n\t\treturn \"done\", nil\n\t}, 1*time.Second)\n\n\tif err != nil {\n\t\tfmt.Println(err)\n\t} else {\n\t\tfmt.Println(result)\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-SelectTimeoutGo",
+        "title": "select超时模式",
+        "description": "实现基于Go select语句的超时控制模式。WithTimeout启动goroutine执行任务并通过channel返回结果，外层select同时监听resultCh和time.After(timeout)。如果任务先完成则返回结果，如果超时先触发则返回错误。WithDeadline类似但使用绝对截止时间。FanOutWithTimeout并行执行多个任务并设置整体超时。这种模式是Go中处理异步操作超时的标准惯用法，避免了忙等待。",
+        "confidence": 0.93,
+        "alternative_titles": ["Timeout Pattern", "Select Timeout", "Async Timeout"]
+      }]
+    },
+    {
+      "id": "AL-GO-008",
+      "description": "Channel-based Pipeline",
+      "code_snippets": [{
+        "file": "src/algorithms/pipeline.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package algorithms\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\ntype PipelineStage func(<-chan int) <-chan int\n\nfunc Generate(nums ...int) PipelineStage {\n\treturn func(in <-chan int) <-chan int {\n\t\tout := make(chan int)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor _, n := range nums {\n\t\t\t\tout <- n\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n}\n\nfunc Filter(predicate func(int) bool) PipelineStage {\n\treturn func(in <-chan int) <-chan int {\n\t\tout := make(chan int)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor n := range in {\n\t\t\t\tif predicate(n) {\n\t\t\t\t\tout <- n\n\t\t\t\t}\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n}\n\nfunc Map(fn func(int) int) PipelineStage {\n\treturn func(in <-chan int) <-chan int {\n\t\tout := make(chan int)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor n := range in {\n\t\t\t\tout <- fn(n)\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n}\n\nfunc Collect(in <-chan int) []int {\n\tvar result []int\n\tfor n := range in {\n\t\tresult = append(result, n)\n\t}\n\treturn result\n}\n\nfunc Stringify() PipelineStage {\n\treturn func(in <-chan int) <-chan string {\n\t\tout := make(chan string)\n\t\tgo func() {\n\t\t\tdefer close(out)\n\t\t\tfor n := range in {\n\t\t\t\tout <- fmt.Sprintf(\"%d\", n)\n\t\t\t}\n\t\t}()\n\t\treturn out\n\t}\n}\n\nfunc ProcessPipeline(nums []int) []string {\n\tpipeline := Generate(nums...)\n\tpipeline = pipeline | Filter(func(n int) bool { return n%2 == 0 })\n\tpipeline = pipeline | Map(func(n int) int { return n * n })\n\tpipeline = pipeline | Stringify()\n\n\tresult := Collect(pipeline)\n\treturn result\n}\n\nfunc main() {\n\tresult := ProcessPipeline([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})\n\tfmt.Println(strings.Join(result, \", \"))\n\t// Output: 4, 16, 36, 64, 100\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-PipelineGo",
+        "title": "通道管道处理模式",
+        "description": "实现基于Go channel的数据处理管道。每个PipelineStage接收输入channel并返回输出channel，内部启动goroutine处理数据。Generate产生初始数据，Filter根据谓词过滤，Map转换数据，Stringify格式化输出。管道通过|运算符串联，数据从源头流向收集器。Collect从最终channel读取所有结果。这种模式将复杂数据处理分解为独立的、可复用的阶段，天然支持并发和背压。",
+        "confidence": 0.95,
+        "alternative_titles": ["Channel Pipeline", "Data Pipeline", "Stream Processing"]
+      }]
+    }
+  ]
+}

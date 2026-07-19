@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-ad-java",
+  "category": "AD",
+  "language": "java",
+  "description": "Architecture decisions implemented in Java",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AD-JAVA-001",
+      "description": "Spring Boot Auto-configuration architecture",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/config/CustomAutoConfiguration.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.config;\n\nimport org.springframework.boot.autoconfigure.condition.ConditionalOnClass;\nimport org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;\nimport org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\n\n@Configuration\n@ConditionalOnClass(CacheService.class)\n@ConditionalOnProperty(prefix = \"app.cache\", name = \"enabled\", havingValue = \"true\")\npublic class CustomAutoConfiguration {\n\n    @Bean\n    @ConditionalOnMissingBean(CacheService.class)\n    public CacheService cacheService(CacheProperties properties) {\n        if (properties.getType().equals(\"redis\")) {\n            return new RedisCacheService(properties.getRedis());\n        } else if (properties.getType().equals(\"caffeine\")) {\n            return new CaffeineCacheService(properties.getCaffeine());\n        }\n        throw new IllegalArgumentException(\"Unsupported cache type: \" + properties.getType());\n    }\n\n    @Bean\n    @ConditionalOnMissingBean(CacheSerializer.class)\n    public CacheSerializer cacheSerializer() {\n        return new JsonSerializer();\n    }\n\n    @Bean\n    @ConditionalOnClass(name = \"com.fasterxml.jackson.databind.ObjectMapper\")\n    public JacksonCacheSerializer jacksonCacheSerializer() {\n        return new JacksonCacheSerializer();\n    }\n}\n\n@ConfigurationProperties(prefix = \"app.cache\")\npublic class CacheProperties {\n    private boolean enabled = true;\n    private String type = \"caffeine\";\n    private RedisProperties redis = new RedisProperties();\n    private CaffeineProperties caffeine = new CaffeineProperties();\n\n    // getters and setters\n}\n\npublic interface CacheService {\n    <T> T get(String key, Class<T> type);\n    void put(String key, Object value, long ttlSeconds);\n    void evict(String key);\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-AutoConfigJava",
+        "title": "Spring Boot自动配置架构",
+        "description": "实现Spring Boot自动配置机制，根据类路径和属性动态装配Bean。CustomAutoConfiguration使用@Configuration声明配置类，@ConditionalOnClass确保CacheService存在时才生效，@ConditionalOnProperty根据app.cache.enabled属性决定是否启用。cacheService方法通过@ConditionalOnMissingBean避免覆盖用户自定义的Bean，根据app.cache.type属性选择Redis或Caffeine实现。jacksonCacheSerializer使用@ConditionalOnClass检查Jackson库是否可用。这种架构允许第三方库开箱即用，同时支持用户通过配置文件和自定义Bean进行覆盖。",
+        "confidence": 0.95,
+        "alternative_titles": ["Auto-Configuration", "Conditional Configuration", "Spring Boot Configuration"]
+      }]
+    },
+    {
+      "id": "AD-JAVA-002",
+      "description": "CQRS with Event Sourcing architecture",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/cqrs/OrderAggregate.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.cqrs;\n\nimport java.time.Instant;\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic class OrderAggregate {\n    private String orderId;\n    private String customerId;\n    private List<OrderEvent> events = new ArrayList<>();\n    private OrderState state = new OrderState();\n\n    public OrderAggregate(String orderId, String customerId) {\n        this.orderId = orderId;\n        this.customerId = customerId;\n        applyEvent(new OrderCreated(orderId, customerId, Instant.now()));\n    }\n\n    public void addItem(String productId, String productName, int quantity, double price) {\n        if (!state.isActive()) {\n            throw new IllegalStateException(\"Order is not active\");\n        }\n        applyEvent(new ItemAdded(orderId, productId, productName, quantity, price, Instant.now()));\n    }\n\n    public void submit() {\n        if (state.getItems().isEmpty()) {\n            throw new IllegalStateException(\"Cannot submit empty order\");\n        }\n        applyEvent(new OrderSubmitted(orderId, Instant.now()));\n    }\n\n    public void pay(String paymentId) {\n        if (!state.isSubmitted()) {\n            throw new IllegalStateException(\"Order must be submitted first\");\n        }\n        applyEvent(new OrderPaid(orderId, paymentId, Instant.now()));\n    }\n\n    private void applyEvent(OrderEvent event) {\n        events.add(event);\n        state.apply(event);\n    }\n\n    public List<OrderEvent> getUncommittedEvents() {\n        return new ArrayList<>(events);\n    }\n\n    public static OrderAggregate restoreFromEvents(List<OrderEvent> historicalEvents) {\n        OrderAggregate aggregate = new OrderAggregate(\"temp\", \"temp\");\n        aggregate.events.clear();\n        for (OrderEvent event : historicalEvents) {\n            aggregate.state.apply(event);\n            aggregate.events.add(event);\n        }\n        return aggregate;\n    }\n}\n\npublic abstract class OrderEvent {\n    private final String orderId;\n    private final Instant timestamp;\n\n    protected OrderEvent(String orderId, Instant timestamp) {\n        this.orderId = orderId;\n        this.timestamp = timestamp;\n    }\n\n    public String getOrderId() { return orderId; }\n    public Instant getTimestamp() { return timestamp; }\n}\n\nrecord OrderCreated(String orderId, String customerId, Instant timestamp) extends OrderEvent {\n    public OrderCreated(String orderId, String customerId, Instant timestamp) {\n        super(orderId, timestamp);\n    }\n}\n\nrecord ItemAdded(String orderId, String productId, String productName, int quantity, double price, Instant timestamp) extends OrderEvent {\n    public ItemAdded(String orderId, String productId, String productName, int quantity, double price, Instant timestamp) {\n        super(orderId, timestamp);\n    }\n}\n\nrecord OrderSubmitted(String orderId, Instant timestamp) extends OrderEvent {\n    public OrderSubmitted(String orderId, Instant timestamp) {\n        super(orderId, timestamp);\n    }\n}\n\nrecord OrderPaid(String orderId, String paymentId, Instant timestamp) extends OrderEvent {\n    public OrderPaid(String orderId, String paymentId, Instant timestamp) {\n        super(orderId, timestamp);\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-CQRSJava",
+        "title": "CQRS与事件溯源架构",
+        "description": "实现CQRS（命令查询职责分离）与事件溯源架构。OrderAggregate是领域聚合根，所有状态变更通过不可变的事件（OrderCreated、ItemAdded、OrderSubmitted、OrderPaid）记录。每个业务方法先执行业务规则校验，然后通过applyEvent将事件追加到事件列表并应用到当前状态。OrderState负责根据事件重建当前状态。restoreFromEvents方法从历史事件流重建聚合状态，体现事件溯源的核心思想。未提交的事件通过getUncommittedEvents获取并持久化到事件存储。这种架构提供了完整的审计轨迹和状态重建能力。",
+        "confidence": 0.95,
+        "alternative_titles": ["CQRS", "Event Sourcing", "Command Query Responsibility Segregation"]
+      }]
+    },
+    {
+      "id": "AD-JAVA-003",
+      "description": "Microservices with Spring Cloud architecture",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/microservice/UserServiceApplication.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.microservice;\n\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\nimport org.springframework.cloud.client.discovery.EnableDiscoveryClient;\nimport org.springframework.cloud.openfeign.EnableFeignClients;\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.web.bind.annotation.*;\n\n@SpringBootApplication\n@EnableDiscoveryClient\n@EnableFeignClients\npublic class UserServiceApplication {\n    public static void main(String[] args) {\n        SpringApplication.run(UserServiceApplication.class, args);\n    }\n\n    @Bean\n    public RestTemplate restTemplate() {\n        return new RestTemplateBuilder()\n            .setConnectTimeout(Duration.ofMillis(1000))\n            .setReadTimeout(Duration.ofMillis(3000))\n            .build();\n    }\n}\n\n@RestController\n@RequestMapping(\"/api/users\")\npublic class UserController {\n    @Autowired\n    private UserRepository userRepository;\n\n    @Autowired\n    private OrderClient orderClient;\n\n    @Autowired\n    private NotificationClient notificationClient;\n\n    @GetMapping(\"/{id}\")\n    public ResponseEntity<UserDto> getUser(@PathVariable String id) {\n        User user = userRepository.findById(id)\n            .orElseThrow(() -> new UserNotFoundException(id));\n        \n        UserAggregatedDto dto = new UserAggregatedDto();\n        dto.setUser(UserMapper.toDto(user));\n        \n        try {\n            OrderSummary orders = orderClient.getUserOrders(id);\n            dto.setOrderSummary(orders);\n        } catch (Exception e) {\n            dto.setOrderSummary(null);\n        }\n        \n        return ResponseEntity.ok(dto);\n    }\n\n    @PostMapping\n    public ResponseEntity<UserDto> createUser(@RequestBody CreateUserRequest request) {\n        User user = UserMapper.toEntity(request);\n        User saved = userRepository.save(user);\n        \n        notificationClient.sendWelcomeEmail(user.getEmail());\n        \n        return ResponseEntity.status(HttpStatus.CREATED).body(UserMapper.toDto(saved));\n    }\n}\n\n@FeignClient(name = \"order-service\", fallbackFactory = OrderClientFallbackFactory.class)\npublic interface OrderClient {\n    @GetMapping(\"/api/orders/user/{userId}\")\n    OrderSummary getUserOrders(@PathVariable String userId);\n}\n\n@Component\npublic class OrderClientFallbackFactory implements FallbackFactory<OrderClient> {\n    @Override\n    public OrderClient create(Throwable cause) {\n        return new OrderClient() {\n            @Override\n            public OrderSummary getUserOrders(String userId) {\n                return new OrderSummary(\"ERROR\", 0, 0.0);\n            }\n        };\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-SpringCloudJava",
+        "title": "Spring Cloud微服务架构",
+        "description": "实现基于Spring Cloud的微服务架构。UserServiceApplication通过@EnableDiscoveryClient注册到服务发现中心（如Eureka），通过@EnableFeignClients启用声明式HTTP客户端。UserController作为REST API入口，聚合来自多个微服务的数据：直接访问本地UserRepository，通过OrderClient调用订单服务，通过NotificationClient发送通知。OrderClient使用@FeignClient定义声明式接口，并通过FallbackFactory实现熔断降级，当订单服务不可用时返回默认值。RestTemplate配置了连接超时和读取超时，增强系统韧性。",
+        "confidence": 0.94,
+        "alternative_titles": ["Spring Cloud Microservices", "Service Discovery", "Feign Client"]
+      }]
+    },
+    {
+      "id": "AD-JAVA-004",
+      "description": "Repository Pattern with JPA",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/repository/BaseRepository.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.repository;\n\nimport org.springframework.data.domain.Page;\nimport org.springframework.data.domain.Pageable;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.data.jpa.repository.JpaSpecificationExecutor;\nimport org.springframework.data.repository.NoRepositoryBean;\n\nimport java.io.Serializable;\nimport java.util.Optional;\n\n@NoRepositoryBean\npublic interface BaseRepository<T, ID extends Serializable>\n        extends JpaRepository<T, ID>, JpaSpecificationExecutor<T> {\n\n    Optional<T> findByStatus(EntityStatus status);\n\n    Page<T> findByActiveTrue(Pageable pageable);\n\n    long countByStatus(EntityStatus status);\n}\n\npublic enum EntityStatus {\n    ACTIVE, INACTIVE, ARCHIVED, DELETED\n}\n\n@Entity\n@Table(name = \"products\")\npublic class Product {\n    @Id\n    @GeneratedValue(strategy = GenerationType.UUID)\n    private String id;\n\n    @Column(nullable = false)\n    private String name;\n\n    @Column(nullable = false)\n    private BigDecimal price;\n\n    @Enumerated(EnumType.STRING)\n    private EntityStatus status;\n\n    @Version\n    private Long version;\n\n    @CreationTimestamp\n    private LocalDateTime createdAt;\n\n    @UpdateTimestamp\n    private LocalDateTime updatedAt;\n}\n\n@Repository\npublic interface ProductRepository extends BaseRepository<Product, String> {\n\n    Optional<Product> findByNameAndStatus(String name, EntityStatus status);\n\n    @Query(\"SELECT p FROM Product p WHERE p.price BETWEEN :min AND :max AND p.status = :status\")\n    List<Product> findProductsInPriceRange(\n        @Param(\"min\") BigDecimal min,\n        @Param(\"max\") BigDecimal max,\n        @Param(\"status\") EntityStatus status\n    );\n\n    @Modifying\n    @Query(\"UPDATE Product p SET p.status = :status WHERE p.id = :id\")\n    int updateStatus(@Param(\"id\") String id, @Param(\"status\") EntityStatus status);\n}\n\n@Service\npublic class ProductService {\n    private final ProductRepository productRepository;\n\n    public Product findById(String id) {\n        return productRepository.findById(id)\n            .orElseThrow(() -> new NoSuchElementException(\"Product not found: \" + id));\n    }\n\n    public Page<Product> searchProducts(ProductSearchCriteria criteria, Pageable pageable) {\n        Specification<Product> spec = Specification.where(\n            criteria.toSpecification()\n        ).and((root, query, cb) -> \n            cb.equal(root.get(\"status\"), EntityStatus.ACTIVE)\n        );\n        return productRepository.findAll(spec, pageable);\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-JpaRepositoryJava",
+        "title": "JPA仓储模式",
+        "description": "实现基于Spring Data JPA的仓储模式架构。BaseRepository是泛型基础接口，继承JpaRepository和JpaSpecificationExecutor，提供通用的CRUD和动态查询能力。ProductRepository扩展BaseRepository，定义特定于产品的查询方法，包括命名查询findByByNameAndStatus、JPQL自定义查询findProductsInPriceRange和更新查询updateStatus。Product实体使用@Version实现乐观锁，@CreationTimestamp和@UpdateTimestamp自动管理时间戳。ProductService通过Specification构建动态查询条件，结合分页支持复杂的搜索功能。",
+        "confidence": 0.95,
+        "alternative_titles": ["Repository Pattern", "JPA Repository", "Data Access Layer"]
+      }]
+    },
+    {
+      "id": "AD-JAVA-005",
+      "description": "Layered Architecture with Spring Boot",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/layered/OrderApplication.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.layered;\n\nimport org.springframework.boot.SpringApplication;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class OrderApplication {\n    public static void main(String[] args) {\n        SpringApplication.run(OrderApplication.class, args);\n    }\n}\n\n// Controller Layer\n@RestController\n@RequestMapping(\"/api/orders\")\npublic class OrderController {\n    private final OrderService orderService;\n\n    public OrderController(OrderService orderService) {\n        this.orderService = orderService;\n    }\n\n    @PostMapping\n    public ResponseEntity<OrderResponse> createOrder(@RequestBody CreateOrderRequest request) {\n        Order order = orderService.createOrder(request.toDomain());\n        return ResponseEntity.ok(OrderMapper.toResponse(order));\n    }\n\n    @GetMapping(\"/{id}\")\n    public ResponseEntity<OrderResponse> getOrder(@PathVariable String id) {\n        return ResponseEntity.ok(OrderMapper.toResponse(orderService.getOrder(id)));\n    }\n}\n\n// Service Layer\n@Service\n@Transactional\npublic class OrderService {\n    private final OrderRepository orderRepository;\n    private final InventoryClient inventoryClient;\n    private final PaymentService paymentService;\n\n    public Order createOrder(CreateOrderRequest request) {\n        Order order = Order.create(request.getCustomerId(), request.getItems());\n        \n        // Reserve inventory\n        inventoryClient.reserveStock(request.getItems());\n        \n        // Process payment\n        PaymentResult payment = paymentService.charge(\n            request.getCustomerId(),\n            order.calculateTotal()\n        );\n        \n        if (!payment.isSuccess()) {\n            inventoryClient.releaseStock(request.getItems());\n            throw new PaymentFailedException(payment.getErrorMessage());\n        }\n        \n        order.markAsPaid(payment.getTransactionId());\n        return orderRepository.save(order);\n    }\n\n    public Order getOrder(String id) {\n        return orderRepository.findById(id)\n            .orElseThrow(() -> new OrderNotFoundException(id));\n    }\n}\n\n// Domain Layer\n@Entity\n@Table(name = \"orders\")\npublic class Order {\n    @Id\n    private String id;\n    private String customerId;\n    private List<OrderItem> items;\n    private OrderStatus status;\n    private BigDecimal totalAmount;\n\n    public static Order create(String customerId, List<OrderItem> items) {\n        Order order = new Order();\n        order.setId(UUID.randomUUID().toString());\n        order.setCustomerId(customerId);\n        order.setItems(items);\n        order.setStatus(OrderStatus.CREATED);\n        order.setTotalAmount(items.stream()\n            .map(Item::calculatePrice)\n            .reduce(BigDecimal.ZERO, BigDecimal::add));\n        return order;\n    }\n\n    public void markAsPaid(String transactionId) {\n        this.status = OrderStatus.PAID;\n    }\n}\n\n// Infrastructure Layer\n@Repository\npublic interface OrderRepository extends JpaRepository<Order, String> {\n    List<Order> findByCustomerIdOrderByCreatedAtDesc(String customerId);\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-LayeredJava",
+        "title": "分层架构模式",
+        "description": "采用典型的分层架构设计，将应用分为控制器层、服务层、领域层和基础设施层。OrderController处理HTTP请求和响应，进行参数映射和状态码设置。OrderService封装业务逻辑，协调InventoryClient和PaymentService完成订单创建流程，使用@Transactional保证事务一致性。Order领域实体包含业务规则，如create静态工厂方法和markAsPaid状态转换。OrderRepository继承JpaRepository提供数据访问能力。各层之间通过接口和DTO解耦，遵循依赖倒置原则。",
+        "confidence": 0.93,
+        "alternative_titles": ["Layered Architecture", "N-Tier Architecture", "Clean Architecture Layers"]
+      }]
+    },
+    {
+      "id": "AD-JAVA-006",
+      "description": "Circuit Breaker with Resilience4j",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/resilience/CircuitBreakerConfig.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.resilience;\n\nimport io.github.resilience4j.circuitbreaker.CircuitBreaker;\nimport io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;\nimport io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;\nimport io.github.resilience4j.ratelimiter.RateLimiter;\nimport io.github.resilience4j.ratelimiter.RateLimiterConfig;\nimport io.github.resilience4j.ratelimiter.RateLimiterRegistry;\nimport io.github.resilience4j.retry.Retry;\nimport io.github.resilience4j.retry.RetryConfig;\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\n\nimport java.time.Duration;\nimport java.util.Map;\n\n@Configuration\npublic class CircuitBreakerConfig {\n\n    @Bean\n    public CircuitBreakerRegistry circuitBreakerRegistry() {\n        CircuitBreakerConfig config = CircuitBreakerConfig.custom()\n            .failureRateThreshold(50)\n            .waitDurationInOpenState(Duration.ofSeconds(10))\n            .slidingWindowType(CircuitBreakerConfig.SlidingWindowType.COUNT_BASED)\n            .slidingWindowSize(10)\n            .minimumNumberOfCalls(5)\n            .permittedNumberOfCallsInHalfOpenState(3)\n            .automaticTransitionFromOpenToHalfOpenEnabled(true)\n            .build();\n\n        return CircuitBreakerRegistry.of(config);\n    }\n\n    @Bean\n    public Retry retry() {\n        return Retry.of(\"paymentService\", RetryConfig.custom()\n            .maxAttempts(3)\n            .waitDuration(Duration.ofMillis(500))\n            .retryExceptions(Exception.class)\n            .ignoreExceptions(IllegalArgumentException.class)\n            .build());\n    }\n\n    @Bean\n    public RateLimiterRegistry rateLimiterRegistry() {\n        return RateLimiterRegistry.of(RateLimiterConfig.custom()\n            .limitForPeriod(100)\n            .limitRefreshPeriod(Duration.ofSeconds(1))\n            .timeoutDuration(Duration.ofMillis(100))\n            .build());\n    }\n}\n\n@Service\npublic class ResilientPaymentService {\n    private final CircuitBreaker circuitBreaker;\n    private final Retry retry;\n    private final RateLimiter rateLimiter;\n\n    public PaymentResult processPayment(PaymentRequest request) {\n        // Rate limiting\n        if (!rateLimiter.tryAcquirePermission()) {\n            return PaymentResult.rateLimited();\n        }\n\n        // Retry with circuit breaker\n        Supplier<PaymentResult> decoratedSupplier = Retry.decorateSupplier(\n            retry,\n            () -> circuitBreaker.executeSupplier(() -> \n                actualPaymentProcessor.process(request)\n            )\n        );\n\n        return decoratedSupplier.get();\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-Resilience4jJava",
+        "title": "Resilience4j熔断器架构",
+        "description": "使用Resilience4j实现微服务韧性模式。CircuitBreakerConfig配置熔断器的失败率阈值（50%）、打开状态等待时间（10秒）、滑动窗口大小（10次调用）和半开状态许可调用数（3次）。Retry配置最大重试3次，初始等待500ms，排除IllegalArgumentException。RateLimiter限制每秒100个请求，超时100ms。ResilientPaymentService组合三种模式：先通过rateLimiter.tryAcquirePermission检查限流，再用Retry装饰Supplier，内部通过circuitBreaker.executeSupplier执行实际支付处理。当支付服务故障率超过阈值时，熔断器打开，快速失败避免雪崩。",
+        "confidence": 0.94,
+        "alternative_titles": ["Circuit Breaker", "Resilience4j", "Service Resilience"]
+      }]
+    },
+    {
+      "id": "AD-JAVA-007",
+      "description": "Event-Driven Architecture with Kafka",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/eventdriven/OrderEventProducer.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.eventdriven;\n\nimport org.apache.kafka.clients.producer.KafkaProducer;\nimport org.apache.kafka.clients.producer.ProducerRecord;\nimport org.apache.kafka.clients.producer.RecordMetadata;\nimport org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.kafka.core.KafkaTemplate;\nimport org.springframework.kafka.support.SendResult;\nimport org.springframework.stereotype.Service;\n\nimport java.util.concurrent.CompletableFuture;\n\n@Service\npublic class OrderEventPublisher {\n    private static final Logger log = LoggerFactory.getLogger(OrderEventPublisher.class);\n\n    private final KafkaTemplate<String, OrderEvent> kafkaTemplate;\n\n    public OrderEventPublisher(KafkaTemplate<String, OrderEvent> kafkaTemplate) {\n        this.kafkaTemplate = kafkaTemplate;\n    }\n\n    public CompletableFuture<Void> publishOrderEvent(OrderEvent event) {\n        log.info(\"Publishing order event: {} for order {}\", event.getEventType(), event.getOrderId());\n\n        return kafkaTemplate.send(\"order-events\", event.getOrderId(), event)\n            .addListener((SendResult<String, OrderEvent> result) -> {\n                RecordMetadata metadata = result.getRecordMetadata();\n                log.info(\"Event sent successfully: topic={}, partition={}, offset={}\",\n                    metadata.topic(), metadata.partition(), metadata.offset());\n            })\n            .exceptionally(ex -> {\n                log.error(\"Failed to send order event\", ex);\n                throw new EventPublishingException(\"Failed to publish event\", ex);\n            });\n    }\n\n    public void publishOrderCreated(OrderCreatedEvent event) {\n        publishOrderEvent(event);\n    }\n\n    public void publishOrderPaid(OrderPaidEvent event) {\n        publishOrderEvent(event);\n    }\n\n    public void publishOrderShipped(OrderShippedEvent event) {\n        publishOrderEvent(event);\n    }\n}\n\n@KafkaListener(topics = \"inventory-events\", groupId = \"inventory-service\")\n@Service\npublic class InventoryEventConsumer {\n    private final InventoryService inventoryService;\n\n    @KafkaHandler\n    public void handleOrderPaid(OrderPaidEvent event) {\n        log.info(\"Processing order paid event: {}\", event.getOrderId());\n        inventoryService.decreaseStock(event.getItems());\n    }\n\n    @KafkaHandler\n    public void handleOrderCancelled(OrderCancelledEvent event) {\n        log.info(\"Restocking for cancelled order: {}\", event.getOrderId());\n        inventoryService.increaseStock(event.getItems());\n    }\n}\n\npublic abstract class OrderEvent {\n    private String eventId;\n    private String orderId;\n    private String eventType;\n    private Instant timestamp;\n    private Map<String, Object> payload;\n\n    // getters and setters\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-KafkaJava",
+        "title": "Kafka事件驱动架构",
+        "description": "实现基于Apache Kafka的事件驱动架构。OrderEventPublisher通过KafkaTemplate向order-events主题发布订单事件，使用CompletableFuture异步处理发送结果，通过addListener监听成功和失败回调。OrderCreatedEvent、OrderPaidEvent、OrderShippedEvent等具体事件继承抽象OrderEvent基类，包含eventId、orderId、eventType、timestamp和payload。InventoryEventConsumer使用@KafkaListener监听inventory-events主题，@KafkaHandler根据事件类型分派到不同的处理方法。这种架构实现了服务间的松耦合通信，通过事件总线实现异步数据同步和业务编排。",
+        "confidence": 0.95,
+        "alternative_titles": ["Event-Driven Architecture", "Kafka Events", "Message Queue"]
+      }]
+    },
+    {
+      "id": "AD-JAVA-008",
+      "description": "API Gateway with Spring Cloud Gateway",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/gateway/GatewayConfig.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.gateway;\n\nimport org.springframework.cloud.gateway.route.RouteLocator;\nimport org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.web.reactive.handler.SimpleMappingExceptionResolver;\nimport org.springframework.web.server.ServerWebExchange;\nimport reactor.core.publisher.Mono;\n\nimport java.util.Map;\n\n@Configuration\npublic class GatewayConfig {\n\n    @Bean\n    public RouteLocator customRoutes(RouteLocatorBuilder builder) {\n        return builder.routes()\n            .route(\"user-service\", r -> r\n                .path(\"/api/users/**\")\n                .filters(f -> f\n                    .stripPrefix(2)\n                    .addResponseHeader(\"X-Gateway\", \"spring-cloud\")\n                    .circuitBreaker(config -> config\n                        .setName(\"userServiceCircuitBreaker\")\n                        .setFallbackUri(\"forward:/fallback/users\"))\n                    .retry(retry -> retry\n                        .setRetries(3)\n                        .setStatuses(HttpStatus.BAD_GATEWAY))\n                    .requestRateLimiter(config -> config\n                        .setRateLimiter(redisRateLimiter())\n                        .setKeyResolver(ipKeyResolver()))\n                )\n                .uri(\"lb://user-service\"))\n            .route(\"order-service\", r -> r\n                .path(\"/api/orders/**\")\n                .filters(f -> f\n                    .stripPrefix(2)\n                    .circuitBreaker(config -> config\n                        .setName(\"orderServiceCircuitBreaker\")\n                        .setFallbackUri(\"forward:/fallback/orders\"))\n                )\n                .uri(\"lb://order-service\"))\n            .route(\"product-service\", r -> r\n                .path(\"/api/products/**\")\n                .filters(f -> f\n                    .stripPrefix(2)\n                    .requestHeader(\"X-Request-Id\", \"(.*)\")\n                        .addRequestHeader(\"X-Gateway-RequestId\", \"$1\"))\n                )\n                .uri(\"lb://product-service\"))\n            .build();\n    }\n\n    @Bean\n    public GlobalFilter authenticationFilter() {\n        return (exchange, chain) -> {\n            String token = exchange.getRequest().getHeaders()\n                .getFirst(\"Authorization\");\n            \n            if (token == null || !token.startsWith(\"Bearer \")) {\n                exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);\n                return exchange.getResponse().writeWith(\n                    Mono.just(exchange.getResponse()\n                        .bufferFactory()\n                        .wrap(\"{\\\"error\\\":\\\"Unauthorized\\\"}\".getBytes())));\n            }\n\n            String userId = JwtValidator.validate(token.substring(7));\n            exchange.getRequest().mutate()\n                .header(\"X-User-Id\", userId)\n                .build();\n\n            return chain.filter(exchange);\n        };\n    }\n\n    @Bean\n    public KeyResolver ipKeyResolver() {\n        return exchange -> Mono.just(\n            exchange.getRequest().getRemoteAddress() != null ?\n            exchange.getRequest().getRemoteAddress().getAddress().getHostAddress() : \"anonymous\");\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-GatewayJava",
+        "title": "Spring Cloud Gateway API网关",
+        "description": "实现基于Spring Cloud Gateway的API网关架构。customRoutes方法定义三条路由规则，分别将/api/users/**、/api/orders/**、/api/products/**转发到对应的微服务（通过lb://服务名负载均衡）。每条路由配置了stripPrefix过滤器移除前缀、circuitBreaker熔断器、retry重试和requestRateLimiter限流。authenticationFilter是全局过滤器，验证JWT令牌并在请求头中注入用户ID。ipKeyResolver按IP地址进行限流。Gateway集中处理认证、限流、熔断、重试和路由，简化了客户端调用和后端服务管理。",
+        "confidence": 0.94,
+        "alternative_titles": ["API Gateway", "Spring Cloud Gateway", "Route Management"]
+      }]
+    }
+  ]
+}

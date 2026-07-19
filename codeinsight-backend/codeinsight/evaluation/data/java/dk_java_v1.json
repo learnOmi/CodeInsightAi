@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-dk-java",
+  "category": "DK",
+  "language": "java",
+  "description": "Domain knowledge models implemented in Java",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DK-JAVA-001",
+      "description": "Banking transaction domain model",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/banking/Account.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.banking;\n\nimport java.math.BigDecimal;\nimport java.time.LocalDateTime;\nimport java.util.ArrayList;\nimport java.util.Collections;\nimport java.util.List;\n\npublic class Account {\n    private final String accountId;\n    private final String ownerName;\n    private final Currency currency;\n    private BigDecimal balance;\n    private final List<Transaction> transactions;\n    private final LocalDateTime createdAt;\n    private AccountStatus status;\n\n    public enum AccountStatus {\n        ACTIVE, FROZEN, CLOSED\n    }\n\n    public Account(String accountId, String ownerName, Currency currency) {\n        this.accountId = accountId;\n        this.ownerName = ownerName;\n        this.currency = currency;\n        this.balance = BigDecimal.ZERO;\n        this.transactions = new ArrayList<>();\n        this.createdAt = LocalDateTime.now();\n        this.status = AccountStatus.ACTIVE;\n    }\n\n    public Transaction deposit(BigDecimal amount) {\n        validateAmount(amount);\n        Transaction transaction = new Transaction(\n            generateTransactionId(), this.accountId, null,\n            amount, TransactionType.DEPOSIT, LocalDateTime.now()\n        );\n        balance = balance.add(amount);\n        transactions.add(transaction);\n        return transaction;\n    }\n\n    public Transaction withdraw(BigDecimal amount) throws InsufficientFundsException {\n        validateAmount(amount);\n        if (amount.compareTo(balance) > 0) {\n            throw new InsufficientFundsException(\n                String.format(\"Insufficient funds: requested %s, available %s\", \n                    amount, balance)\n            );\n        }\n        Transaction transaction = new Transaction(\n            generateTransactionId(), this.accountId, null,\n            amount, TransactionType.WITHDRAWAL, LocalDateTime.now()\n        );\n        balance = balance.subtract(amount);\n        transactions.add(transaction);\n        return transaction;\n    }\n\n    public Transaction transferTo(Account target, BigDecimal amount) {\n        validateAmount(amount);\n        Transaction debitTx = withdraw(amount);\n        Transaction creditTx = target.receiveTransfer(debitTx.getTransactionId(), amount);\n        return debitTx;\n    }\n\n    private Transaction receiveTransfer(String sourceTxId, BigDecimal amount) {\n        Transaction transaction = new Transaction(\n            generateTransactionId(), this.accountId, sourceTxId,\n            amount, TransactionType.TRANSFER_IN, LocalDateTime.now()\n        );\n        balance = balance.add(amount);\n        transactions.add(transaction);\n        return transaction;\n    }\n\n    public List<Transaction> getTransactions() {\n        return Collections.unmodifiableList(transactions);\n    }\n\n    public BigDecimal getBalance() {\n        return balance;\n    }\n\n    private void validateAmount(BigDecimal amount) {\n        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {\n            throw new IllegalArgumentException(\"Amount must be positive\");\n        }\n    }\n\n    private String generateTransactionId() {\n        return \"TXN-\" + System.currentTimeMillis() + \"-\" + \n               Integer.toHexString((int)(Math.random() * 0xFFFFFF));\n    }\n}\n\nrecord Transaction(\n    String transactionId,\n    String accountId,\n    String relatedTransactionId,\n    BigDecimal amount,\n    TransactionType type,\n    LocalDateTime timestamp\n) {\n    public enum TransactionType {\n        DEPOSIT, WITHDRAWAL, TRANSFER_IN, TRANSFER_OUT\n    }\n}\n\nclass InsufficientFundsException extends RuntimeException {\n    public InsufficientFundsException(String message) {\n        super(message);\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-BankingJava",
+        "title": "银行交易领域模型",
+        "description": "实现银行交易领域的核心业务模型。Account类管理账户余额和交易流水，deposit和withdraw方法处理存取款操作，transferTo方法实现账户间转账。Transaction记录类封装交易的完整信息（ID、账户、金额、类型、时间戳）。deposit直接增加余额，withdraw先校验余额充足再扣减，transferTo通过先withdraw再receiveTransfer保证转账的原子性。validateAmount确保金额为正数。transactions列表使用unmodifiableList保护内部数据不被外部修改。InsufficientFundsException在余额不足时抛出。这种领域模型遵循DDD原则，将业务规则封装在实体内部。",
+        "confidence": 0.95,
+        "alternative_titles": ["Banking Domain", "Transaction Processing", "Financial Account"]
+      }]
+    },
+    {
+      "id": "DK-JAVA-002",
+      "description": "Inventory management domain",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/inventory/InventoryService.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.inventory;\n\nimport java.math.BigDecimal;\nimport java.time.LocalDateTime;\nimport java.util.*;\n\npublic class InventoryService {\n    private final Map<String, ProductStock> stockMap = new HashMap<>();\n    private final List<InventoryEventListener> listeners = new ArrayList<>();\n\n    public void addProduct(Product product, int initialQuantity) {\n        if (initialQuantity < 0) {\n            throw new IllegalArgumentException(\"Initial quantity cannot be negative\");\n        }\n        ProductStock stock = new ProductStock(product.getId(), product.getName(),\n            product.getSku(), initialQuantity, product.getReorderPoint());\n        stockMap.put(product.getId(), stock);\n    }\n\n    public boolean reserveStock(String productId, int quantity) {\n        ProductStock stock = stockMap.get(productId);\n        if (stock == null) return false;\n\n        int available = stock.getQuantity() - stock.getReserved();\n        if (available < quantity) {\n            return false;\n        }\n\n        stock.reserve(quantity);\n        notifyListeners(new StockReservedEvent(productId, quantity, LocalDateTime.now()));\n        return true;\n    }\n\n    public void confirmReservation(String reservationId, String productId, int quantity) {\n        ProductStock stock = stockMap.get(productId);\n        if (stock != null) {\n            stock.confirmReservation(reservationId, quantity);\n        }\n    }\n\n    public void releaseReservation(String reservationId, String productId, int quantity) {\n        ProductStock stock = stockMap.get(productId);\n        if (stock != null) {\n            stock.releaseReservation(reservationId, quantity);\n        }\n    }\n\n    public List<ProductStock> getLowStockProducts() {\n        return stockMap.values().stream()\n            .filter(s -> s.isLowStock())\n            .sorted(Comparator.comparingInt(ProductStock::getQuantity))\n            .toList();\n    }\n\n    public void registerListener(InventoryEventListener listener) {\n        listeners.add(listener);\n    }\n\n    private void notifyListeners(InventoryEvent event) {\n        listeners.forEach(l -> l.onEvent(event));\n    }\n}\n\npublic class ProductStock {\n    private final String productId;\n    private final String productName;\n    private final String sku;\n    private int quantity;\n    private int reserved;\n    private final int reorderPoint;\n    private final Map<String, Reservation> reservations = new LinkedHashMap<>();\n\n    public void reserve(int quantity) {\n        this.reserved += quantity;\n    }\n\n    public void confirmReservation(String id, int qty) {\n        Reservation r = reservations.remove(id);\n        if (r != null) {\n            this.quantity -= qty;\n            this.reserved -= qty;\n        }\n    }\n\n    public void releaseReservation(String id, int qty) {\n        Reservation r = reservations.remove(id);\n        if (r != null) {\n            this.reserved -= qty;\n        }\n    }\n\n    public boolean isLowStock() {\n        return quantity > 0 && quantity <= reorderPoint;\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-InventoryJava",
+        "title": "库存管理领域",
+        "description": "实现库存管理领域的完整业务流程。InventoryService管理商品库存，通过stockMap维护各SKU的库存状态。reserveStock方法检查可用库存（总量-预留量）是否满足需求，满足则增加预留量并触发事件。confirmReservation将预留转为实际出库，减少总量和预留量。releaseReservation取消预留恢复可用库存。getLowStockProducts筛选出低于补货点的商品并按库存量排序。ProductStock内部维护reservations Map跟踪每个预留ID的状态。InventoryEventListener接口支持事件驱动的通知机制。这种领域模型支持多仓库、多SKU的库存管理场景。",
+        "confidence": 0.94,
+        "alternative_titles": ["Inventory Management", "Stock Management", "Warehouse System"]
+      }]
+    },
+    {
+      "id": "DK-JAVA-003",
+      "description": "Order processing domain",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/order/OrderProcessing.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.order;\n\nimport java.math.BigDecimal;\nimport java.time.LocalDateTime;\nimport java.util.*;\n\npublic class Order {\n    private final String orderId;\n    private final String customerId;\n    private final List<OrderItem> items = new ArrayList<>();\n    private OrderStatus status;\n    private Address shippingAddress;\n    private PaymentInfo paymentInfo;\n    private LocalDateTime createdAt;\n    private LocalDateTime updatedAt;\n\n    public enum OrderStatus {\n        CREATED, PAYMENT_PENDING, PAID, PROCESSING, SHIPPED, DELIVERED, CANCELLED, REFUNDED\n    }\n\n    public Order(String orderId, String customerId, Address shippingAddress) {\n        this.orderId = orderId;\n        this.customerId = customerId;\n        this.shippingAddress = shippingAddress;\n        this.status = OrderStatus.CREATED;\n        this.createdAt = LocalDateTime.now();\n        this.updatedAt = this.createdAt;\n    }\n\n    public void addItem(Product product, int quantity) {\n        if (status != OrderStatus.CREATED) {\n            throw new IllegalStateException(\"Cannot modify order in status: \" + status);\n        }\n        Optional<OrderItem> existing = items.stream()\n            .filter(i -> i.getProductId().equals(product.getId()))\n            .findFirst();\n        \n        if (existing.isPresent()) {\n            existing.get().increaseQuantity(quantity);\n        } else {\n            items.add(new OrderItem(product.getId(), product.getName(), \n                product.getPrice(), quantity, BigDecimal.ZERO));\n        }\n    }\n\n    public BigDecimal calculateTotal() {\n        return items.stream()\n            .map(OrderItem::getLineTotal)\n            .reduce(BigDecimal.ZERO, BigDecimal::add);\n    }\n\n    public void submit() {\n        if (items.isEmpty()) {\n            throw new IllegalStateException(\"Order has no items\");\n        }\n        status = OrderStatus.PAYMENT_PENDING;\n        updateTimestamp();\n    }\n\n    public void markAsPaid(String transactionId) {\n        if (status != OrderStatus.PAYMENT_PENDING) {\n            throw new IllegalStateException(\"Cannot mark as paid in status: \" + status);\n        }\n        status = OrderStatus.PAID;\n        paymentInfo = new PaymentInfo(transactionId, LocalDateTime.now());\n        updateTimestamp();\n    }\n\n    public void cancel(String reason) {\n        if (status == OrderStatus.DELIVERED || status == OrderStatus.REFUNDED) {\n            throw new IllegalStateException(\"Cannot cancel delivered/refunded order\");\n        }\n        status = OrderStatus.CANCELLED;\n        updateTimestamp();\n    }\n\n    private void updateTimestamp() {\n        this.updatedAt = LocalDateTime.now();\n    }\n}\n\nrecord OrderItem(String productId, String productName, BigDecimal unitPrice,\n                 int quantity, BigDecimal discount) {\n    public BigDecimal getLineTotal() {\n        return unitPrice.multiply(BigDecimal.valueOf(quantity))\n            .subtract(discount);\n    }\n}\n\nrecord PaymentInfo(String transactionId, LocalDateTime paidAt) {}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-OrderProcJava",
+        "title": "订单处理领域",
+        "description": "实现订单处理领域的完整业务模型。Order类管理订单生命周期，状态从CREATED经过PAYMENT_PENDING、PAID、PROCESSING、SHIPPED、DELIVERED，到CANCELLED或REFUNDED。addItem在CREATED状态下允许添加商品，相同商品合并数量。calculateTotal汇总所有订单项的小计。submit验证至少有一个商品后将状态改为PAYMENT_PENDING。markAsPaid记录支付交易ID和时间。cancel禁止对已交付或已退款订单取消。OrderItem记录类封装单价、数量和折扣，lineTotal计算方法自动计算行小计。PaymentInfo记录支付凭证。所有状态变更都会更新时间戳。",
+        "confidence": 0.95,
+        "alternative_titles": ["Order Processing", "E-commerce Order", "Order Lifecycle"]
+      }]
+    },
+    {
+      "id": "DK-JAVA-004",
+      "description": "Fraud detection domain",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/fraud/FraudDetector.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.fraud;\n\nimport java.math.BigDecimal;\nimport java.time.LocalDateTime;\nimport java.util.List;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic class FraudDetector {\n    private final Map<String, List<Transaction>> userTransactionHistory = new ConcurrentHashMap<>();\n    private final List<FraudRule> rules = new ArrayList<>();\n\n    public void addRule(FraudRule rule) {\n        rules.add(rule);\n    }\n\n    public FraudCheckResult analyze(Transaction transaction) {\n        FraudCheckResult result = new FraudCheckResult(transaction.getTransactionId(), true);\n\n        // Rule 1: Velocity check\n        if (checkVelocity(transaction)) {\n            result.addViolation(\"High velocity transactions detected\", 0.9);\n        }\n\n        // Rule 2: Amount anomaly\n        if (checkAmountAnomaly(transaction)) {\n            result.addViolation(\"Unusual transaction amount\", 0.85);\n        }\n\n        // Rule 3: Geographic inconsistency\n        if (checkGeographicInconsistency(transaction)) {\n            result.addViolation(\"Geographic inconsistency detected\", 0.8);\n        }\n\n        // Apply custom rules\n        for (FraudRule rule : rules) {\n            boolean violated = rule.evaluate(transaction);\n            if (violated) {\n                result.addViolation(rule.getDescription(), rule.getConfidence());\n            }\n        }\n\n        result.setBlocked(result.getViolations().size() > 0);\n        return result;\n    }\n\n    private boolean checkVelocity(Transaction tx) {\n        List<Transaction> history = userTransactionHistory\n            .computeIfAbsent(tx.getUserId(), k -> new ArrayList<>());\n        \n        LocalDateTime oneHourAgo = LocalDateTime.now().minusHours(1);\n        long recentCount = history.stream()\n            .filter(t -> t.getTimestamp().isAfter(oneHourAgo))\n            .count();\n        \n        return recentCount >= 5;\n    }\n\n    private boolean checkAmountAnomaly(Transaction tx) {\n        List<Transaction> history = userTransactionHistory.get(tx.getUserId());\n        if (history == null || history.isEmpty()) return false;\n\n        BigDecimal avgAmount = history.stream()\n            .map(Transaction::getAmount)\n            .reduce(BigDecimal.ZERO, BigDecimal::add)\n            .divide(BigDecimal.valueOf(history.size()));\n\n        return tx.getAmount().compareTo(avgAmount.multiply(new BigDecimal(\"3\"))) > 0;\n    }\n\n    public void recordTransaction(Transaction transaction) {\n        userTransactionHistory.computeIfAbsent(\n            transaction.getUserId(), k -> new ArrayList<>()).add(transaction);\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-FraudJava",
+        "title": "欺诈检测领域",
+        "description": "实现欺诈检测领域的多维度分析引擎。FraudDetector维护用户交易历史并通过多条规则进行检测。velocity check限制每小时最多5笔交易，amount anomaly检测金额是否为历史均值的3倍以上，geographic inconsistency检测地理位置突变。自定义FraudRule接口支持扩展新的检测规则。analyze方法依次执行所有规则，收集违规详情和置信度分数。FraudCheckResult汇总所有违规信息并判定是否阻断交易。recordTransaction将交易记录加入历史以便后续分析。这种多层检测机制提高了欺诈识别的准确性和覆盖率。",
+        "confidence": 0.94,
+        "alternative_titles": ["Fraud Detection", "Risk Analysis", "Transaction Monitoring"]
+      }]
+    },
+    {
+      "id": "DK-JAVA-005",
+      "description": "Supply chain management domain",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/supplychain/SupplyChain.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.supplychain;\n\nimport java.math.BigDecimal;\nimport java.time.LocalDate;\nimport java.util.*;\n\npublic class SupplyChainManager {\n    private final Map<String, Supplier> suppliers = new HashMap<>();\n    private final Map<String, Warehouse> warehouses = new HashMap<>();\n    private final List<Shipment> shipments = new ArrayList<>();\n\n    public void registerSupplier(Supplier supplier) {\n        suppliers.put(supplier.getSupplierId(), supplier);\n    }\n\n    public void registerWarehouse(Warehouse warehouse) {\n        warehouses.put(warehouse.getWarehouseId(), warehouse);\n    }\n\n    public Shipment createShipment(String supplierId, String fromWarehouseId,\n                                    String toWarehouseId, List<OrderItem> items,\n                                    LocalDate expectedDelivery) {\n        Supplier supplier = suppliers.get(supplierId);\n        Warehouse from = warehouses.get(fromWarehouseId);\n        Warehouse to = warehouses.get(toWarehouseId);\n\n        if (supplier == null || from == null || to == null) {\n            throw new IllegalArgumentException(\"Invalid supplier or warehouse ID\");\n        }\n\n        Shipment shipment = new Shipment(\n            generateShipmentId(),\n            supplier.getSupplierId(),\n            from.getWarehouseId(),\n            to.getWarehouseId(),\n            items,\n            expectedDelivery,\n            ShipmentStatus.IN_TRANSIT\n        );\n\n        shipments.add(shipment);\n        from.deductStock(items);\n        return shipment;\n    }\n\n    public void deliverShipment(String shipmentId) {\n        Shipment shipment = findShipment(shipmentId);\n        if (shipment == null) {\n            throw new IllegalArgumentException(\"Shipment not found\");\n        }\n        shipment.markAsDelivered();\n        warehouses.get(shipment.getToWarehouseId()).receiveStock(shipment.getItems());\n    }\n\n    private Shipment findShipment(String shipmentId) {\n        return shipments.stream()\n            .filter(s -> s.getShipmentId().equals(shipmentId))\n            .findFirst()\n            .orElse(null);\n    }\n\n    public List<WarehouseReport> getWarehouseReports() {\n        return warehouses.values().stream()\n            .map(Warehouse::generateReport)\n            .toList();\n    }\n}\n\npublic record Shipment(\n    String shipmentId,\n    String supplierId,\n    String fromWarehouseId,\n    String toWarehouseId,\n    List<OrderItem> items,\n    LocalDate expectedDelivery,\n    ShipmentStatus status\n) {\n    public void markAsDelivered() { this.status = ShipmentStatus.DELIVERED; }\n}\n\npublic enum ShipmentStatus {\n    CREATED, IN_TRANSIT, DELIVERED, CANCELLED\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-SupplyChainJava",
+        "title": "供应链管理领域",
+        "description": "实现供应链管理领域的核心业务流程。SupplyChainManager管理供应商和仓库的注册，createShipment创建从发货仓库到收货仓库的运输单据，同时从发货仓库扣减库存。Shipment记录包含供应商ID、起止仓库、货物清单和预期送达日期。deliverShipment将运输状态更新为已送达，并在收货仓库增加库存。getWarehouseReports生成各仓库的库存报告。ShipmentStatus枚举管理运输状态流转（CREATED->IN_TRANSIT->DELIVERED）。这种领域模型支持采购、仓储调拨和物流跟踪等供应链核心功能。",
+        "confidence": 0.94,
+        "alternative_titles": ["Supply Chain", "Logistics Management", "Warehouse Operations"]
+      }]
+    },
+    {
+      "id": "DK-JAVA-006",
+      "description": "Insurance policy domain",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/insurance/PolicyService.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.insurance;\n\nimport java.math.BigDecimal;\nimport java.time.LocalDate;\nimport java.util.*;\nimport java.util.concurrent.ConcurrentHashMap;\n\npublic class PolicyService {\n    private final Map<String, InsurancePolicy> policies = new ConcurrentHashMap<>();\n\n    public InsurancePolicy createPolicy(Customer customer, PolicyType type,\n                                         BigDecimal coverageAmount, LocalDate startDate) {\n        InsurancePolicy policy = new InsurancePolicy(\n            generatePolicyId(),\n            customer,\n            type,\n            coverageAmount,\n            startDate,\n            startDate.plusYears(type.getDefaultTerm()),\n            BigDecimal.ZERO\n        );\n        policies.put(policy.getPolicyId(), policy);\n        return policy;\n    }\n\n    public InsurancePolicy getPolicy(String policyId) {\n        return policies.get(policyId);\n    }\n\n    public void fileClaim(String policyId, Claim claim) {\n        InsurancePolicy policy = policies.get(policyId);\n        if (policy == null) {\n            throw new NoSuchElementException(\"Policy not found: \" + policyId);\n        }\n        if (!policy.isActive()) {\n            throw new IllegalStateException(\"Policy is not active\");\n        }\n        if (claim.getClaimDate().isBefore(policy.getStartDate())) {\n            throw new IllegalArgumentException(\"Claim date is before policy start date\");\n        }\n        policy.addClaim(claim);\n    }\n\n    public void cancelPolicy(String policyId, String reason) {\n        InsurancePolicy policy = policies.get(policyId);\n        if (policy != null) {\n            policy.cancel(reason);\n        }\n    }\n\n    private String generatePolicyId() {\n        return \"POL-\" + System.currentTimeMillis() + \"-\" + \n               UUID.randomUUID().toString().substring(0, 8);\n    }\n}\n\npublic class InsurancePolicy {\n    private final String policyId;\n    private final Customer customer;\n    private final PolicyType policyType;\n    private final BigDecimal coverageAmount;\n    private final LocalDate startDate;\n    private final LocalDate endDate;\n    private final List<Claim> claims = new ArrayList<>();\n    private BigDecimal premiumPaid;\n    private PolicyStatus status;\n\n    public enum PolicyStatus {\n        ACTIVE, EXPIRED, CANCELLED, CLAIM_SETTLED\n    }\n\n    public void addClaim(Claim claim) {\n        claims.add(claim);\n        if (claim.getAmount().compareTo(coverageAmount) >= 0) {\n            this.status = PolicyStatus.CLAIM_SETTLED;\n        }\n    }\n\n    public boolean isActive() {\n        return status == PolicyStatus.ACTIVE \n            && LocalDate.now().isBefore(endDate);\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-InsuranceJava",
+        "title": "保险保单领域",
+        "description": "实现保险保单领域的完整业务模型。PolicyService管理保单的创建、查询、理赔和取消。createPolicy根据客户信息和保单类型创建保单，包含承保金额、生效日期和到期日期。fileClaim处理理赔申请，验证保单是否有效、索赔日期是否在保单生效之后。insurancePolicy的addClaim方法在理赔金额达到承保金额时将状态设为CLAIM_SETTLED。isActive方法检查保单状态和有效期。PolicyStatus枚举管理保单生命周期（ACTIVE->EXPIRED/CANCELLED/CLAIM_SETTLED）。这种领域模型支持人寿险、车险、财产险等多种保险产品的核心业务流程。",
+        "confidence": 0.95,
+        "alternative_titles": ["Insurance Policy", "Claims Management", "Policy Lifecycle"]
+      }]
+    },
+    {
+      "id": "DK-JAVA-007",
+      "description": "Patient records domain",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patient/PatientRecord.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.patient;\n\nimport java.time.LocalDate;\nimport java.time.LocalDateTime;\nimport java.util.*;\n\npublic class PatientRecord {\n    private final String patientId;\n    private final String firstName;\n    private final String lastName;\n    private final LocalDate dateOfBirth;\n    private final String gender;\n    private final List<MedicalRecord> medicalHistory = new ArrayList<>();\n    private final List<Appointment> appointments = new ArrayList<>();\n    private final List<Prescription> prescriptions = new ArrayList<>();\n    private final Map<String, String> allergies = new HashMap<>();\n    private LocalDateTime lastUpdated;\n\n    public PatientRecord(String patientId, String firstName, String lastName,\n                         LocalDate dateOfBirth, String gender) {\n        this.patientId = patientId;\n        this.firstName = firstName;\n        this.lastName = lastName;\n        this.dateOfBirth = dateOfBirth;\n        this.gender = gender;\n        this.lastUpdated = LocalDateTime.now();\n    }\n\n    public void addMedicalRecord(MedicalRecord record) {\n        medicalHistory.add(record);\n        lastUpdated = LocalDateTime.now();\n    }\n\n    public void scheduleAppointment(Appointment appointment) {\n        if (appointment.getStartTime().isBefore(LocalDateTime.now())) {\n            throw new IllegalArgumentException(\"Cannot schedule past appointments\");\n        }\n        appointments.add(appointment);\n        lastUpdated = LocalDateTime.now();\n    }\n\n    public void addPrescription(Prescription prescription) {\n        // Check drug interactions\n        for (Prescription existing : prescriptions) {\n            if (DrugInteractionChecker.hasInteraction(existing, prescription)) {\n                throw new DrugInteractionException(\n                    existing.getMedication() + \" interacts with \" + prescription.getMedication()\n                );\n            }\n        }\n        prescriptions.add(prescription);\n        lastUpdated = LocalDateTime.now();\n    }\n\n    public List<MedicalRecord> getMedicalRecords() {\n        return Collections.unmodifiableList(medicalHistory);\n    }\n\n    public List<Appointment> getUpcomingAppointments() {\n        return appointments.stream()\n            .filter(a -> a.getStartTime().isAfter(LocalDateTime.now()))\n            .sorted(Comparator.comparing(Appointment::getStartTime))\n            .toList();\n    }\n}\n\nrecord MedicalRecord(String doctorId, String diagnosis, String notes,\n                     LocalDate date, RecordType type) {\n    public enum RecordType { CHECKUP, SURGERY, LAB_RESULT, VISIT }\n}\n\nrecord Appointment(String doctorId, String department, LocalDateTime startTime,\n                   LocalDateTime endTime, AppointmentStatus status) {\n    public enum AppointmentStatus { SCHEDULED, COMPLETED, CANCELLED }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-PatientJava",
+        "title": "患者记录领域",
+        "description": "实现医疗患者记录领域的完整业务模型。PatientRecord管理患者的基本信息（姓名、出生日期、性别）和医疗数据。medicalHistory记录诊疗历史，包括检查、手术、检验结果和就诊。scheduleAppointment安排预约并验证不能安排过去的预约。addPrescription添加处方前通过DrugInteractionChecker检查药物相互作用，防止危险药物组合。getUpcomingAppointments过滤并排序即将开始的预约。allergies Map存储过敏信息。所有修改操作都会更新lastTimestamp。这种领域模型支持电子病历系统的核心功能，确保医疗数据的安全性和一致性。",
+        "confidence": 0.94,
+        "alternative_titles": ["Patient Records", "Electronic Health Record", "Medical Records"]
+      }]
+    },
+    {
+      "id": "DK-JAVA-008",
+      "description": "Loan processing domain",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/loan/LoanProcessor.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.loan;\n\nimport java.math.BigDecimal;\nimport java.math.RoundingMode;\nimport java.time.LocalDate;\nimport java.util.*;\n\npublic class LoanProcessor {\n    private final Map<String, LoanApplication> applications = new HashMap<>();\n    private final Map<String, Loan> activeLoans = new HashMap<>();\n\n    public LoanApplication submitApplication(LoanApplication application) {\n        application.setStatus(ApplicationStatus.SUBMITTED);\n        application.setSubmittedAt(LocalDate.now());\n        applications.put(application.getApplicationId(), application);\n        return application;\n    }\n\n    public LoanApprovalResult evaluateApplication(String applicationId) {\n        LoanApplication app = applications.get(applicationId);\n        if (app == null) {\n            throw new NoSuchElementException(\"Application not found\");\n        }\n\n        boolean approved = evaluateCreditScore(app.getCreditScore())\n            && evaluateDebtRatio(app.getDebtToIncomeRatio())\n            && evaluateEmployment(app.getEmploymentStatus());\n\n        BigDecimal maxLoanAmount = approved ? calculateMaxLoanAmount(app) : BigDecimal.ZERO;\n        BigDecimal interestRate = approved ? calculateInterestRate(app) : BigDecimal.ZERO;\n\n        app.setStatus(approved ? ApplicationStatus.APPROVED : ApplicationStatus.REJECTED);\n        app.setApprovedAmount(maxLoanAmount);\n        app.setInterestRate(interestRate);\n\n        return new LoanApprovalResult(approved, maxLoanAmount, interestRate, app.getApplicationId());\n    }\n\n    public Loan disburseLoan(String applicationId) {\n        LoanApplication app = applications.get(applicationId);\n        if (app == null || app.getStatus() != ApplicationStatus.APPROVED) {\n            throw new IllegalStateException(\"Application not approved\");\n        }\n\n        Loan loan = new Loan(\n            generateLoanId(),\n            app.getCustomerId(),\n            app.getApprovedAmount(),\n            app.getInterestRate(),\n            app.getTermMonths(),\n            LocalDate.now()\n        );\n\n        activeLoans.put(loan.getLoanId(), loan);\n        applications.remove(applicationId);\n        return loan;\n    }\n\n    public void makePayment(String loanId, BigDecimal amount) {\n        Loan loan = activeLoans.get(loanId);\n        if (loan == null) {\n            throw new NoSuchElementException(\"Loan not found: \" + loanId);\n        }\n        loan.makePayment(amount);\n        if (loan.isFullyPaid()) {\n            activeLoans.remove(loanId);\n        }\n    }\n\n    private boolean evaluateCreditScore(int score) {\n        return score >= 600;\n    }\n\n    private boolean evaluateDebtRatio(BigDecimal ratio) {\n        return ratio.compareTo(new BigDecimal(\"0.43\")) <= 0;\n    }\n\n    private boolean evaluateEmployment(EmploymentStatus status) {\n        return status == EmploymentStatus.EMPLOYED || status == EmploymentStatus.SELF_EMPLOYED;\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-LoanJava",
+        "title": "贷款处理领域",
+        "description": "实现贷款处理领域的完整业务流程。LoanProcessor管理贷款申请和放款流程。submitApplication接收贷款申请并标记为SUBMITTED。evaluateApplication执行信用评分（>=600）、债务收入比（<=43%）和就业状态三重评估，通过后计算最大贷款额度和利率。disburseLoan将批准的申请转为正式贷款，从申请表中移除。makePayment处理还款，更新贷款余额，全额还清后从activeLoans移除。LoanApprovalResult记录审批结果。这种领域模型覆盖了贷款审批、放款和还款的全生命周期，包含风控规则验证。",
+        "confidence": 0.95,
+        "alternative_titles": ["Loan Processing", "Credit Approval", "Lending System"]
+      }]
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-et-vue",
+  "category": "ET",
+  "language": "vue",
+  "description": "Engineering techniques implemented in Vue.js",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "ET-VUE-001",
+      "description": "DevTools integration",
+      "code_snippets": [{
+        "file": "plugins/devtools.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "import { App, nextTick } from 'vue'\n\nexport function installDevtools(app: App) {\n  if (process.env.NODE_ENV === 'production') return\n\n  window.__VUE_DEVTOOLS_GLOBAL_HOOK__ = {\n    apps: [],\n    register(app: App, renderer: any) {\n      this.apps.push(app)\n      console.log('[DevTools] Registered app')\n    },\n    emit(event: string, ...payload: any[]) {\n      console.log(`[DevTools] ${event}`, ...payload)\n    }\n  }\n\n  // Custom Vue DevTools plugin\n  if (window.__VUE_DEVTOOLS_EXTENSION__) {\n    window.__VUE_DEVTOOLS_EXTENSION__.connect({\n      app: app._instance,\n      name: 'MyApp',\n      plugin: {\n        install(pv) {\n          pv.on.component-data = (vnode, data) => {\n            if (vnode.type.name === 'ProductCard') {\n              data.props = {\n                ...data.props,\n                devHighlight: true\n              }\n            }\n          }\n        }\n      }\n    })\n  }\n\n  // Expose debug utilities\n  app.config.globalProperties.$debug = {\n    getComponentTree: () => {\n      const root = app._component\n      return traverseComponents(root, 0)\n    },\n    getReactiveState: (obj: any) => {\n      return JSON.parse(JSON.stringify(obj))\n    },\n    logComponentProps: (componentName: string) => {\n      const instances = findComponentInstances(app, componentName)\n      instances.forEach(inst => {\n        console.log(`[${componentName}]`, inst.props)\n      })\n    }\n  }\n}\n\nfunction traverseComponents(node: any, depth: number): string {\n  if (!node) return ''\n  const indent = '  '.repeat(depth)\n  const name = node.type?.name || 'Anonymous'\n  return `${indent}${name}\\n` +\n    (node.children || []).map(c => traverseComponents(c, depth + 1)).join('')\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-DevToolsVUE",
+        "title": "DevTools集成",
+        "description": "实现Vue DevTools扩展集成。installDevtools在非生产环境下注册全局hook，暴露apps数组和emit方法给DevTools前端。通过window.__VUE_DEVTOOLS_EXTENSION__.connect连接Vue DevTools浏览器扩展，注册自定义plugin拦截组件数据。$debug全局属性提供调试工具：getComponentTree遍历组件树输出层级结构，getReactiveState序列化响应式对象，logComponentProps查找并打印指定名称组件的props。traverseComponents递归遍历子节点生成缩进文本。这种集成方便开发阶段的调试和问题排查。",
+        "confidence": 0.95,
+        "alternative_titles": ["DevTools Integration", "Debug Utilities", "Vue Inspector"]
+      }]
+    },
+    {
+      "id": "ET-VUE-002",
+      "description": "Build optimization with webpack/Vite",
+      "code_snippets": [{
+        "file": "vite.config.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { defineConfig } from 'vite'\nimport vue from '@vitejs/plugin-vue'\nimport { visualizer } from 'rollup-plugin-visualizer'\nimport compression from 'vite-plugin-compression'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    visualizer({ open: true, gzipSize: true }),\n    compression({ algorithm: 'gzip', ext: '.gz' }),\n    compression({ algorithm: 'brotliCompress', ext: '.br' })\n  ],\n  build: {\n    rollupOptions: {\n      output: {\n        manualChunks: {\n          'vue-vendor': ['vue', 'vue-router', 'pinia'],\n          'ui-vendor': ['element-plus', '@element-plus/icons-vue'],\n          'charting': ['echarts']\n        },\n        chunkFileNames: 'js/chunks/[name]-[hash].js',\n        entryFileNames: 'js/[name]-[hash].js',\n        assetFileNames: 'assets/[name]-[hash].[ext]'\n      }\n    },\n    chunkSizeWarningLimit: 500,\n    minify: 'terser',\n    terserOptions: {\n      compress: {\n        drop_console: true,\n        drop_debugger: true\n      }\n    }\n  },\n  optimizeDeps: {\n    include: ['vue', 'vue-router', 'pinia'],\n    exclude: ['my-local-package']\n  },\n  css: {\n    modules: {\n      localsConvention: 'camelCase'\n    },\n    preprocessorOptions: {\n      scss: {\n        additionalData: '@use \"@/styles/variables.scss\" as *;'\n      }\n    }\n  }\n})",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-BuildOptVUE",
+        "title": "构建优化（Vite/Webpack）",
+        "description": "实现Vite构建优化配置。manualChunks将第三方库拆分为vue-vendor、ui-vendor和charting独立chunk，利用浏览器缓存提高加载效率。compression插件生成gzip和brotli压缩文件。visualizer插件可视化chunk大小帮助优化。terserOptions配置drop_console和drop_debugger移除调试代码。chunkSizeWarningLimit设置500KB警告阈值。optimizeDeps预构建常用依赖加速冷启动。CSS modules使用camelCase约定，SCSS注入全局变量。这些优化策略显著减少首屏加载时间和网络传输体积。",
+        "confidence": 0.94,
+        "alternative_titles": ["Build Optimization", "Code Splitting", "Bundle Analysis"]
+      }]
+    },
+    {
+      "id": "ET-VUE-003",
+      "description": "Lazy loading components",
+      "code_snippets": [{
+        "file": "components/LazyImage.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"lazy-image-wrapper\">\n    <img\n      v-if=\"isLoaded\"\n      :src=\"resolvedSrc\"\n      :alt=\"alt\"\n      :class=\"['lazy-img', { 'lazy-loaded': isLoaded }]\"\n      @load=\"handleLoad\"\n      @error=\"handleError\"\n    />\n    <div v-else class=\"lazy-placeholder\" :style=\"{ backgroundColor: placeholderColor }\">\n      <slot name=\"placeholder\">\n        <svg class=\"spinner\" viewBox=\"0 0 24 24\">\n          <circle cx=\"12\" cy=\"12\" r=\"10\" stroke-width=\"2\" />\n        </svg>\n      </slot>\n    </div>\n  </div>\n</template>\n\n<script setup>\nimport { ref, computed, onMounted } from 'vue'\n\nconst props = defineProps({\n  src: { type: String, required: true },\n  alt: { type: String, default: '' },\n  threshold: { type: Number, default: 0.1 },\n  placeholderColor: { type: String, default: '#f0f0f0' },\n  rootMargin: { type: String, default: '50px' }\n})\n\nconst isLoaded = ref(false)\nconst loadImage = ref(null)\n\nconst resolvedSrc = computed(() => {\n  if (props.src.startsWith('/')) {\n    return new URL(props.src, import.meta.url).href\n  }\n  return props.src\n})\n\nfunction handleLoad() {\n  isLoaded.value = true\n}\n\nfunction handleError() {\n  console.warn('Failed to load image:', props.src)\n}\n\nonMounted(() => {\n  loadImage.value = new IntersectionObserver(\n    ([entry]) => {\n      if (entry.isIntersecting) {\n        loadImage.value.disconnect()\n        isLoaded.value = true\n      }\n    },\n    { threshold: props.threshold, rootMargin: props.rootMargin }\n  )\n  loadImage.value.observe(loadImage.value)\n})\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-LazyImgVUE",
+        "title": "懒加载组件",
+        "description": "实现图片懒加载组件。LazyImage使用IntersectionObserver API检测元素是否进入视口，threshold和rootMargin控制触发时机。进入视口后将isLoaded设为true触发真实图片加载。resolvedSrc计算属性处理相对路径转换为绝对URL。placeholder插槽显示占位背景和加载动画。handleLoad和handleError处理加载成功和失败情况。onMounted中创建observer并observe元素，加载完成后disconnect释放资源。这种技术减少初始页面加载的图片数量，提升首屏性能和用户体验。",
+        "confidence": 0.93,
+        "alternative_titles": ["Lazy Loading", "Intersection Observer", "Image Loading"]
+      }]
+    },
+    {
+      "id": "ET-VUE-004",
+      "description": "Error handling with onErrorCaptured",
+      "code_snippets": [{
+        "file": "components/ErrorBoundary.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"error-boundary\">\n    <slot v-if=\"!hasError\" />\n    <div v-else class=\"error-fallback\">\n      <h3>{{ fallbackTitle }}</h3>\n      <p>{{ errorMessage }}</p>\n      <pre v-if=\"showDetails\">{{ errorStack }}</pre>\n      <button @click=\"reset\">Try Again</button>\n      <button @click=\"$router.push('/')\">Go Home</button>\n    </div>\n  </div>\n</template>\n\n<script setup>\nimport { ref, provide } from 'vue'\n\nconst props = defineProps({\n  fallbackTitle: { type: String, default: 'Something went wrong' },\n  showDetails: { type: Boolean, default: false }\n})\n\nconst hasError = ref(false)\nconst error = ref(null)\nconst errorStack = ref('')\n\nfunction reset() {\n  hasError.value = false\n  error.value = null\n  errorStack.value = ''\n}\n\nfunction onErrorCaptured(err, instance, info) {\n  hasError.value = true\n  error.value = err\n  errorStack.value = err.stack || String(err)\n  \n  // Send to error tracking service\n  errorTrackingService.capture(err, {\n    component: instance?.type?.name || 'Unknown',\n    lifecycle: info,\n    timestamp: Date.now()\n  })\n  \n  return false // Prevent propagation\n}\n\nprovide('errorBoundary', { hasError, error, reset })\n</script>\n\n<!-- Usage -->\n<!-- <ErrorBoundary>\n  <ComplexComponentThatMayFail />\n</ErrorBoundary> -->",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-ErrBoundVUE",
+        "title": "错误边界（onErrorCaptured）",
+        "description": "实现React风格的错误边界组件。ErrorBoundary包裹子组件树，通过onErrorCaptured生命周期钩子捕获子组件的同步和异步错误。hasError控制显示内容：正常时渲染default slot，出错时展示fallback UI（标题、错误信息、堆栈跟踪、重试和返回首页按钮）。reset方法清除错误状态允许重新渲染。provide向后代组件注入错误边界上下文。capture错误时发送到错误追踪服务（如Sentry），记录组件名、生命周期阶段和时间戳。return false阻止错误向上传播，防止整个应用崩溃。",
+        "confidence": 0.95,
+        "alternative_titles": ["Error Boundary", "Error Capturing", "Fallback UI"]
+      }]
+    },
+    {
+      "id": "ET-VUE-005",
+      "description": "Testing with Vitest",
+      "code_snippets": [{
+        "file": "tests/unit/composables/useCounter.test.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { describe, it, expect, vi } from 'vitest'\nimport { ref, nextTick } from 'vue'\nimport { useCounter } from '@/composables/useCounter'\nimport { mount } from '@vue/test-utils'\nimport CounterDisplay from '@/components/CounterDisplay.vue'\n\ndescribe('useCounter', () => {\n  it('should initialize with default values', () => {\n    const counter = useCounter()\n    expect(counter.count).toBe(0)\n    expect(counter.double).toBe(0)\n  })\n\n  it('should increment count', async () => {\n    const counter = useCounter(5)\n    counter.increment()\n    await nextTick()\n    expect(counter.count).toBe(6)\n    expect(counter.double).toBe(12)\n  })\n\n  it('should decrement count', async () => {\n    const counter = useCounter(10)\n    counter.decrement(3)\n    await nextTick()\n    expect(counter.count).toBe(7)\n  })\n\n  it('should not go below minimum', async () => {\n    const counter = useCounter(0)\n    counter.decrement(5)\n    await nextTick()\n    expect(counter.count).toBe(0)\n  })\n})\n\ndescribe('CounterDisplay', () => {\n  it('renders correctly', () => {\n    const wrapper = mount(CounterDisplay, {\n      props: { count: 42, label: 'Test' }\n    })\n    expect(wrapper.text()).toContain('Test: 42')\n  })\n\n  it('emits increment event', async () => {\n    const wrapper = mount(CounterDisplay, {\n      props: { count: 0 }\n    })\n    await wrapper.find('button.increment').trigger('click')\n    expect(wrapper.emitted('increment')).toBeTruthy()\n  })\n\n  it('calls API on mount', async () => {\n    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({\n      json: () => Promise.resolve({ value: 100 })\n    }))\n    const wrapper = mount(CounterDisplay)\n    await nextTick()\n    expect(fetch).toHaveBeenCalledWith('/api/counter')\n  })\n})",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-VitestVUE",
+        "title": "Vitest测试框架",
+        "description": "使用Vitest进行Vue组件和组合式函数的单元测试。describe/it/expect组织测试用例。useCounter测试覆盖初始化、递增、递减和最小值保护。mount从@vue/test-utils导入，创建组件实例并验证渲染结果。wrapper.text()检查DOM文本，trigger('click')模拟用户交互，emitted()验证事件发射。vi.fn().mockResolvedValue mock异步API调用，vi.stubGlobal替换全局对象。nextTick等待Vue响应式更新完成。这种测试策略覆盖业务逻辑、组件渲染和事件处理，确保代码质量。",
+        "confidence": 0.94,
+        "alternative_titles": ["Vitest Testing", "Unit Testing", "Vue Test Utils"]
+      }]
+    },
+    {
+      "id": "ET-VUE-006",
+      "description": "TypeScript integration",
+      "code_snippets": [{
+        "file": "types/api.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "export interface ApiResponse<T> {\n  data: T\n  status: number\n  message: string\n  timestamp: string\n}\n\nexport interface PaginatedResponse<T> {\n  items: T[]\n  pagination: {\n    page: number\n    pageSize: number\n    totalItems: number\n    totalPages: number\n  }\n}\n\nexport interface User {\n  id: string\n  email: string\n  name: string\n  role: 'admin' | 'user' | 'moderator'\n  avatarUrl?: string\n  createdAt: string\n  updatedAt: string\n}\n\nexport interface Product {\n  id: string\n  name: string\n  description: string\n  price: number\n  currency: string\n  category: string\n  tags: string[]\n  stock: number\n  images: string[]\n  rating: number\n  reviews: Review[]\n}\n\nexport interface Review {\n  id: string\n  userId: string\n  userName: string\n  rating: number\n  comment: string\n  createdAt: string\n}\n\nexport type CreateUserRequest = Omit<User, 'id' | 'createdAt' | 'updatedAt'>\nexport type UpdateUserRequest = Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt'>>\n\nexport class ApiClient {\n  private baseUrl: string\n  private token: string | null\n\n  constructor(baseUrl: string, token?: string) {\n    this.baseUrl = baseUrl\n    this.token = token || null\n  }\n\n  async get<T>(endpoint: string): Promise<ApiResponse<T>> {\n    const headers: Record<string, string> = { 'Content-Type': 'application/json' }\n    if (this.token) headers['Authorization'] = `Bearer ${this.token}`\n\n    const response = await fetch(`${this.baseUrl}${endpoint}`, { headers })\n    const data = await response.json()\n    return { data, status: response.status, message: '', timestamp: new Date().toISOString() }\n  }\n\n  async post<T>(endpoint: string, body: unknown): Promise<ApiResponse<T>> {\n    const headers: Record<string, string> = {\n      'Content-Type': 'application/json',\n      ...(this.token ? { Authorization: `Bearer ${this.token}` } : {})\n    }\n    const response = await fetch(`${this.baseUrl}${endpoint}`, {\n      method: 'POST',\n      headers,\n      body: JSON.stringify(body)\n    })\n    const data = await response.json()\n    return { data, status: response.status, message: '', timestamp: new Date().toISOString() }\n  }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-TSVUE",
+        "title": "TypeScript集成",
+        "description": "实现TypeScript与Vue项目的深度集成。ApiResponse<T>泛型接口统一API响应格式，PaginatedResponse<T>封装分页数据结构。User、Product、Review等接口定义领域模型的完整类型。CreateUserRequest和UpdateUserRequest使用Omit和Partial工具类型派生请求体类型。ApiClient泛型类提供类型安全的HTTP方法，get和post方法返回ApiResponse<T>确保调用方能获得正确的类型推断。Headers使用Record<string, string>类型。这种强类型设计减少运行时错误，提高IDE自动补全和重构安全性。",
+        "confidence": 0.95,
+        "alternative_titles": ["TypeScript Integration", "Type Safety", "Generic Types"]
+      }]
+    },
+    {
+      "id": "ET-VUE-007",
+      "description": "Performance profiling",
+      "code_snippets": [{
+        "file": "composables/usePerformance.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { onMounted, onUnmounted, ref } from 'vue'\n\nexport interface PerformanceMetric {\n  name: string\n  duration: number\n  timestamp: number\n  category: 'render' | 'network' | 'interaction' | 'lifecycle'\n}\n\nexport function usePerformance() {\n  const metrics = ref<PerformanceMetric[]>([])\n  const fps = ref(60)\n  let lastFrameTime = performance.now()\n  let frameCount = 0\n  let rafId: number | null = null\n\n  function measure(name: string, callback: () => void, category: PerformanceMetric['category'] = 'render') {\n    const start = performance.now()\n    try {\n      callback()\n    } finally {\n      const duration = performance.now() - start\n      metrics.value.push({ name, duration, timestamp: Date.now(), category })\n    }\n  }\n\n  function trackFPS() {\n    const checkFPS = (now: number) => {\n      frameCount++\n      if (now - lastFrameTime >= 1000) {\n        fps.value = frameCount\n        frameCount = 0\n        lastFrameTime = now\n      }\n      rafId = requestAnimationFrame(checkFPS)\n    }\n    rafId = requestAnimationFrame(checkFPS)\n  }\n\n  function getSlowMetrics(threshold: number = 16): PerformanceMetric[] {\n    return metrics.value.filter(m => m.duration > threshold)\n  }\n\n  function clearMetrics() {\n    metrics.value = []\n  }\n\n  onMounted(() => trackFPS())\n  onUnmounted(() => {\n    if (rafId !== null) cancelAnimationFrame(rafId)\n  })\n\n  return { metrics, fps, measure, getSlowMetrics, clearMetrics }\n}\n\n// Usage:\n// const { measure, fps, getSlowMetrics } = usePerformance()\n// measure('render-product-list', () => renderProducts(products), 'render')\n// console.log('Slow renders:', getSlowMetrics(50))",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-PerfVUE",
+        "title": "性能剖析工具",
+        "description": "实现性能剖析composable。measure函数包装任意回调，用performance.now()测量执行时间并记录到metrics数组，支持分类（render、network、interaction、lifecycle）。trackFPS使用requestAnimationFrame实时计算帧率，每秒更新一次fps值。getSlowMetrics筛选超过阈值的慢操作（默认16ms约等于一帧）。clearMetrics重置收集的数据。onMounted启动FPS监控，onUnmounted取消animation frame防止内存泄漏。这种工具帮助开发者定位性能瓶颈，如超过50ms的渲染操作需要优化。",
+        "confidence": 0.94,
+        "alternative_titles": ["Performance Profiling", "FPS Monitor", "Render Timing"]
+      }]
+    },
+    {
+      "id": "ET-VUE-008",
+      "description": "Accessibility (a11y) compliance",
+      "code_snippets": [{
+        "file": "components/AccessibleButton.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <button\n    :role=\"role\"\n    :aria-label=\"ariaLabel || label\"\n    :aria-disabled=\"disabled || loading\"\n    :aria-expanded=\"expanded\"\n    :aria-controls=\"controlsId\"\n    :aria-busy=\"loading\"\n    :class=\"[\n      'btn',\n      `btn-${variant}`,\n      { 'btn-disabled': disabled || loading },\n      { 'btn-loading': loading }\n    ]\"\n    :disabled=\"disabled || loading\"\n    @click=\"handleClick\"\n    @keydown.enter=\"handleClick\"\n    @keydown.space.prevent=\"handleClick\"\n    tabindex=\"0\"\n  >\n    <span v-if=\"loading\" class=\"btn-spinner\" aria-hidden=\"true\">\n      <svg viewBox=\"0 0 24 24\" aria-hidden=\"true\">\n        <circle cx=\"12\" cy=\"12\" r=\"10\" stroke-dasharray=\"30\" />\n      </svg>\n    </span>\n    <slot>\n      {{ label }}\n    </slot>\n    <span v-if=\"badge\" class=\"btn-badge\" role=\"status\" aria-live=\"polite\">\n      {{ badge }}\n    </span>\n  </button>\n</template>\n\n<script setup lang=\"ts\">\nimport { computed } from 'vue'\n\nconst props = defineProps({\n  label: { type: String, default: '' },\n  variant: { type: String, default: 'primary', validator: (v: string) => ['primary', 'secondary', 'danger'].includes(v) },\n  disabled: { type: Boolean, default: false },\n  loading: { type: Boolean, default: false },\n  expanded: { type: Boolean, default: undefined },\n  controlsId: { type: String, default: undefined },\n  badge: { type: String, default: undefined },\n  role: { type: String, default: 'button' }\n})\n\nconst emit = defineEmits(['click'])\n\nconst ariaLabel = computed(() => {\n  if (props.loading) return `${props.label || 'Button'} is loading`\n  if (props.disabled) return `${props.label || 'Button'} is disabled`\n  return undefined\n})\n\nfunction handleClick(event: Event) {\n  if (props.disabled || props.loading) {\n    event.preventDefault()\n    return\n  }\n  emit('click', event)\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-A11yVUE",
+        "title": "无障碍合规（a11y）",
+        "description": "实现WCAG无障碍标准的可访问按钮组件。aria-label提供屏幕阅读器描述，aria-disabled和aria-busy反映组件状态。aria-expanded和aria-controls用于展开/收起控件关联。aria-live=\"polite\"的badge区域在内容变化时通知屏幕阅读器。role属性声明语义角色。键盘支持：tabindex=\"0\"确保可聚焦，@keydown.enter和@keydown.space处理键盘激活。loading状态时svg设置aria-hidden=\"true\"避免朗读。disabled/loading时preventDefault阻止默认行为。variant prop使用validator限制可选值。这种设计确保残障用户也能正常使用组件功能。",
+        "confidence": 0.95,
+        "alternative_titles": ["Accessibility", "A11y", "WCAG Compliance"]
+      }]
+    }
+  ]
+}

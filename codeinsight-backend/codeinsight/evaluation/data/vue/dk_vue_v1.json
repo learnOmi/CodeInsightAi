@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-dk-vue",
+  "category": "DK",
+  "language": "vue",
+  "description": "Domain knowledge models implemented in Vue.js",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DK-VUE-001",
+      "description": "E-commerce product catalog domain",
+      "code_snippets": [{
+        "file": "stores/products.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { defineStore } from 'pinia'\nimport { ref, computed } from 'vue'\n\nexport interface Product {\n  id: string\n  name: string\n  description: string\n  price: number\n  currency: string\n  category: string\n  subcategory?: string\n  tags: string[]\n  images: string[]\n  stock: number\n  rating: number\n  reviewCount: number\n  isActive: boolean\n  createdAt: string\n  updatedAt: string\n}\n\nexport interface FilterState {\n  categories: string[]\n  priceRange: [number, number]\n  minRating: number\n  inStockOnly: boolean\n  searchQuery: string\n  sortBy: 'price' | 'name' | 'rating' | 'createdAt'\n  sortOrder: 'asc' | 'desc'\n}\n\nexport const useProductStore = defineStore('products', () => {\n  const products = ref<Product[]>([])\n  const filters = ref<FilterState>({\n    categories: [],\n    priceRange: [0, 10000],\n    minRating: 0,\n    inStockOnly: false,\n    searchQuery: '',\n    sortBy: 'createdAt',\n    sortOrder: 'desc'\n  })\n\n  const filteredProducts = computed(() => {\n    let result = [...products.value]\n\n    if (filters.value.searchQuery) {\n      const q = filters.value.searchQuery.toLowerCase()\n      result = result.filter(p =>\n        p.name.toLowerCase().includes(q) ||\n        p.description.toLowerCase().includes(q) ||\n        p.tags.some(t => t.toLowerCase().includes(q))\n      )\n    }\n\n    if (filters.value.categories.length > 0) {\n      result = result.filter(p => filters.value.categories.includes(p.category))\n    }\n\n    result = result.filter(p =>\n      p.price >= filters.value.priceRange[0] &&\n      p.price <= filters.value.priceRange[1]\n    )\n\n    if (filters.value.inStockOnly) {\n      result = result.filter(p => p.stock > 0)\n    }\n\n    result.sort((a, b) => {\n      const aVal = a[filters.value.sortBy]\n      const bVal = b[filters.value.sortBy]\n      return filters.value.sortOrder === 'desc' ? bVal - aVal : aVal - bVal\n    })\n\n    return result\n  })\n\n  const categories = computed(() => {\n    const cats = new Set(products.value.map(p => p.category))\n    return Array.from(cats)\n  })\n\n  function addProduct(product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>) {\n    products.value.push({\n      ...product,\n      id: crypto.randomUUID(),\n      createdAt: new Date().toISOString(),\n      updatedAt: new Date().toISOString()\n    })\n  }\n\n  function updateStock(productId: string, delta: number) {\n    const product = products.value.find(p => p.id === productId)\n    if (product) {\n      product.stock = Math.max(0, product.stock + delta)\n      product.updatedAt = new Date().toISOString()\n    }\n  }\n\n  return { products, filters, filteredProducts, categories, addProduct, updateStock }\n})",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-ProductCatVUE",
+        "title": "电商商品目录领域",
+        "description": "实现电商商品目录的完整领域模型。Product接口定义商品的完整属性：基本信息（名称、描述、价格、货币）、分类层级（category、subcategory）、标签、图片、库存、评分和审核状态。FilterState管理多条件筛选：分类多选、价格范围滑块、最低评分、仅显示有货、全文搜索（名称+描述+标签）。useProductStore使用computed派生filteredProducts，链式应用搜索、分类、价格、库存过滤和排序。categories计算所有可用分类。addProduct和updateStock管理商品CRUD。这种领域模型支持复杂的产品浏览和搜索体验。",
+        "confidence": 0.95,
+        "alternative_titles": ["Product Catalog", "E-commerce Products", "Inventory Display"]
+      }]
+    },
+    {
+      "id": "DK-VUE-002",
+      "description": "Admin dashboard domain",
+      "code_snippets": [{
+        "file": "components/dashboard/DashboardMetrics.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"dashboard\">\n    <div class=\"metrics-grid\">\n      <MetricCard\n        v-for=\"metric in metrics\" :key=\"metric.key\"\n        :title=\"metric.title\"\n        :value=\"metric.value\"\n        :change=\"metric.change\"\n        :icon=\"metric.icon\"\n        :trend=\"metric.trend\"\n      />\n    </div>\n\n    <div class=\"charts-row\">\n      <ChartCard title=\"Revenue Trend\" :chart-data=\"revenueData\" />\n      <ChartCard title=\"User Growth\" :chart-data=\"userGrowthData\" />\n    </div>\n\n    <DataTable\n      title=\"Recent Orders\"\n      :columns=\"orderColumns\"\n      :data=\"recentOrders\"\n      @row-click=\"viewOrderDetail\"\n    />\n\n    <ActivityFeed :activities=\"recentActivities\" />\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref, computed, onMounted } from 'vue'\nimport { useDashboardStore } from '@/stores/dashboard'\n\nconst store = useDashboardStore()\n\ninterface MetricItem {\n  key: string\n  title: string\n  value: string | number\n  change: number\n  icon: string\n  trend: 'up' | 'down' | 'flat'\n}\n\nconst metrics = computed<MetricItem[]>(() => [\n  { key: 'revenue', title: 'Total Revenue', value: `$${store.totalRevenue}`, change: 12.5, icon: 'dollar', trend: 'up' },\n  { key: 'users', title: 'Active Users', value: store.activeUsers.toLocaleString(), change: 8.2, icon: 'users', trend: 'up' },\n  { key: 'orders', title: 'Today Orders', value: store.todayOrders, change: -3.1, icon: 'cart', trend: 'down' },\n  { key: 'conversion', title: 'Conversion Rate', value: `${store.conversionRate}%`, change: 1.8, icon: 'chart', trend: 'up' }\n])\n\nconst orderColumns = [\n  { key: 'id', label: 'Order ID' },\n  { key: 'customer', label: 'Customer' },\n  { key: 'total', label: 'Total' },\n  { key: 'status', label: 'Status' }\n]\n\nfunction viewOrderDetail(orderId: string) {\n  router.push(`/admin/orders/${orderId}`)\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-AdminDashVUE",
+        "title": "管理后台领域",
+        "description": "实现管理仪表板领域的数据展示架构。DashboardMetrics组件聚合多维度业务指标：MetricCard展示关键KPI（收入、用户数、订单量、转化率）及其环比变化。ChartCard渲染趋势图表（收入趋势和用户增长）。DataTable展示最近订单列表，支持行点击跳转详情。ActivityFeed显示实时操作日志。store提供原始数据，computed派生出格式化后的指标卡片。这种管理后台模式将复杂数据以直观的可视化方式呈现，支持运营决策。",
+        "confidence": 0.94,
+        "alternative_titles": ["Admin Dashboard", "Management Console", "Business Intelligence UI"]
+      }]
+    },
+    {
+      "id": "DK-VUE-003",
+      "description": "Real-time chat UI domain",
+      "code_snippets": [{
+        "file": "components/chat/ChatWindow.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"chat-window\">\n    <header class=\"chat-header\">\n      <Avatar :user=\"room.participants[0]\" />\n      <span class=\"room-name\">{{ room.name }}</span>\n      <span class=\"online-count\">{{ onlineCount }} online</span>\n    </header>\n\n    <div class=\"messages-area\" ref=\"messagesContainer\" @scroll=\"handleScroll\">\n      <div v-if=\"isLoading\" class=\"loading-indicator\">Loading messages...</div>\n\n      <MessageBubble\n        v-for=\"msg in visibleMessages\" :key=\"msg.id\"\n        :message=\"msg\"\n        :is-current-user=\"msg.senderId === currentUserId\"\n        :show-timestamp=\"shouldShowTimestamp(msg)\"\n      />\n\n      <TransitionGroup name=\"typing\">\n        <div v-if=\"isTyping\" key=\"typing\" class=\"typing-indicator\">\n          {{ typingUser }} is typing...\n        </div>\n      </TransitionGroup>\n    </div>\n\n    <footer class=\"chat-input-area\">\n      <ReactionPicker @select=\"addReaction\" />\n      <textarea\n        v-model=\"inputText\"\n        placeholder=\"Type a message...\"\n        @keydown.enter.exact.prevent=\"sendMessage\"\n        @input=\"handleTyping\"\n      />\n      <button @click=\"sendMessage\" :disabled=\"!inputText.trim()\">Send</button>\n    </footer>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref, computed, watch, nextTick } from 'vue'\nimport { useChatStore } from '@/stores/chat'\n\nconst props = defineProps<{ roomId: string }>()\nconst chatStore = useChatStore()\nconst messagesContainer = ref<HTMLElement | null>(null)\n\nconst room = computed(() => chatStore.getRoom(props.roomId))\nconst messages = computed(() => chatStore.getMessages(props.roomId))\nconst onlineCount = computed(() => room.value?.participants.filter(p => p.online).length ?? 0)\n\nconst visibleMessages = computed(() => {\n  const start = Math.max(0, messages.value.length - 100)\n  return messages.value.slice(start)\n})\n\nfunction shouldShowTimestamp(msg: Message) {\n  const idx = messages.value.findIndex(m => m.id === msg.id)\n  if (idx === 0) return true\n  const prev = messages.value[idx - 1]\n  return !prev || (msg.timestamp.getTime() - prev.timestamp.getTime()) > 300000\n}\n\nasync function sendMessage() {\n  if (!inputText.value.trim()) return\n  await chatStore.sendMsg(props.roomId, inputText.value.trim())\n  inputText.value = ''\n  scrollToBottom()\n}\n\nfunction scrollToBottom() {\n  nextTick(() => {\n    if (messagesContainer.value) {\n      messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight\n    }\n  })\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-ChatUIVUE",
+        "title": "实时聊天界面领域",
+        "description": "实现实时聊天界面的核心功能。ChatWindow组件包含Header（房间名、在线人数）、MessagesArea（消息列表、加载指示器、打字状态）和InputArea（表情选择、输入框、发送按钮）。visibleMessages使用slice限制只显示最近100条消息保证性能。shouldShowTimestamp只在消息间隔超过5分钟或第一条时显示时间戳。sendMessage通过chatStore发送消息并自动滚动到底部。typing indicator显示对方正在输入的状态。ReactionPicker支持表情回应。这种设计模拟了WhatsApp、Slack等主流聊天应用的UI模式。",
+        "confidence": 0.95,
+        "alternative_titles": ["Chat UI", "Messaging Interface", "Real-time Chat"]
+      }]
+    },
+    {
+      "id": "DK-VUE-004",
+      "description": "Data visualization dashboard domain",
+      "code_snippets": [{
+        "file": "components/analytics/AnalyticsDashboard.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"analytics-dashboard\">\n    <TimeRangeSelector v-model=\"dateRange\" @change=\"refreshData\" />\n    \n    <div class=\"kpi-row\">\n      <KPICard title=\"Page Views\" :value=\"stats.pageViews\" :change=\"stats.pageViewsChange\" />\n      <KPICard title=\"Unique Visitors\" :value=\"stats.visitors\" :change=\"stats.visitorsChange\" />\n      <KPICard title=\"Bounce Rate\" :value=\"`${stats.bounceRate}%`\" :change=\"stats.bounceRateChange\" />\n      <KPICard title=\"Avg. Session\" :value=\"formatDuration(stats.avgSession)\" />\n    </div>\n\n    <div class=\"charts-grid\">\n      <LineChart\n        title=\"Traffic Over Time\"\n        :data=\"trafficChartData\"\n        :x-axis=\"['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']\"\n      />\n      <BarChart\n        title=\"Traffic by Source\"\n        :data=\"sourceChartData\"\n      />\n      <PieChart\n        title=\"Device Distribution\"\n        :data=\"deviceChartData\"\n      />\n      <HeatmapChart\n        title=\"Activity Heatmap\"\n        :data=\"heatmapData\"\n      />\n    </div>\n\n    <TopPagesTable :pages=\"topPages\" />\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref, computed, watch } from 'vue'\nimport { useAnalyticsStore } from '@/stores/analytics'\n\nconst dateRange = ref<'7d' | '30d' | '90d' | 'all'>('7d')\nconst analyticsStore = useAnalyticsStore()\n\nconst stats = computed(() => analyticsStore.getCurrentStats(dateRange.value))\n\nconst trafficChartData = computed(() => analyticsStore.getTrafficTimeline(dateRange.value))\nconst sourceChartData = computed(() => analyticsStore.getSourceBreakdown(dateRange.value))\nconst deviceChartData = computed(() => analyticsStore.getDeviceDistribution(dateRange.value))\nconst heatmapData = computed(() => analyticsStore.getActivityHeatmap(dateRange.value))\nconst topPages = computed(() => analyticsStore.getTopPages(dateRange.value, 10))\n\nfunction refreshData() {\n  analyticsStore.fetchData(dateRange.value)\n}\n\nfunction formatDuration(seconds: number): string {\n  const m = Math.floor(seconds / 60)\n  const s = seconds % 60\n  return `${m}m ${s}s`\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-DatavizVUE",
+        "title": "数据可视化仪表盘领域",
+        "description": "实现数据分析仪表板的可视化架构。AnalyticsDashboard聚合多维度分析数据：TimeRangeSelector支持7天/30天/90天/全部时间范围切换。KPICard展示页面浏览量、独立访客、跳出率和平均会话时长等关键指标。charts-grid布局四种图表类型：折线图（流量趋势）、柱状图（来源分布）、饼图（设备分布）、热力图（活动时间）。TopPagesTable列出访问量最高的页面。所有数据通过computed从analyticsStore派生，dateRange变化时自动刷新。这种模式是Google Analytics、Mixpanel等分析工具的核心UI架构。",
+        "confidence": 0.94,
+        "alternative_titles": ["Data Visualization", "Analytics Dashboard", "Business Metrics"]
+      }]
+    },
+    {
+      "id": "DK-VUE-005",
+      "description": "Form builder domain",
+      "code_snippets": [{
+        "file": "components/form-builder/FormBuilder.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"form-builder\">\n    <div class=\"field-list\">\n      <draggable v-model=\"fields\" item-key=\"id\" handle=\".drag-handle\">\n        <template #item=\"{ element: field }\">\n          <div class=\"field-item\" :class=\"{ active: selectedField?.id === field.id }\">\n            <span class=\"drag-handle\">::</span>\n            <span class=\"field-label\">{{ field.label }}</span>\n            <span class=\"field-type\">{{ field.type }}</span>\n            <button @click=\"deleteField(field.id)\">Delete</button>\n          </div>\n        </template>\n      </draggable>\n    </div>\n\n    <div class=\"field-editor\" v-if=\"selectedField\">\n      <h3>Edit Field: {{ selectedField.label }}</h3>\n      <label>Label: <input v-model=\"selectedField.label\" /></label>\n      <label>Required: <input type=\"checkbox\" v-model=\"selectedField.required\" /></label>\n      <label>Placeholder: <input v-model=\"selectedField.placeholder\" /></label>\n      <label v-if=\"selectedField.options\">\n        Options: <input v-model=\"selectedField.options\" placeholder=\"comma-separated\" />\n      </label>\n      <label v-if=\"selectedField.validation\">\n        Min Length: <input type=\"number\" v-model.number=\"selectedField.validation.minLength\" />\n      </label>\n    </div>\n\n    <div class=\"preview-panel\">\n      <h3>Preview</h3>\n      <form @submit.prevent=\"handleSubmit\">\n        <FormField\n          v-for=\"field in fields\" :key=\"field.id\"\n          :field=\"field\"\n          v-model=\"formData[field.id]\"\n          :errors=\"fieldErrors[field.id]\"\n        />\n        <button type=\"submit\">Submit</button>\n      </form>\n    </div>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref, computed } from 'vue'\nimport draggable from 'vuedraggable'\n\ninterface FormFieldConfig {\n  id: string\n  type: 'text' | 'email' | 'number' | 'select' | 'textarea' | 'checkbox'\n  label: string\n  required: boolean\n  placeholder?: string\n  options?: string\n  validation?: { minLength?: number; maxLength?: number; pattern?: string }\n}\n\nconst fields = ref<FormFieldConfig[]>([\n  { id: 'name', type: 'text', label: 'Full Name', required: true },\n  { id: 'email', type: 'email', label: 'Email', required: true },\n  { id: 'message', type: 'textarea', label: 'Message', required: false }\n])\n\nconst formData = ref<Record<string, any>>({})\nconst fieldErrors = ref<Record<string, string[]>>({})\n\nconst selectedField = computed(() => fields.value.find(f => f.id === selectedFieldId.value))\n\nfunction handleSubmit() {\n  // Validate and submit form data\n  validateForm()\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-FormBuilderVUE",
+        "title": "表单构建器领域",
+        "description": "实现动态表单构建器的领域模型。FormBuilder组件分为三栏：左侧字段列表（支持拖拽排序），中间字段编辑器（编辑选中字段的label、required、placeholder等属性），右侧预览面板（实时渲染表单）。FormFieldConfig接口定义字段配置：类型（text/email/number/select/textarea/checkbox）、标签、必填、占位符、选项和验证规则。vuedraggable实现拖拽排序。formData存储用户填写的值，fieldErrors存储验证错误。handleSubmit执行完整表单验证并提交。这种低代码表单构建器允许非技术人员自定义表单结构。",
+        "confidence": 0.95,
+        "alternative_titles": ["Form Builder", "Dynamic Forms", "Low-code Forms"]
+      }]
+    },
+    {
+      "id": "DK-VUE-006",
+      "description": "Code editor integration domain",
+      "code_snippets": [{
+        "file": "components/CodeEditor.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"code-editor\" :class=\"{ 'dark-theme': theme === 'dark' }\">\n    <div class=\"editor-toolbar\">\n      <select v-model=\"language\" @change=\"onLanguageChange\">\n        <option value=\"javascript\">JavaScript</option>\n        <option value=\"typescript\">TypeScript</option>\n        <option value=\"python\">Python</option>\n        <option value=\"html\">HTML</option>\n        <option value=\"css\">CSS</option>\n        <option value=\"json\">JSON</option>\n      </select>\n      <button @click=\"copyCode\">Copy</button>\n      <button @click=\"toggleTheme\">{{ theme === 'dark' ? 'Light' : 'Dark' }}</button>\n    </div>\n    <div class=\"editor-container\">\n      <div class=\"line-numbers\" v-html=\"lineNumbers\" />:\n      <textarea\n        ref=\"textareaRef\"\n        v-model=\"code\"\n        @input=\"onCodeChange\"\n        @keydown.tab.prevent=\"insertTab\"\n        spellcheck=\"false\"\n        class=\"code-textarea\"\n      />\n    </div>\n    <div class=\"status-bar\">\n      <span>Ln {{ cursorLine }}, Col {{ cursorCol }}</span>\n      <span>{{ language }}</span>\n      <span>{{ charCount }} chars</span>\n    </div>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref, computed, watch, onMounted } from 'vue'\n\nconst props = defineProps<{ modelValue: string; language?: string }>()\nconst emit = defineEmits(['update:modelValue', 'change'])\n\nconst code = ref(props.modelValue)\nconst language = ref(props.language || 'javascript')\nconst theme = ref<'light' | 'dark'>('dark')\nconst textareaRef = ref<HTMLTextAreaElement | null>(null)\n\nconst lineNumbers = computed(() => {\n  const lines = code.value.split('\\n').length\n  return Array.from({ length: lines }, (_, i) => i + 1).join('<br>')\n})\n\nconst cursorPosition = ref({ line: 1, col: 1 })\nconst cursorLine = computed(() => cursorPosition.value.line)\nconst cursorCol = computed(() => cursorPosition.value.col)\nconst charCount = computed(() => code.value.length)\n\nfunction onCodeChange() {\n  emit('update:modelValue', code.value)\n  emit('change', { code: code.value, language: language.value })\n}\n\nfunction insertTab(event: KeyboardEvent) {\n  const el = event.target as HTMLTextAreaElement\n  const start = el.selectionStart\n  const end = el.selectionEnd\n  code.value = code.value.substring(0, start) + '  ' + code.value.substring(end)\n  el.selectionStart = el.selectionEnd = start + 2\n}\n\nwatch(code, (newVal) => {\n  updateCursorPosition()\n})\n\nfunction updateCursorPosition() {\n  const el = textareaRef.value\n  if (!el) return\n  const textBefore = code.value.substring(0, el.selectionStart)\n  const lines = textBefore.split('\\n')\n  cursorPosition.value = { line: lines.length, col: lines[lines.length - 1].length + 1 }\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-CodeEditorVUE",
+        "title": "代码编辑器集成领域",
+        "description": "实现轻量级代码编辑器组件。CodeEditor使用textarea作为基础编辑容器，配合line-numbers侧边栏显示行号。toolbar支持语言选择（JS/TS/Python/HTML/CSS/JSON）、复制代码和主题切换。插入Tab键时用两个空格替换（onCodeChange更新绑定值并触发change事件）。cursorPosition计算当前光标所在行和列，显示在status bar中。charCount统计字符数。theme切换添加dark-theme CSS类。这种集成适合文档站点、在线教程和IDE类应用中的代码展示场景。",
+        "confidence": 0.94,
+        "alternative_titles": ["Code Editor", "Syntax Highlighting", "Code Display"]
+      }]
+    },
+    {
+      "id": "DK-VUE-007",
+      "description": "Media gallery domain",
+      "code_snippets": [{
+        "file": "components/MediaGallery.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"media-gallery\">\n    <div class=\"gallery-toolbar\">\n      <FileUpload @files-selected=\"handleUpload\" />\n      <SearchInput v-model=\"searchTerm\" placeholder=\"Search media...\" />\n      <ViewToggle v-model=\"currentView\" />\n      <SortSelect v-model=\"sortBy\" />\n    </div>\n\n    <div v-if=\"currentView === 'grid'\" class=\"grid-view\">\n      <div v-for=\"media in filteredMedia\" :key=\"media.id\" class=\"media-card\">\n        <img :src=\"media.thumbnailUrl\" :alt=\"media.name\" @click=\"openLightbox(media)\" />\n        <div class=\"media-info\">\n          <span class=\"media-name\">{{ media.name }}</span>\n          <span class=\"media-size\">{{ formatFileSize(media.size) }}</span>\n          <span class=\"media-date\">{{ formatDate(media.createdAt) }}</span>\n        </div>\n        <div class=\"media-actions\">\n          <button @click=\"toggleSelect(media)\">Select</button>\n          <button @click=\"download(media)\">Download</button>\n          <button @click=\"deleteMedia(media.id)\">Delete</button>\n        </div>\n      </div>\n    </div>\n\n    <div v-else class=\"list-view\">\n      <table>\n        <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Date</th><th>Actions</th></tr></thead>\n        <tbody>\n          <tr v-for=\"media in filteredMedia\" :key=\"media.id\">\n            <td>{{ media.name }}</td>\n            <td>{{ media.type }}</td>\n            <td>{{ formatFileSize(media.size) }}</td>\n            <td>{{ formatDate(media.createdAt) }}</td>\n            <td>\n              <button @click=\"openLightbox(media)\">View</button>\n              <button @click=\"deleteMedia(media.id)\">Delete</button>\n            </td>\n          </tr>\n        </tbody>\n      </table>\n    </div>\n\n    <Lightbox :media=\"selectedMedia\" :items=\"filteredMedia\" @close=\"selectedMedia = null\" />\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref, computed } from 'vue'\nimport { useMediaStore } from '@/stores/media'\n\nconst mediaStore = useMediaStore()\nconst searchTerm = ref('')\nconst sortBy = ref<'name' | 'date' | 'size'>('date')\nconst currentView = ref<'grid' | 'list'>('grid')\nconst selectedMedia = ref(null)\n\nconst filteredMedia = computed(() => {\n  let items = [...mediaStore.mediaItems]\n  if (searchTerm.value) {\n    items = items.filter(m => m.name.toLowerCase().includes(searchTerm.value.toLowerCase()))\n  }\n  items.sort((a, b) => {\n    if (sortBy.value === 'name') return a.name.localeCompare(b.name)\n    if (sortBy.value === 'size') return b.size - a.size\n    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()\n  })\n  return items\n})\n\nfunction formatFileSize(bytes: number): string {\n  if (bytes < 1024) return bytes + ' B'\n  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB'\n  return (bytes / 1048576).toFixed(1) + ' MB'\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-MediaGalVUE",
+        "title": "媒体画廊领域",
+        "description": "实现媒体画廊领域的文件管理功能。MediaGallery组件提供网格视图和列表视图两种展示模式。toolbar包含文件上传、搜索、视图切换和排序控制。filteredMedia计算属性按搜索词过滤并按名称/日期/大小排序。media-card展示缩略图、文件名、文件大小和日期。media-actions提供选择、下载和删除操作。Lightbox组件全屏查看选中的媒体。formatFileSize将字节转换为人类可读格式（B/KB/MB）。这种领域模型支持图片库、视频管理和文档中心等多媒体内容管理场景。",
+        "confidence": 0.95,
+        "alternative_titles": ["Media Gallery", "File Manager", "Image Library"]
+      }]
+    },
+    {
+      "id": "DK-VUE-008",
+      "description": "Kanban board domain",
+      "code_snippets": [{
+        "file": "components/KanbanBoard.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"kanban-board\">\n    <div class=\"board-header\">\n      <h2>{{ boardTitle }}</h2>\n      <button @click=\"addColumn\">+ Add Column</button>\n    </div>\n    \n    <div class=\"board-columns\" ref=\"boardContainer\">\n      <Draggable\n        v-for=\"column in columns\" :key=\"column.id\"\n        :list=\"column.tasks\" group=\"tasks\"\n        item-key=\"id\"\n        class=\"column\"\n        @change=\"onTaskMove\"\n      >\n        <template #item=\"{ element: task }\">\n          <TaskCard\n            :task=\"task\"\n            :column-id=\"column.id\"\n            @edit=\"openEditModal(task)\"\n            @delete=\"removeTask(task.id)\"\n            @priority-change=\"updatePriority(task, $event)\"\n          />\n        </template>\n      </Draggable>\n\n      <div class=\"add-column\" @click=\"addColumn\">\n        <span>+ New Column</span>\n      </div>\n    </div>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref, computed } from 'vue'\nimport Draggable from 'vuedraggable'\n\ninterface Task {\n  id: string\n  title: string\n  description: string\n  priority: 'low' | 'medium' | 'high' | 'urgent'\n  assignee?: string\n  dueDate?: string\n  labels: string[]\n  createdAt: string\n}\n\ninterface Column {\n  id: string\n  title: string\n  tasks: Task[]\n  limit?: number\n}\n\nconst boardTitle = ref('Project Board')\nconst columns = ref<Column[]>([\n  { id: 'todo', title: 'To Do', tasks: [] },\n  { id: 'in-progress', title: 'In Progress', tasks: [] },\n  { id: 'review', title: 'Review', tasks: [] },\n  { id: 'done', title: 'Done', tasks: [] }\n])\n\nfunction addColumn() {\n  columns.value.push({\n    id: `col-${Date.now()}`,\n    title: 'New Column',\n    tasks: []\n  })\n}\n\nfunction onTaskMove(event: any) {\n  // Handle task moved between columns\n  console.log('Task moved:', event.moved)\n}\n\nfunction removeTask(taskId: string) {\n  for (const col of columns.value) {\n    const idx = col.tasks.findIndex(t => t.id === taskId)\n    if (idx !== -1) {\n      col.tasks.splice(idx, 1)\n      break\n    }\n  }\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DK",
+        "prefix": "DK-KanbanVUE",
+        "title": "看板领域",
+        "description": "实现Kanban看板的领域模型。KanbanBoard包含多个Column，每个Column管理一组Task。Task具有标题、描述、优先级（low/medium/high/urgent）、负责人、截止日和标签。Draggable（vuedraggable库）实现列内和列间的拖拽排序，@change事件处理任务移动。addColumn动态添加新列，removeTask从任意列中删除任务。boardTitle可编辑。这种看板模式支持Scrum敏捷开发中的任务跟踪，类似于Jira、Trello等项目管理工具的核心理念。",
+        "confidence": 0.94,
+        "alternative_titles": ["Kanban Board", "Task Board", "Agile Project Management"]
+      }]
+    }
+  ]
+}

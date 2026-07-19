@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-dp-go",
+  "category": "DP",
+  "language": "go",
+  "description": "Design patterns implemented in Go",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DP-GO-001",
+      "description": "Interface-based Strategy Pattern",
+      "code_snippets": [{
+        "file": "src/strategies/pricing.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package strategies\n\nimport \"fmt\"\n\ntype PricingStrategy interface {\n\tCalculatePrice(basePrice float64, context PricingContext) float64\n\tGetName() string\n}\n\ntype PricingContext struct {\n\tUserID          string\n\tItemCount       int\n\tMembershipLevel string\n\tIsFirstPurchase bool\n\tCartTotal       float64\n}\n\ntype VolumeDiscountStrategy struct{}\n\nfunc (v *VolumeDiscountStrategy) GetName() string {\n\treturn \"Volume Discount\"\n}\n\nfunc (v *VolumeDiscountStrategy) CalculatePrice(basePrice float64, ctx PricingContext) float64 {\n\tif ctx.ItemCount >= 10 {\n\t\treturn basePrice * 0.8\n\t}\n\tif ctx.ItemCount >= 5 {\n\t\treturn basePrice * 0.9\n\t}\n\treturn basePrice\n}\n\ntype MembershipDiscountStrategy struct{}\n\nfunc (m *MembershipDiscountStrategy) GetName() string {\n\treturn \"Membership Discount\"\n}\n\nfunc (m *MembershipDiscountStrategy) CalculatePrice(basePrice float64, ctx PricingContext) float64 {\n\tswitch ctx.MembershipLevel {\n\tcase \"vip\":\n\t\treturn basePrice * 0.7\n\tcase \"premium\":\n\t\treturn basePrice * 0.85\n\tdefault:\n\t\treturn basePrice\n\t}\n}\n\ntype NewUserDiscountStrategy struct{}\n\nfunc (n *NewUserDiscountStrategy) GetName() string {\n\treturn \"New User Discount\"\n}\n\nfunc (n *NewUserDiscountStrategy) CalculatePrice(basePrice float64, ctx PricingContext) float64 {\n\tif ctx.IsFirstPurchase {\n\t\treturn basePrice * 0.9\n\t}\n\treturn basePrice\n}\n\ntype PricingEngine struct {\n\tstrategies []PricingStrategy\n}\n\nfunc NewPricingEngine() *PricingEngine {\n\treturn &PricingEngine{}\n}\n\nfunc (pe *PricingEngine) AddStrategy(s PricingStrategy) {\n\tpe.strategies = append(pe.strategies, s)\n}\n\nfunc (pe *PricingEngine) CalculateFinalPrice(basePrice float64, ctx PricingContext) float64 {\n\tfinalPrice := basePrice\n\tfor _, strategy := range pe.strategies {\n\t\tfinalPrice = strategy.CalculatePrice(finalPrice, ctx)\n\t}\n\tif finalPrice < 0 {\n\t\treturn 0\n\t}\n\treturn finalPrice\n}\n\nfunc main() {\n\tengine := NewPricingEngine()\n\tengine.AddStrategy(&VolumeDiscountStrategy{})\n\tengine.AddStrategy(&MembershipDiscountStrategy{})\n\tengine.AddStrategy(&NewUserDiscountStrategy{})\n\n\tctx := PricingContext{\n\t\tUserID:          \"user123\",\n\t\tItemCount:       7,\n\t\tMembershipLevel: \"premium\",\n\t\tIsFirstPurchase: true,\n\t\tCartTotal:       100.0,\n\t}\n\n\tprice := engine.CalculateFinalPrice(100.0, ctx)\n\tfmt.Printf(\"Final price: $%.2f\\n\", price)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-StrategyGo",
+        "title": "接口策略模式",
+        "description": "使用Go接口实现策略模式。PricingStrategy接口定义价格计算契约，VolumeDiscountStrategy、MembershipDiscountStrategy和NewUserDiscountStrategy分别实现数量折扣、会员折扣和新用户折扣。PricingEngine组合多个策略，按顺序应用每个策略计算最终价格。这种设计允许动态添加和移除定价策略，符合开闭原则。每个策略独立实现CalculatePrice方法，通过接口保证类型安全。",
+        "confidence": 0.95,
+        "alternative_titles": ["Strategy Pattern", "Interface Strategy", "Policy Pattern"]
+      }]
+    },
+    {
+      "id": "DP-GO-002",
+      "description": "Functional Options Pattern",
+      "code_snippets": [{
+        "file": "src/options/server.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package options\n\nimport (\n\t\"fmt\"\n\t\"time\"\n)\n\ntype Server struct {\n\tHost         string\n\tPort         int\n\tTimeout      time.Duration\n\tMaxConnections int\n\tLogger       Logger\n\tMiddleware   []Middleware\n}\n\ntype Logger interface {\n\tInfo(msg string, args ...interface{})\n\tError(msg string, args ...interface{})\n}\n\ntype Middleware func(handler http.Handler) http.Handler\n\ntype Option func(*Server)\n\nfunc WithHost(host string) Option {\n\treturn func(s *Server) {\n\t\ts.Host = host\n\t}\n}\n\nfunc WithPort(port int) Option {\n\treturn func(s *Server) {\n\t\ts.Port = port\n\t}\n}\n\nfunc WithTimeout(timeout time.Duration) Option {\n\treturn func(s *Server) {\n\t\ts.Timeout = timeout\n\t}\n}\n\nfunc WithMaxConnections(max int) Option {\n\treturn func(s *Server) {\n\t\ts.MaxConnections = max\n\t}\n}\n\nfunc WithLogger(logger Logger) Option {\n\treturn func(s *Server) {\n\t\ts.Logger = logger\n\t}\n}\n\nfunc WithMiddleware(mw Middleware) Option {\n\treturn func(s *Server) {\n\t\ts.Middleware = append(s.Middleware, mw)\n\t}\n}\n\nfunc NewServer(opts ...Option) *Server {\n\ts := &Server{\n\t\tHost:         \"localhost\",\n\t\tPort:         8080,\n\t\tTimeout:      30 * time.Second,\n\t\tMaxConnections: 100,\n\t\tLogger:       DefaultLogger{},\n\t}\n\n\tfor _, opt := range opts {\n\t\topt(s)\n\t}\n\n\treturn s\n}\n\ntype DefaultLogger struct{}\n\nfunc (d DefaultLogger) Info(msg string, args ...interface{}) {\n\tfmt.Printf(\"[INFO] \"+msg+\"\\n\", args...)\n}\n\nfunc (d DefaultLogger) Error(msg string, args ...interface{}) {\n\tfmt.Printf(\"[ERROR] \"+msg+\"\\n\", args...)\n}\n\nfunc main() {\n\tserver := NewServer(\n\t\tWithHost(\"0.0.0.0\"),\n\t\tWithPort(9090),\n\t\tWithTimeout(60*time.Second),\n\t\tWithMaxConnections(500),\n\t)\n\n\tfmt.Printf(\"Server configured: %s:%d\\n\", server.Host, server.Port)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-OptionsGo",
+        "title": "函数选项模式",
+        "description": "实现函数选项模式用于灵活配置Server结构体。Option类型是接收*Server指针的函数，WithHost、WithPort、WithTimeout等选项函数返回Option类型的闭包。NewServer接受可变参数opts ...Option，遍历应用每个选项。这种模式避免了构造函数参数过多导致的调用困难，支持可选配置且向后兼容。默认值在创建时设置，选项函数覆盖默认值。",
+        "confidence": 0.94,
+        "alternative_titles": ["Functional Options", "Option Pattern", "Configurable Builder"]
+      }]
+    },
+    {
+      "id": "DP-GO-003",
+      "description": "Channel-based Observer Pattern",
+      "code_snippets": [{
+        "file": "src/observer/eventbus.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package observer\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\ntype Event struct {\n\tType      string\n\tPayload   interface{}\n\tTimestamp int64\n}\n\ntype EventBus struct {\n\tmu       sync.RWMutex\n\tsubscribers map[string][]chan Event\n}\n\nfunc NewEventBus() *EventBus {\n\treturn &EventBus{\n\t\tsubscribers: make(map[string][]chan Event),\n\t}\n}\n\nfunc (eb *EventBus) Subscribe(eventType string, bufferSize int) chan Event {\n\teb.mu.Lock()\n\tdefer eb.mu.Unlock()\n\n\tch := make(chan Event, bufferSize)\n\teb.subscribers[eventType] = append(eb.subscribers[eventType], ch)\n\treturn ch\n}\n\nfunc (eb *EventBus) Unsubscribe(eventType string, ch chan Event) {\n\teb.mu.Lock()\n\tdefer eb.mu.Unlock()\n\n\tsubs := eb.subscribers[eventType]\n\tfor i, sub := range subs {\n\t\tif sub == ch {\n\t\t\teb.subscribers[eventType] = append(subs[:i], subs[i+1:]...)\n\t\t\tclose(ch)\n\t\t\tbreak\n\t\t}\n\t}\n}\n\nfunc (eb *EventBus) Publish(event Event) {\n\teb.mu.RLock()\n\tdefer eb.mu.RUnlock()\n\n\tsubs := eb.subscribers[event.Type]\n\tfor _, ch := range subs {\n\t\tselect {\n\t\tcase ch <- event:\n\t\tdefault:\n\t\t\tfmt.Printf(\"Warning: subscriber channel full for event %s\\n\", event.Type)\n\t\t}\n\t}\n}\n\nfunc main() {\n\tebus := NewEventBus()\n\n\tuserCh := ebus.Subscribe(\"user.created\", 10)\n\torderCh := ebus.Subscribe(\"order.created\", 10)\n\n\tgo func() {\n\t\tfor event := range userCh {\n\t\t\tfmt.Printf(\"User event: %+v\\n\", event.Payload)\n\t\t}\n\t}()\n\n\tgo func() {\n\t\tfor event := range orderCh {\n\t\t\tfmt.Printf(\"Order event: %+v\\n\", event.Payload)\n\t\t}\n\t}()\n\n\tebus.Publish(Event{Type: \"user.created\", Payload: \"Alice\"})\n\tebus.Publish(Event{Type: \"order.created\", Payload: \"ORD-123\"})\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-ChannelObsGo",
+        "title": "通道观察者模式",
+        "description": "使用Go channel实现观察者模式。EventBus维护事件类型到订阅者通道的映射。Subscribe方法为指定事件类型创建带缓冲的channel并注册。Unsubscribe方法移除订阅者并关闭channel。Publish方法向所有订阅该事件类型的通道发送事件，使用select/default避免阻塞。订阅者通过range循环接收事件。这种模式利用Go原生的channel机制实现发布订阅，天然支持并发和背压处理。",
+        "confidence": 0.95,
+        "alternative_titles": ["Channel Observer", "Event Bus", "Pub/Sub with Channels"]
+      }]
+    },
+    {
+      "id": "DP-GO-004",
+      "description": "Pool Pattern with sync.Pool",
+      "code_snippets": [{
+        "file": "src/pool/bufferpool.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package pool\n\nimport (\n\t\"bytes\"\n\t\"sync\"\n)\n\ntype BufferPool struct {\n\tpool sync.Pool\n}\n\nfunc NewBufferPool() *BufferPool {\n\treturn &BufferPool{\n\t\tpool: sync.Pool{\n\t\t\tNew: func() interface{} {\n\t\t\t\treturn bytes.NewBuffer(make([]byte, 0, 1024))\n\t\t\t},\n\t\t\t},\n\t\t}\n}\n\nfunc (bp *BufferPool) Get() *bytes.Buffer {\n\tbuf := bp.pool.Get().(*bytes.Buffer)\n\tbuf.Reset()\n\treturn buf\n}\n\nfunc (bp *BufferPool) Put(buf *bytes.Buffer) {\n\tbp.pool.Put(buf)\n}\n\nfunc (bp *BufferPool) ProcessRequest(data []byte) ([]byte, error) {\n\tbuf := bp.Get()\n\tdefer bp.Put(buf)\n\n\tbuf.Write(data)\n\tbuf.WriteString(\"\\n\")\n\tbuf.WriteString(\"processed\")\n\n\tresult := make([]byte, buf.Len())\n\tcopy(result, buf.Bytes())\n\treturn result, nil\n}\n\nfunc main() {\n\tbp := NewBufferPool()\n\n\t// Simulate concurrent requests\n\tvar wg sync.WaitGroup\n\tfor i := 0; i < 1000; i++ {\n\t\twg.Add(1)\n\t\tgo func(id int) {\n\t\t\tdefer wg.Done()\n\t\t\tdata := []byte(fmt.Sprintf(\"request-%d\", id))\n\t\t\tresult, err := bp.ProcessRequest(data)\n\t\t\tif err != nil {\n\t\t\t\tfmt.Println(err)\n\t\t\t\treturn\n\t\t\t}\n\t\t\tfmt.Printf(\"Processed: %s\\n\", string(result))\n\t\t}(i)\n\t}\n\twg.Wait()\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-PoolGo",
+        "title": "sync.Pool对象池模式",
+        "description": "使用sync.Pool实现缓冲区对象池。BufferPool封装sync.Pool，New函数提供创建新缓冲区的工厂方法（初始容量1024字节）。Get方法从池中获取缓冲区并重置内容，Put方法归还到池中。ProcessRequest演示典型用法：获取缓冲区、处理数据、defer归还。sync.Pool自动管理对象的生命周期，适合高频分配释放的场景（如网络请求处理）。这种模式减少GC压力，提高性能。",
+        "confidence": 0.93,
+        "alternative_titles": ["Object Pool", "sync.Pool", "Buffer Pool"]
+      }]
+    },
+    {
+      "id": "DP-GO-005",
+      "description": "Middleware Chain Pattern",
+      "code_snippets": [{
+        "file": "src/middleware/chain.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package middleware\n\nimport (\n\t\"fmt\"\n\t\"log\"\n\t\"net/http\"\n\t\"time\"\n)\n\ntype HandlerFunc func(http.ResponseWriter, *http.Request) (*http.Response, error)\n\ntype Middleware func(HandlerFunc) HandlerFunc\n\nfunc LoggingMiddleware(next HandlerFunc) HandlerFunc {\n\treturn func(w http.ResponseWriter, r *http.Request) (*http.Response, error) {\n\t\tstart := time.Now()\n\t\tlog.Printf(\"Started %s %s\", r.Method, r.URL.Path)\n\t\t\n\t\tresp, err := next(w, r)\n\t\t\n\t\tduration := time.Since(start)\n\t\tlog.Printf(\"Completed %s %s in %v\", r.Method, r.URL.Path, duration)\n\t\t\n\t\treturn resp, err\n\t}\n}\n\nfunc AuthMiddleware(next HandlerFunc) HandlerFunc {\n\treturn func(w http.ResponseWriter, r *http.Request) (*http.Response, error) {\n\t\ttoken := r.Header.Get(\"Authorization\")\n\t\tif token == \"\" {\n\t\t\treturn nil, fmt.Errorf(\"missing authorization header\")\n\t\t}\n\t\t\n\t\tif !validateToken(token) {\n\t\t\treturn nil, fmt.Errorf(\"invalid token\")\n\t\t}\n\t\t\n\t\treturn next(w, r)\n\t}\n}\n\nfunc RateLimitMiddleware(next HandlerFunc) HandlerFunc {\n\treturn func(w http.ResponseWriter, r *http.Request) (*http.Response, error) {\n\t\tif isRateLimited(r.RemoteAddr) {\n\t\t\treturn nil, fmt.Errorf(\"rate limit exceeded\")\n\t\t}\n\t\t\n\t\treturn next(w, r)\n\t}\n}\n\nfunc Compose(middlewares ...Middleware) Middleware {\n\treturn func(next HandlerFunc) HandlerFunc {\n\t\tfor i := len(middlewares) - 1; i >= 0; i-- {\n\t\t\tnext = middlewares[i](next)\n\t\t}\n\t\treturn next\n\t}\n}\n\nfunc validateToken(token string) bool {\n\treturn len(token) > 10\n}\n\nfunc isRateLimited(ip string) bool {\n\treturn false\n}\n\nfunc main() {\n\tchain := Compose(\n\t\tLoggingMiddleware,\n\t\tAuthMiddleware,\n\t\tRateLimitMiddleware,\n\t)\n\n\thandler := chain(func(w http.ResponseWriter, r *http.Request) (*http.Response, error) {\n\t\tfmt.Fprintf(w, \"Hello, World!\")\n\t\treturn nil, nil\n\t})\n\n\thttp.HandleFunc(\"/\", handler)\n\thttp.ListenAndServe(\":8080\", nil)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-MiddlewareGo",
+        "title": "中间件链模式",
+        "description": "实现中间件链模式处理HTTP请求。Middleware类型是包装HandlerFunc的函数。LoggingMiddleware记录请求开始和完成时间，AuthMiddleware验证授权令牌，RateLimitMiddleware检查速率限制。Compose函数将多个中间件组合成链，从后往前包装处理器。最终handler是层层包装后的函数，请求按Auth->RateLimit->Logging的顺序执行。这种模式实现了横切关注点的解耦和可复用。",
+        "confidence": 0.94,
+        "alternative_titles": ["Middleware Chain", "Decorator Pattern", "Request Pipeline"]
+      }]
+    },
+    {
+      "id": "DP-GO-006",
+      "description": "Context-based Cancellation Pattern",
+      "code_snippets": [{
+        "file": "src/context/cancellation.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package context\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"time\"\n)\n\ntype Task struct {\n\tID   string\n\tData string\n}\n\nfunc RunTaskWithContext(ctx context.Context, task Task) error {\n\t// Simulate long-running work\n\tticker := time.NewTicker(100 * time.Millisecond)\n\tdefer ticker.Stop()\n\n\tfor {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\tfmt.Printf(\"Task %s cancelled: %v\\n\", task.ID, ctx.Err())\n\t\t\treturn ctx.Err()\n\t\tcase <-ticker.C:\n\t\t\tfmt.Printf(\"Task %s processing...\\n\", task.ID)\n\t\t\t// Check context periodically\n\t\t\tif isCancelled(ctx) {\n\t\t\t\treturn fmt.Errorf(\"task %s manually cancelled\", task.ID)\n\t\t\t}\n\t\t}\n\t}\n}\n\nfunc isCancelled(ctx context.Context) bool {\n\tselect {\n\tcase <-ctx.Done():\n\t\treturn true\n\tdefault:\n\t\treturn false\n\t}\n}\n\nfunc main() {\n\tctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)\n\tdefer cancel()\n\n\ttask := Task{ID: \"task-1\", Data: \"process-data\"}\n\terr := RunTaskWithContext(ctx, task)\n\tif err != nil {\n\t\tfmt.Printf(\"Task failed: %v\\n\", err)\n\t}\n\n\t// Demonstrate cancellation\n\tctx2, cancel2 := context.WithCancel(context.Background())\n\t\n\tgo func() {\n\t\ttime.Sleep(500 * time.Millisecond)\n\t\tfmt.Println(\"Cancelling task...\")\n\t\tcancel2()\n\t}()\n\n\ttask2 := Task{ID: \"task-2\", Data: \"another-task\"}\n\terr2 := RunTaskWithContext(ctx2, task2)\n\tfmt.Printf(\"Task 2 result: %v\\n\", err2)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-ContextGo",
+        "title": "上下文取消模式",
+        "description": "使用Go context实现任务取消机制。RunTaskWithContext接收context.Context参数，通过select监听ctx.Done()通道检测取消信号。WithTimeout创建带超时的上下文，自动在指定时间后取消。WithCancel创建可手动取消的上下文。isCancelled函数非阻塞检查取消状态。main函数演示两种取消方式：超时自动取消和手动cancel()调用。这种模式确保长时间运行的任务能够及时响应取消请求，避免资源泄漏。",
+        "confidence": 0.95,
+        "alternative_titles": ["Context Cancellation", "Graceful Shutdown", "Task Cancellation"]
+      }]
+    },
+    {
+      "id": "DP-GO-007",
+      "description": "Struct-based Builder Pattern",
+      "code_snippets": [{
+        "file": "src/builder/config.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package builder\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\ntype DatabaseConfig struct {\n\tHost     string\n\tPort     int\n\tDatabase string\n\tUsername string\n\tPassword string\n\tSSL      bool\n\tTimeout  int\n}\n\ntype ConfigBuilder struct {\n\tconfig DatabaseConfig\n}\n\nfunc NewConfigBuilder() *ConfigBuilder {\n\treturn &ConfigBuilder{\n\t\tconfig: DatabaseConfig{\n\t\t\tPort:    5432,\n\t\t\tTimeout: 30,\n\t\t},\n\t}\n}\n\nfunc (b *ConfigBuilder) SetHost(host string) *ConfigBuilder {\n\tb.config.Host = host\n\treturn b\n}\n\nfunc (b *ConfigBuilder) SetPort(port int) *ConfigBuilder {\n\tb.config.Port = port\n\treturn b\n}\n\nfunc (b *ConfigBuilder) SetDatabase(database string) *ConfigBuilder {\n\tb.config.Database = database\n\treturn b\n}\n\nfunc (b *ConfigBuilder) SetCredentials(username, password string) *ConfigBuilder {\n\tb.config.Username = username\n\tb.config.Password = password\n\treturn b\n}\n\nfunc (b *ConfigBuilder) EnableSSL(enable bool) *ConfigBuilder {\n\tb.config.SSL = enable\n\treturn b\n}\n\nfunc (b *ConfigBuilder) SetTimeout(timeout int) *ConfigBuilder {\n\tb.config.Timeout = timeout\n\treturn b\n}\n\nfunc (b *ConfigBuilder) Build() (DatabaseConfig, error) {\n\tif b.config.Host == \"\" {\n\t\treturn DatabaseConfig{}, fmt.Errorf(\"host is required\")\n\t}\n\tif b.config.Database == \"\" {\n\t\treturn DatabaseConfig{}, fmt.Errorf(\"database name is required\")\n\t}\n\treturn b.config, nil\n}\n\nfunc (c DatabaseConfig) String() string {\n\tvar sb strings.Builder\n\tsb.WriteString(fmt.Sprintf(\"host=%s port=%d db=%s ssl=%v timeout=%d\",\n\t\tc.Host, c.Port, c.Database, c.SSL, c.Timeout))\n\treturn sb.String()\n}\n\nfunc main() {\n\tconfig, err := NewConfigBuilder().\n\t\tSetHost(\"localhost\").\n\t\tSetPort(5432).\n\t\tSetDatabase(\"myapp\").\n\t\tSetCredentials(\"user\", \"pass\").\n\t\tEnableSSL(true).\n\t\tBuild()\n\n\tif err != nil {\n\t\tpanic(err)\n\t}\n\n\tfmt.Printf(\"Config: %s\\n\", config)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-BuilderGo",
+        "title": "结构体建造者模式",
+        "description": "实现结构体建造者模式构建DatabaseConfig。ConfigBuilder封装DatabaseConfig，提供SetHost、SetPort、SetDatabase、SetCredentials、EnableSSL、SetTimeout等链式方法。每个方法修改配置字段后返回*ConfigBuilder以支持链式调用。Build方法验证必需字段（Host、Database）并返回最终配置。默认值在NewConfigBuilder中设置（Port=5432，Timeout=30）。String方法提供配置的字符串表示。这种模式提高了复杂配置对象的创建可读性。",
+        "confidence": 0.94,
+        "alternative_titles": ["Builder Pattern", "Fluent Builder", "Config Builder"]
+      }]
+    },
+    {
+      "id": "DP-GO-008",
+      "description": "Composition over Inheritance Pattern",
+      "code_snippets": [{
+        "file": "src/composition/vehicle.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package composition\n\nimport \"fmt\"\n\ntype Engine interface {\n\tStart()\n\tStop()\n\tGetPower() int\n}\n\ntype ElectricEngine struct {\n\tpower int\n}\n\nfunc (e *ElectricEngine) Start() {\n\tfmt.Println(\"Electric engine started\")\n}\n\nfunc (e *ElectricEngine) Stop() {\n\tfmt.Println(\"Electric engine stopped\")\n}\n\nfunc (e *ElectricEngine) GetPower() int {\n\treturn e.power\n}\n\ntype GasolineEngine struct {\n\tpower int\n}\n\nfunc (g *GasolineEngine) Start() {\n\tfmt.Println(\"Gasoline engine started\")\n}\n\nfunc (g *GasolineEngine) Stop() {\n\tfmt.Println(\"Gasoline engine stopped\")\n}\n\nfunc (g *GasolineEngine) GetPower() int {\n\treturn g.power\n}\n\ntype Vehicle struct {\n\tname   string\n\tengine Engine\n\twheels int\n}\n\nfunc NewVehicle(name string, engine Engine, wheels int) *Vehicle {\n\treturn &Vehicle{\n\t\tname:   name,\n\t\tengine: engine,\n\t\twheels: wheels,\n\t}\n}\n\nfunc (v *Vehicle) Start() {\n\tfmt.Printf(\"Starting %s...\\n\", v.name)\n\tv.engine.Start()\n}\n\nfunc (v *Vehicle) Stop() {\n\tfmt.Printf(\"Stopping %s...\\n\", v.name)\n\tv.engine.Stop()\n}\n\nfunc (v *Vehicle) Describe() string {\n\treturn fmt.Sprintf(\"%s with %d wheels and %d HP engine\",\n\t\tv.name, v.wheels, v.engine.GetPower())\n}\n\nfunc main() {\n\teleCar := NewVehicle(\"Tesla Model 3\", &ElectricEngine{power: 300}, 4)\n\teleCar.Start()\n\tfmt.Println(eleCar.Describe())\n\teleCar.Stop()\n\n\tfmt.Println()\n\n\tgasCar := NewVehicle(\"Toyota Camry\", &GasolineEngine{power: 200}, 4)\n\tgasCar.Start()\n\tfmt.Println(gasCar.Describe())\n\tgasCar.Stop()\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-CompositionGo",
+        "title": "组合替代继承模式",
+        "description": "使用组合而非继承实现Vehicle系统。Engine接口定义引擎契约，ElectricEngine和GasolineEngine分别实现电动和汽油引擎。Vehicle结构体组合Engine接口和wheels字段，而不是继承自某个基类。NewVehicle构造函数接受不同的Engine实现，运行时多态通过接口实现。Start、Stop、Describe方法委托给组合的引擎。这种设计灵活可扩展，新增车辆类型只需创建新的组合，无需修改现有代码。",
+        "confidence": 0.95,
+        "alternative_titles": ["Composition over Inheritance", "Dependency Injection", "Interface Composition"]
+      }]
+    }
+  ]
+}

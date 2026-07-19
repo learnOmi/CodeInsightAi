@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-ad-go",
+  "category": "AD",
+  "language": "go",
+  "description": "Architecture decisions implemented in Go",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AD-GO-001",
+      "description": "Microservices with gRPC architecture",
+      "code_snippets": [{
+        "file": "src/services/user/user_service.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package user\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"net\"\n\n\tpb \"github.com/example/proto/userpb\"\n\t\"google.golang.org/grpc\"\n\t\"google.golang.org/grpc/codes\"\n\t\"google.golang.org/grpc/status\"\n)\n\ntype UserServiceServer struct {\n\tpb.UnimplementedUserServiceServer\n\tdb *Database\n}\n\nfunc NewUserServiceServer(db *Database) *UserServiceServer {\n\treturn &UserServiceServer{db: db}\n}\n\nfunc (s *UserServiceServer) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.User, error) {\n\tuser, err := s.db.FindByID(ctx, req.GetId())\n\tif err != nil {\n\t\tif errors.Is(err, ErrNotFound) {\n\t\t\treturn nil, status.Errorf(codes.NotFound, \"user not found: %s\", req.GetId())\n\t\t}\n\t\treturn nil, status.Errorf(codes.Internal, \"database error: %v\", err)\n\t}\n\n\treturn &pb.User{\n\t\tId:        user.ID,\n\t\tEmail:     user.Email,\n\t\tName:      user.Name,\n\t\tCreatedAt: user.CreatedAt.Format(time.RFC3339),\n\t}, nil\n}\n\nfunc (s *UserServiceServer) CreateUser(ctx context.Context, req *pb.CreateUserRequest) (*pb.User, error) {\n\tuser := &models.User{\n\t\tID:       uuid.New().String(),\n\t\tEmail:    req.GetUser().GetEmail(),\n\t\tName:     req.GetUser().GetName(),\n\t\tPassword: req.GetUser().GetPassword(),\n\t}\n\n\tif err := user.Validate(); err != nil {\n\t\treturn nil, status.Errorf(codes.InvalidArgument, \"validation failed: %v\", err)\n\t}\n\n\thashedPassword, err := bcrypt.hashPassword(user.Password)\n\tif err != nil {\n\t\treturn nil, status.Errorf(codes.Internal, \"failed to hash password\")\n\t}\n\tuser.Password = hashedPassword\n\n\tcreated, err := s.db.Create(ctx, user)\n\tif err != nil {\n\t\treturn nil, status.Errorf(codes.Internal, \"failed to create user: %v\", err)\n\t}\n\n\treturn &pb.User{\n\t\tId:        created.ID,\n\t\tEmail:     created.Email,\n\t\tName:      created.Name,\n\t\tCreatedAt: created.CreatedAt.Format(time.RFC3339),\n\t}, nil\n}\n\nfunc main() {\n\tlis, err := net.Listen(\"tcp\", \":50051\")\n\tif err != nil {\n\t\tlog.Fatalf(\"failed to listen: %v\", err)\n\t}\n\n\tdb := NewDatabase()\n\tserver := grpc.NewServer()\n\tpb.RegisterUserServiceServer(server, NewUserServiceServer(db))\n\n\tlog.Println(\"gRPC server running on :50051\")\n\tif err := server.Serve(lis); err != nil {\n\t\tlog.Fatalf(\"failed to serve: %v\", err)\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-gRPCGo",
+        "title": "gRPC微服务架构",
+        "description": "实现基于gRPC的微服务架构。UserServiceServer实现proto生成的接口，提供GetUser和CreateUser RPC方法。每个方法接收context.Context用于取消和超时控制，使用status.Errorf返回标准化的gRPC错误码（NotFound、Internal、InvalidArgument）。CreateUser包含参数验证和密码哈希处理。main函数启动gRPC服务器监听端口50051，注册UserService服务。这种架构使用Protocol Buffers定义接口契约，支持强类型、高效序列化和跨语言通信。",
+        "confidence": 0.95,
+        "alternative_titles": ["gRPC Microservice", "Protobuf Service", "Remote Procedure Call"]
+      }]
+    },
+    {
+      "id": "AD-GO-002",
+      "description": "Clean Architecture with hexagonal design",
+      "code_snippets": [{
+        "file": "src/domain/order/order.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package domain\n\nimport (\n\t\"errors\"\n\t\"time\"\n)\n\nvar (\n\tErrOrderEmpty      = errors.New(\"order must have at least one item\")\n\tErrOrderCancelled  = errors.New(\"cannot modify cancelled order\")\n\tErrOrderPaid       = errors.New(\"order is already paid\")\n)\n\ntype OrderStatus string\n\nconst (\n\tStatusDraft   OrderStatus = \"draft\"\n\tStatusPaid    OrderStatus = \"paid\"\n\tStatusShipped OrderStatus = \"shipped\"\n\tStatusDone    OrderStatus = \"done\"\n)\n\ntype Order struct {\n\tid        string\n\titems     []OrderItem\n\tstatus    OrderStatus\n\tcreatedAt time.Time\n\tupdatedAt time.Time\n}\n\ntype OrderItem struct {\n\tProductID   string\n\tProductName string\n\tQuantity    int\n\tPrice       float64\n}\n\nfunc NewOrder(id string, items []OrderItem) (*Order, error) {\n\tif len(items) == 0 {\n\t\treturn nil, ErrOrderEmpty\n\t}\n\n\tnow := time.Now()\n\treturn &Order{\n\t\tid:        id,\n\t\titems:     items,\n\t\tstatus:    StatusDraft,\n\t\tcreatedAt: now,\n\t\tupdatedAt: now,\n\t}, nil\n}\n\nfunc (o *Order) AddItem(item OrderItem) error {\n\tif o.status != StatusDraft {\n\t\treturn ErrOrderCancelled\n\t}\n\to.items = append(o.items, item)\n\to.updatedAt = time.Now()\n\treturn nil\n}\n\nfunc (o *Order) Submit() error {\n\tif o.status != StatusDraft {\n\t\treturn ErrOrderCancelled\n\t}\n\tif len(o.items) == 0 {\n\t\treturn ErrOrderEmpty\n\t}\n\to.status = StatusPaid\n\to.updatedAt = time.Now()\n\treturn nil\n}\n\nfunc (o *Order) Ship() error {\n\tif o.status != StatusPaid {\n\t\treturn ErrOrderPaid\n\t}\n\to.status = StatusShipped\n\to.updatedAt = time.Now()\n\treturn nil\n}\n\nfunc (o *Order) Total() float64 {\n\ttotal := 0.0\n\tfor _, item := range o.items {\n\t\ttotal += item.Price * float64(item.Quantity)\n\t}\n\treturn total\n}\n\n// Repository interface (ports)\ntype OrderRepository interface {\n\tSave(order *Order) error\n\tFindByID(id string) (*Order, error)\n\tFindAll() ([]*Order, error)\n}\n\n// Use case\ntype CreateOrderUseCase struct {\n\trepo OrderRepository\n}\n\nfunc NewCreateOrderUseCase(repo OrderRepository) *CreateOrderUseCase {\n\treturn &CreateOrderUseCase{repo: repo}\n}\n\nfunc (uc *CreateOrderUseCase) Execute(items []OrderItem) (*Order, error) {\n\torder, err := NewOrder(uuid.New().String(), items)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\tif err := uc.repo.Save(order); err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn order, nil\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-CleanGo",
+        "title": "整洁架构（六边形架构）",
+        "description": "实现整洁架构（Hexagonal/Clean Architecture），领域层不依赖任何外部框架。Order实体封装业务规则，NewOrder创建订单并验证至少有一个商品。Submit、Ship等方法管理状态流转。OrderRepository是端口接口，由基础设施层实现（如PostgreSQL仓库）。CreateOrderUseCase编排领域逻辑和数据持久化，依赖注入Repository接口。这种分层确保核心业务逻辑独立于数据库、Web框架等技术细节，便于测试和维护。",
+        "confidence": 0.94,
+        "alternative_titles": ["Clean Architecture", "Hexagonal Architecture", "Ports and Adapters"]
+      }]
+    },
+    {
+      "id": "AD-GO-003",
+      "description": "CQRS with Event Store pattern",
+      "code_snippets": [{
+        "file": "src/eventstore/store.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package eventstore\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype DomainEvent struct {\n\tID          string    `json:\"id\"`\n\tAggregateID string    `json:\"aggregate_id\"`\n\tEventType   string    `json:\"event_type\"`\n\tPayload     []byte    `json:\"payload\"`\n\tVersion     int       `json:\"version\"`\n\tTimestamp   time.Time `json:\"timestamp\"`\n}\n\ntype EventStore struct {\n\tmu      sync.RWMutex\n\tevents  map[string][]DomainEvent\n\tsubs    map[string][]func(DomainEvent)\n}\n\nfunc NewEventStore() *EventStore {\n\treturn &EventStore{\n\t\tevents: make(map[string][]DomainEvent),\n\t\tsubs:   make(map[string][]func(DomainEvent)),\n\t}\n}\n\nfunc (es *EventStore) Append(ctx context.Context, aggregateID string, event DomainEvent) error {\n\tes.mu.Lock()\n\tdefer es.mu.Unlock()\n\n\thistory := es.events[aggregateID]\n\tevent.Version = len(history) + 1\n\tevent.Timestamp = time.Now()\n\n\tes.events[aggregateID] = append(history, event)\n\n\t// Notify subscribers\n\tfor _, handler := range es.subs[event.EventType] {\n\t\tgo handler(event)\n\t}\n\n\treturn nil\n}\n\nfunc (es *EventStore) GetEvents(ctx context.Context, aggregateID string) ([]DomainEvent, error) {\n\tes.mu.RLock()\n\tdefer es.mu.RUnlock()\n\n\treturn es.events[aggregateID], nil\n}\n\nfunc (es *EventStore) Subscribe(eventType string, handler func(DomainEvent)) {\n\tes.mu.Lock()\n\tdefer es.mu.Unlock()\n\n\tes.subs[eventType] = append(es.subs[eventType], handler)\n}\n\nfunc (es *EventStore) RebuildState(aggregateID string, applyFn func([]byte, []byte) ([]byte, error)) ([]byte, error) {\n\tes.mu.RLock()\n\tdefer es.mu.RUnlock()\n\n\tevents := es.events[aggregateID]\n\tstate := []byte(`{}`)\n\n\tfor _, event := range events {\n\t\tvar err error\n\t\tstate, err = applyFn(state, event.Payload)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t}\n\n\treturn state, nil\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-CQRSGo",
+        "title": "CQRS与事件存储架构",
+        "description": "实现CQRS（命令查询职责分离）与事件溯源架构。EventStore管理聚合根的事件历史，Append追加新事件并自动分配版本号，同时通知订阅者。GetEvents查询完整事件流。Subscribe按事件类型注册处理器。RebuildState从事件流重建当前状态，applyFn将事件载荷应用到状态JSON。DomainEvent包含ID、聚合ID、事件类型、载荷、版本和时间戳。这种架构提供了完整的审计轨迹、时间旅行能力和状态重建机制。",
+        "confidence": 0.95,
+        "alternative_titles": ["CQRS", "Event Sourcing", "Event Store"]
+      }]
+    },
+    {
+      "id": "AD-GO-004",
+      "description": "Worker Pool Pattern for concurrent processing",
+      "code_snippets": [{
+        "file": "src/workers/workerpool.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package workers\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype Job struct {\n\tID      int\n\tPayload string\n}\n\ntype Result struct {\n\tJobID  int\n\tOutput string\n\tErr    error\n}\n\ntype WorkerPool struct {\n\tjobs     chan Job\n\tresults  chan Result\n\tworkers  int\n\twg       sync.WaitGroup\n}\n\nfunc NewWorkerPool(workers int, queueSize int) *WorkerPool {\n\treturn &WorkerPool{\n\t\tjobs:    make(chan Job, queueSize),\n\t\tresults: make(chan Result, queueSize),\n\t\tworkers: workers,\n\t}\n}\n\nfunc (wp *WorkerPool) Start(ctx context.Context) {\n\tfor i := 0; i < wp.workers; i++ {\n\t\twp.wg.Add(1)\n\t\tgo wp.worker(ctx, i)\n\t}\n}\n\nfunc (wp *WorkerPool) worker(ctx context.Context, id int) {\n\tdefer wp.wg.Done()\n\n\tfor {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\tfmt.Printf(\"Worker %d stopping\\n\", id)\n\t\t\treturn\n\t\tcase job, ok := <-wp.jobs:\n\t\t\tif !ok {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tresult := wp.process(job)\n\t\t\tselect {\n\t\t\tcase wp.results <- result:\n\t\t\tcase <-ctx.Done():\n\t\t\t\treturn\n\t\t\t}\n\t\t}\n\t}\n}\n\nfunc (wp *WorkerPool) process(job Job) Result {\n\ttime.Sleep(100 * time.Millisecond)\n\treturn Result{\n\t\tJobID:  job.ID,\n\t\tOutput: fmt.Sprintf(\"processed: %s\", job.Payload),\n\t}\n}\n\nfunc (wp *WorkerPool) Submit(job Job) {\n\twp.jobs <- job\n}\n\nfunc (wp *WorkerPool) Results() <-chan Result {\n\treturn wp.results\n}\n\nfunc (wp *WorkerPool) Stop() {\n\tclose(wp.jobs)\n\twp.wg.Wait()\n\tclose(wp.results)\n}\n\nfunc main() {\n\tpool := NewWorkerPool(4, 100)\n\tpool.Start(context.Background())\n\n\tfor i := 0; i < 10; i++ {\n\t\tpool.Submit(Job{ID: i, Payload: fmt.Sprintf(\"task-%d\", i)})\n\t}\n\n\tgo pool.Stop()\n\n\tfor result := range pool.Results() {\n\t\tfmt.Printf(\"Result: %s\\n\", result.Output)\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-WorkerPoolGo",
+        "title": "工作池模式",
+        "description": "实现工作池模式进行并发任务处理。WorkerPool维护固定数量的worker goroutine，通过有界channel接收Job。Start方法启动所有worker，worker使用select监听jobs通道和ctx.Done()。process方法执行实际工作并发送Result到结果通道。Stop方法关闭jobs通道并等待所有worker完成。这种模式限制并发度防止资源耗尽，适合批量处理、数据转换等场景。",
+        "confidence": 0.94,
+        "alternative_titles": ["Worker Pool", "Concurrent Processing", "Job Queue"]
+      }]
+    },
+    {
+      "id": "AD-GO-005",
+      "description": "Sidecar Pattern implementation",
+      "code_snippets": [{
+        "file": "src/sidecar/proxy.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package sidecar\n\nimport (\n\t\"context\"\n\t\"io\"\n\t\"log\"\n\t\"net/http\"\n\t\"time\"\n)\n\ntype SidecarConfig struct {\n\tProxyPort     int\n\tBackendURL    string\n\tLogLevel      string\n\tMetricsPort   int\n}\n\ntype Sidecar struct {\n\tconfig     SidecarConfig\n\tproxy      *http.Server\n\tmetrics    *MetricsCollector\n\tlogger     *log.Logger\n}\n\nfunc NewSidecar(cfg SidecarConfig) *Sidecar {\n\treturn &Sidecar{\n\t\tconfig: cfg,\n\t\tmetrics: NewMetricsCollector(),\n\t\tlogger: log.New(os.Stdout, \"[sidecar] \", log.LstdFlags),\n\t}\n}\n\nfunc (sc *Sidecar) Start() error {\n\tmux := http.NewServeMux()\n\tmux.HandleFunc(\"/\", sc.proxyHandler)\n\tmux.HandleFunc(\"/health\", sc.healthHandler)\n\tmux.HandleFunc(\"/metrics\", sc.metricsHandler)\n\n\tsc.proxy = &http.Server{\n\t\tAddr:         fmt.Sprintf(\":%d\", sc.config.ProxyPort),\n\t\tHandler:      mux,\n\t\tReadTimeout:  15 * time.Second,\n\t\tWriteTimeout: 15 * time.Second,\n\t}\n\n\tsc.logger.Printf(\"Starting sidecar proxy on port %d\", sc.config.ProxyPort)\n\treturn sc.proxy.ListenAndServe()\n}\n\nfunc (sc *Sidecar) proxyHandler(w http.ResponseWriter, r *http.Request) {\n\tstart := time.Now()\n\t\n\tproxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, sc.config.BackendURL+r.URL.Path, r.Body)\n\tif err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusInternalServerError)\n\t\treturn\n\t}\n\n\tresp, err := http.DefaultClient.Do(proxyReq)\n\tif err != nil {\n\t\thttp.Error(w, err.Error(), http.StatusBadGateway)\n\t\treturn\n\t}\n\tdefer resp.Body.Close()\n\n\tsc.metrics.RecordRequest(r.URL.Path, time.Since(start), resp.StatusCode)\n\n\tfor key, values := range resp.Header {\n\t\tfor _, value := range values {\n\t\t\tw.Header().Add(key, value)\n\t\t}\n\t}\n\tw.WriteHeader(resp.StatusCode)\n\tio.Copy(w, resp.Body)\n}\n\nfunc (sc *Sidecar) healthHandler(w http.ResponseWriter, r *http.Request) {\n\tw.WriteHeader(http.StatusOK)\n\tw.Write([]byte(`{\"status\":\"healthy\"}`))\n}\n\nfunc (sc *Sidecar) metricsHandler(w http.ResponseWriter, r *http.Request) {\n\tsc.metrics.WritePrometheus(w)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-SidecarGo",
+        "title": "边车模式",
+        "description": "实现边车（Sidecar）模式为应用提供横切功能。Sidecar作为独立的HTTP代理运行在应用旁边，proxyHandler转发请求到后端服务并记录指标。提供/health健康检查端点和/metrics Prometheus指标端点。MetricsCollector收集请求路径、耗时和状态码。这种模式将日志、监控、认证、限流等横切关注点从主应用中分离，使主应用专注于业务逻辑。在Kubernetes中常用于服务网格场景。",
+        "confidence": 0.93,
+        "alternative_titles": ["Sidecar Pattern", "Service Mesh Sidecar", "Proxy Sidecar"]
+      }]
+    },
+    {
+      "id": "AD-GO-006",
+      "description": "Saga Pattern for distributed transactions",
+      "code_snippets": [{
+        "file": "src/saga/order_saga.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package saga\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n)\n\ntype Step struct {\n\tName     string\n\tExecute  func(ctx context.Context, data map[string]interface{}) error\n\tCompensate func(ctx context.Context, data map[string]interface{}) error\n}\n\ntype Saga struct {\n\tname   string\n\tsteps  []Step\n\tdata   map[string]interface{}\n\tlogger *log.Logger\n}\n\nfunc NewSaga(name string) *Saga {\n\treturn &Saga{\n\t\tname: name,\n\t\tdata: make(map[string]interface{}),\n\t\tlogger: log.New(os.Stdout, \"[saga] \", log.LstdFlags),\n\t}\n}\n\nfunc (s *Saga) AddStep(name string, execute, compensate func(ctx context.Context, data map[string]interface{}) error) *Saga {\n\ts.steps = append(s.steps, Step{Name: name, Execute: execute, Compensate: compensate})\n\treturn s\n}\n\nfunc (s *Saga) Execute(ctx context.Context) error {\n\texecutedSteps := make([]int, 0)\n\n\tfor i, step := range s.steps {\n\t\ts.logger.Printf(\"Executing step: %s\", step.Name)\n\t\tif err := step.Execute(ctx, s.data); err != nil {\n\t\t\ts.logger.Printf(\"Step %s failed: %v\", step.Name, err)\n\t\t\treturn s.compensate(ctx, executedSteps)\n\t\t}\n\t\texecutedSteps = append(executedSteps, i)\n\t}\n\n\ts.logger.Printf(\"Saga %s completed successfully\", s.name)\n\treturn nil\n}\n\nfunc (s *Saga) compensate(ctx context.Context, executedSteps []int) error {\n\ts.logger.Printf(\"Compensating saga %s\", s.name)\n\n\tfor i := len(executedSteps) - 1; i >= 0; i-- {\n\t\tstepIdx := executedSteps[i]\n\t\tstep := s.steps[stepIdx]\n\t\ts.logger.Printf(\"Compensating step: %s\", step.Name)\n\t\tif err := step.Compensate(ctx, s.data); err != nil {\n\t\t\ts.logger.Printf(\"Compensation failed for step %s: %v\", step.Name, err)\n\t\t\treturn err\n\t\t}\n\t}\n\n\treturn nil\n}\n\nfunc main() {\n\tsaga := NewSaga(\"OrderProcessing\")\n\tsaga.AddStep(\"ReserveInventory\",\n\t\treserveInventory,\n\t\treleaseInventory,\n\t).AddStep(\"ProcessPayment\",\n\t\tprocessPayment,\n\t\trefundPayment,\n\t).AddStep(\"CreateShipment\",\n\t\tcreateShipment,\n\t\tcancelShipment,\n\t)\n\n\terr := saga.Execute(context.Background())\n\tif err != nil {\n\t\tlog.Fatalf(\"Saga failed: %v\", err)\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-SagaGo",
+        "title": "Saga分布式事务模式",
+        "description": "实现Saga模式处理分布式事务。每个Step包含正向Execute和补偿Compensate两个函数。Saga按顺序执行步骤，失败时反向补偿已执行的步骤。executeSteps记录成功执行的步骤索引，compensate方法逆序调用补偿函数。OrderProcessing Saga包含ReserveInventory、ProcessPayment、CreateShipment三个步骤，每步都有对应的释放库存、退款、取消发货补偿操作。这种模式在没有全局事务的分布式系统中保证最终一致性。",
+        "confidence": 0.95,
+        "alternative_titles": ["Saga Pattern", "Distributed Transaction", "Compensating Transaction"]
+      }]
+    },
+    {
+      "id": "AD-GO-007",
+      "description": "API Gateway implementation",
+      "code_snippets": [{
+        "file": "src/gateway/server.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package gateway\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"log\"\n\t\"net/http\"\n\t\"net/http/httputil\"\n\t\"net/url\"\n\t\"strings\"\n\t\"time\"\n)\n\ntype Route struct {\n\tPathPrefix string\n\tTarget     *url.URL\n\tAuth       bool\n\tRateLimit  int\n}\n\ntype Gateway struct {\n\troutes   map[string]*Route\n\treverseProxies map[string]*httputil.ReverseProxy\n\tmiddleware []Middleware\n}\n\nfunc NewGateway() *Gateway {\n\treturn &Gateway{\n\t\troutes:         make(map[string]*Route),\n\t\treverseProxies: make(map[string]*httputil.ReverseProxy),\n\t}\n}\n\nfunc (g *Gateway) AddRoute(pathPrefix string, targetURL string, auth bool) error {\n\ttarget, err := url.Parse(targetURL)\n\tif err != nil {\n\t\treturn err\n\t}\n\n\troute := &Route{PathPrefix: pathPrefix, Target: target, Auth: auth}\n\tg.routes[pathPrefix] = route\n\n\tproxy := httputil.NewSingleHostReverseProxy(target)\n\tproxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {\n\t\tlog.Printf(\"Proxy error for %s: %v\", pathPrefix, err)\n\t\thttp.Error(w, \"Service unavailable\", http.StatusBadGateway)\n\t}\n\tg.reverseProxies[pathPrefix] = proxy\n\n\treturn nil\n}\n\nfunc (g *Gateway) Handler() http.Handler {\n\tmux := http.NewServeMux()\n\n\tfor prefix, proxy := range g.reverseProxies {\n\t\tp := prefix\n\t\tpx := proxy\n\t\tmux.Handle(p, http.StripPrefix(p, px))\n\t}\n\n\treturn g.applyMiddleware(mux)\n}\n\nfunc (g *Gateway) applyMiddleware(next http.Handler) http.Handler {\n\tfor _, mw := range g.middleware {\n\t\tnext = mw(next)\n\t}\n\treturn next\n}\n\nfunc main() {\n\tgw := NewGateway()\n\tgw.AddRoute(\"/api/users\", \"http://user-service:8080\", true)\n\tgw.AddRoute(\"/api/orders\", \"http://order-service:8080\", true)\n\tgw.AddRoute(\"/api/products\", \"http://product-service:8080\", false)\n\n\tserver := &http.Server{\n\t\tAddr:         \":8080\",\n\t\tHandler:      gw.Handler(),\n\t\tReadTimeout:  15 * time.Second,\n\t\tWriteTimeout: 15 * time.Second,\n\t}\n\n\tlog.Println(\"API Gateway starting on :8080\")\n\tserver.ListenAndServe()\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-APIGatewayGo",
+        "title": "API网关模式",
+        "description": "实现API网关作为统一入口，使用httputil.ReverseProxy将请求转发到后端微服务。Gateway维护路由配置，AddRoute注册路径前缀和目标服务URL。Handler方法创建ServeMux并将每个前缀映射到对应的反向代理。中间件链支持认证、限流等横切功能。ReverseProxy的ErrorHandler处理服务不可用情况。main函数注册用户、订单、产品三个服务路由。这种架构集中处理路由、认证、限流和错误处理。",
+        "confidence": 0.94,
+        "alternative_titles": ["API Gateway", "Reverse Proxy", "Unified Entry Point"]
+      }]
+    },
+    {
+      "id": "AD-GO-008",
+      "description": "Event-Driven with NATS",
+      "code_snippets": [{
+        "file": "src/events/nats_publisher.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package events\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"log\"\n\t\"time\"\n\n\tnats \"github.com/nats-io/nats.go\"\n)\n\ntype EventPublisher struct {\n\tconn *nats.Conn\n\tlogger *log.Logger\n}\n\nfunc NewEventPublisher(url string) (*EventPublisher, error) {\n\tconn, err := nats.Connect(url,\n\t\tnats.Name(\"OrderService\"),\n\t\tnats.MaxReconnects(10),\n\t\tnats.ReconnectWait(2*time.Second),\n\t\tnats.ClosedHandler(func(c *nats.Conn) {\n\t\t\tlog.Println(\"NATS connection closed\")\n\t\t}),\n\t)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn &EventPublisher{conn: conn, logger: log.New(os.Stdout, \"[events] \", log.LstdFlags)}, nil\n}\n\nfunc (ep *EventPublisher) PublishOrderCreated(ctx context.Context, orderID string, customerID string) error {\n\tevent := OrderCreatedEvent{\n\t\tOrderID:    orderID,\n\t\tCustomerID: customerID,\n\t\tTimestamp:  time.Now(),\n\t}\n\n\tpayload, err := json.Marshal(event)\n\tif err != nil {\n\t\treturn err\n\t}\n\n\tsubject := fmt.Sprintf(\"orders.created.%s\", customerID)\n\terr = ep.conn.Publish(subject, payload)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"publish failed: %w\", err)\n\t}\n\n\tep.logger.Printf(\"Published event: %s -> %s\", subject, orderID)\n\treturn nil\n}\n\nfunc (ep *EventPublisher) PublishOrderPaid(ctx context.Context, orderID string, amount float64) error {\n\tevent := OrderPaidEvent{\n\t\tOrderID: orderID,\n\t\tAmount:  amount,\n\t\tTime:    time.Now(),\n\t}\n\n\tpayload, _ := json.Marshal(event)\n\treturn ep.conn.Publish(\"orders.paid\", payload)\n}\n\ntype OrderCreatedEvent struct {\n\tOrderID    string    `json:\"order_id\"`\n\tCustomerID string    `json:\"customer_id\"`\n\tTimestamp  time.Time `json:\"timestamp\"`\n}\n\ntype OrderPaidEvent struct {\n\tOrderID string  `json:\"order_id\"`\n\tAmount  float64 `json:\"amount\"`\n\tTime    time.Time `json:\"time\"`\n}\n\nfunc (ep *EventPublisher) Close() {\n\tif ep.conn != nil {\n\t\tep.conn.Drain()\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-NATSGo",
+        "title": "NATS事件驱动架构",
+        "description": "实现基于NATS的消息驱动架构。EventPublisher封装NATS连接，配置重连策略和关闭回调。PublishOrderCreated发布订单创建事件到orders.created.{customerID}主题，支持按客户隔离。PublishOrderPaid发布订单支付事件到orders.paid主题。事件使用JSON序列化，包含OrderCreatedEvent和OrderPaidEvent结构体。NATS提供低延迟、高吞吐的发布订阅能力，适合微服务间异步通信。Close方法优雅关闭连接。",
+        "confidence": 0.95,
+        "alternative_titles": ["NATS Events", "Message Queue", "Pub/Sub"]
+      }]
+    }
+  ]
+}

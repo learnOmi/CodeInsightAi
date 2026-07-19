@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-dp-typescript",
+  "category": "DP",
+  "language": "typescript",
+  "description": "Design patterns implemented in TypeScript",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DP-TS-001",
+      "description": "Generics-based Repository Pattern with type-safe CRUD operations",
+      "code_snippets": [{
+        "file": "src/repositories/Repository.ts",
+        "start_line": 1,
+        "end_line": 45,
+        "content": "export interface BaseEntity {\n  id: string;\n  createdAt: Date;\n  updatedAt: Date;\n}\n\nexport interface Repository<T extends BaseEntity> {\n  findById(id: string): Promise<T | null>;\n  findAll(): Promise<T[]>;\n  create(entity: Omit<T, 'id' | 'createdAt' | 'updatedAt'>): Promise<T>;\n  update(id: string, entity: Partial<Omit<T, 'id' | 'createdAt'>>): Promise<T>;\n  delete(id: string): Promise<boolean>;\n  findByCondition(condition: Partial<T>): Promise<T[]>;\n}\n\nexport abstract class BaseRepository<T extends BaseEntity> implements Repository<T> {\n  protected abstract collection: Map<string, T>;\n\n  async findById(id: string): Promise<T | null> {\n    return this.collection.get(id) || null;\n  }\n\n  async findAll(): Promise<T[]> {\n    return Array.from(this.collection.values());\n  }\n\n  async create(entity: Omit<T, 'id' | 'createdAt' | 'updatedAt'>): Promise<T> {\n    const now = new Date();\n    const newEntity = {\n      ...entity,\n      id: crypto.randomUUID(),\n      createdAt: now,\n      updatedAt: now\n    } as T;\n    this.collection.set(newEntity.id, newEntity);\n    return newEntity;\n  }\n\n  async update(id: string, updates: Partial<Omit<T, 'id' | 'createdAt'>>): Promise<T> {\n    const existing = await this.findById(id);\n    if (!existing) throw new Error('Entity not found');\n    const updated = { ...existing, ...updates, updatedAt: new Date() } as T;\n    this.collection.set(id, updated);\n    return updated;\n  }\n\n  async delete(id: string): Promise<boolean> {\n    return this.collection.delete(id);\n  }\n\n  async findByCondition(condition: Partial<T>): Promise<T[]> {\n    return Array.from(this.collection.values()).filter(entity =>\n      Object.entries(condition).every(([key, value]) => entity[key] === value)\n    );\n  }\n}",
+        "highlighted_lines": [1, 3, 15, 25, 35, 45]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-FactoryTS",
+        "title": "泛型仓储模式",
+        "description": "使用TypeScript泛型和接口定义类型安全的仓储层，通过抽象基类实现通用的CRUD操作。泛型约束确保所有实体必须继承BaseEntity接口，提供findById、findAll、create、update、delete和findByCondition等标准操作方法。这种设计实现了数据访问层的代码复用和类型安全。",
+        "confidence": 0.95,
+        "alternative_titles": ["Generic Repository Pattern", "Type-Safe Data Access"]
+      }]
+    },
+    {
+      "id": "DP-TS-002",
+      "description": "Discriminated Union Pattern for type-safe event handling",
+      "code_snippets": [{
+        "file": "src/events/eventDispatcher.ts",
+        "start_line": 1,
+        "end_line": 35,
+        "content": "type AppEvent =\n  | { type: 'USER_LOGIN'; userId: string; timestamp: Date }\n  | { type: 'USER_LOGOUT'; userId: string; reason: 'manual' | 'timeout' }\n  | { type: 'ORDER_CREATED'; orderId: string; amount: number; currency: string }\n  | { type: 'PAYMENT_FAILED'; paymentId: string; errorCode: string; retryable: boolean }\n  | { type: 'SYSTEM_ERROR'; error: Error; context: Record<string, unknown> };\n\nclass EventDispatcher {\n  private handlers: Map<string, Set<(event: any) => void>> = new Map();\n\n  subscribe(eventType: string, handler: (event: any) => void): void {\n    if (!this.handlers.has(eventType)) {\n      this.handlers.set(eventType, new Set());\n    }\n    this.handlers.get(eventType)!.add(handler);\n  }\n\n  unsubscribe(eventType: string, handler: (event: any) => void): void {\n    this.handlers.get(eventType)?.delete(handler);\n  }\n\n  async dispatch(event: AppEvent): Promise<void> {\n    const handlers = this.handlers.get(event.type);\n    if (handlers) {\n      for (const handler of handlers) {\n        try {\n          await handler(event);\n        } catch (error) {\n          console.error(`Error handling event ${event.type}:`, error);\n        }\n      }\n    }\n  }\n}\n\nexport const dispatcher = new EventDispatcher();",
+        "highlighted_lines": [1, 2, 3, 4, 5, 15, 25]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-DiscriminatedTS",
+        "title": "可辨识联合模式",
+        "description": "利用TypeScript的可辨识联合类型（Discriminated Unions）实现类型安全的事件系统。通过type属性作为判别字段，编译器能够自动推断每个事件类型的特定字段。EventDispatcher类提供订阅、取消订阅和分发事件的能力，结合async/await支持异步事件处理器。这种模式确保了事件处理时的类型安全和编译时检查。",
+        "confidence": 0.94,
+        "alternative_titles": ["Discriminated Union", "Tagged Union Pattern", "Type-Safe Events"]
+      }]
+    },
+    {
+      "id": "DP-TS-003",
+      "description": "Decorator Pattern for logging and validation aspects",
+      "code_snippets": [{
+        "file": "src/decorators/logger.ts",
+        "start_line": 1,
+        "end_line": 40,
+        "content": "function LogExecutionTime(target: any, propertyKey: string, descriptor: PropertyDescriptor) {\n  const originalMethod = descriptor.value;\n\n  descriptor.value = async function (...args: any[]) {\n    const startTime = performance.now();\n    console.log(`Starting ${propertyKey}...`);\n    \n    try {\n      const result = await originalMethod.apply(this, args);\n      const endTime = performance.now();\n      console.log(`Finished ${propertyKey} in ${(endTime - startTime).toFixed(2)}ms`);\n      return result;\n    } catch (error) {\n      console.error(`Error in ${propertyKey}:`, error);\n      throw error;\n    }\n  };\n\n  return descriptor;\n}\n\nfunction ValidateInput(schema: ZodSchema) {\n  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {\n    const originalMethod = descriptor.value;\n    \n    descriptor.value = function (...args: any[]) {\n      const validationResult = schema.safeParse(args[0]);\n      if (!validationResult.success) {\n        throw new ValidationError('Validation failed', validationResult.error);\n      }\n      return originalMethod.apply(this, args);\n    };\n\n    return descriptor;\n  };\n}\n\nexport { LogExecutionTime, ValidateInput };",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-DecoratorTS",
+        "title": "装饰器模式",
+        "description": "实现TypeScript装饰器模式用于横切关注点，包括执行时间日志记录和输入验证。LogExecutionTime装饰器包装方法以测量执行时间并记录日志，ValidateInput装饰器使用Zod schema验证参数。装饰器通过修改PropertyDescriptor来增强原有方法功能，体现了面向切面编程的思想，避免了业务逻辑与横切关注点的耦合。",
+        "confidence": 0.93,
+        "alternative_titles": ["Decorator Pattern", "Aspect-Oriented Programming", "Cross-Cutting Concerns"]
+      }]
+    },
+    {
+      "id": "DP-TS-004",
+      "description": "Template Method Pattern for workflow processing",
+      "code_snippets": [{
+        "file": "src/workflows/BaseWorkflow.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "abstract class BaseWorkflow<TInput, TOutput> {\n  protected abstract validate(input: TInput): boolean;\n  protected abstract executeStep1(input: TInput): any;\n  protected abstract executeStep2(context: any): any;\n  protected abstract executeStep3(context: any): TOutput;\n  protected abstract transformOutput(result: any): TOutput;\n\n  async run(input: TInput): Promise<TOutput> {\n    console.log('Workflow started');\n    \n    if (!this.validate(input)) {\n      throw new WorkflowError('Validation failed');\n    }\n\n    try {\n      const step1Result = this.executeStep1(input);\n      const step2Result = this.executeStep2(step1Result);\n      const step3Result = this.executeStep3(step2Result);\n      const output = this.transformOutput(step3Result);\n      \n      console.log('Workflow completed successfully');\n      return output;\n    } catch (error) {\n      console.error('Workflow failed:', error);\n      throw new WorkflowError('Workflow execution failed', error);\n    }\n  }\n\n  protected logProgress(step: string, details?: any): void {\n    console.log(`[${new Date().toISOString()}] ${step}:`, details);\n  }\n}\n\nexport { BaseWorkflow, WorkflowError };",
+        "highlighted_lines": [1, 2, 3, 10, 20, 30, 40]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-TemplateTS",
+        "title": "模板方法模式",
+        "description": "使用模板方法模式定义工作流的标准执行流程。BaseWorkflow类定义了run方法作为算法骨架，包含validate、executeStep1、executeStep2、executeStep3和transformOutput五个抽象步骤。子类只需实现具体的步骤逻辑，而流程控制、错误处理和进度日志由父类统一处理。这种设计遵循了开闭原则，便于扩展新的工作流类型。",
+        "confidence": 0.95,
+        "alternative_titles": ["Template Method Pattern", "Workflow Framework", "Algorithm Skeleton"]
+      }]
+    },
+    {
+      "id": "DP-TS-005",
+      "description": "Observer Pattern with RxJS for reactive programming",
+      "code_snippets": [{
+        "file": "src/observables/userActions.ts",
+        "start_line": 1,
+        "end_line": 45,
+        "content": "import { Subject, BehaviorSubject, combineLatest, map, filter, debounceTime } from 'rxjs';\n\nclass UserActionObservable {\n  private actionSubject = new Subject<UserAction>();\n  private isActiveSubject = new BehaviorSubject<boolean>(true);\n  \n  readonly userActions$ = this.actionSubject.asObservable();\n  readonly isActive$ = this.isActiveSubject.asObservable();\n\n  pushAction(action: UserAction): void {\n    this.actionSubject.next(action);\n  }\n\n  setInactive(): void {\n    this.isActiveSubject.next(false);\n  }\n\n  getActiveLoginActions() {\n    return combineLatest([this.userActions$, this.isActive$]).pipe(\n      filter(([actions, isActive]) => isActive),\n      map(([actions, _]) => actions.filter(a => a.type === 'LOGIN')),\n      debounceTime(300)\n    );\n  }\n\n  getUserActivitySummary() {\n    return this.userActions$.pipe(\n      filter(() => this.isActiveSubject.getValue()),\n      groupBy(action => action.userId),\n      switchMap(userGroup => userGroup.pipe(\n        map(action => ({\n          userId: action.userId,\n          lastAction: action.timestamp,\n          actionCount: userGroup.pipe(count()).subscribe()\n        }))\n      ))\n    );\n  }\n}\n\nexport type UserAction = {\n  type: 'LOGIN' | 'LOGOUT' | 'CLICK' | 'VIEW';\n  userId: string;\n  timestamp: Date;\n  metadata?: Record<string, any>;\n};",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-RxJSTS",
+        "title": "响应式观察者模式",
+        "description": "基于RxJS实现响应式观察者模式，使用Subject和BehaviorSubject管理用户动作流。通过combineLatest、filter、map、debounceTime等操作符构建复杂的数据转换管道。getActiveLoginActions方法组合动作流和状态流，只处理活跃状态下的登录动作。getUserActivitySummary使用groupBy和switchMap实现按用户分组的activity分析。这种模式非常适合处理异步事件流和实时数据更新场景。",
+        "confidence": 0.94,
+        "alternative_titles": ["Reactive Observer", "RxJS Pattern", "Reactive Programming"]
+      }]
+    },
+    {
+      "id": "DP-TS-006",
+      "description": "Factory Pattern with Dependency Injection container",
+      "code_snippets": [{
+        "file": "src/di/DependencyContainer.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface ServiceFactory<T> {\n  create(): T;\n}\n\ntype ServiceMap = Map<string, ServiceFactory<any>>;\n\nclass DependencyContainer {\n  private services: ServiceMap = new Map();\n  private instances: Map<string, any> = new Map();\n\n  register<T>(token: string, factory: ServiceFactory<T>): void {\n    this.services.set(token, factory);\n  }\n\n  registerSingleton<T>(token: string, factory: () => T): void {\n    this.register(token, { create: () => {\n      if (!this.instances.has(token)) {\n        this.instances.set(token, factory());\n      }\n      return this.instances.get(token);\n    }});\n  }\n\n  resolve<T>(token: string): T {\n    const factory = this.services.get(token);\n    if (!factory) {\n      throw new Error(`Service ${token} not registered`);\n    }\n    return factory.create();\n  }\n\n  has(token: string): boolean {\n    return this.services.has(token);\n  }\n\n  reset(): void {\n    this.instances.clear();\n  }\n}\n\n// Usage example\nconst container = new DependencyContainer();\ncontainer.registerSingleton('logger', () => new ConsoleLogger());\ncontainer.registerSingleton('database', () => new DatabaseConnection(container.resolve('logger')));\ncontainer.register('userService', () => new UserService(container.resolve('database'), container.resolve('logger')));",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-DITS",
+        "title": "依赖注入工厂模式",
+        "description": "实现基于Token的依赖注入容器，支持单例和瞬态服务注册。DependencyContainer使用ServiceFactory接口定义服务创建逻辑，register方法注册普通服务，registerSingleton方法注册单例服务。resolve方法根据token解析服务实例，自动处理依赖关系。这种模式解耦了服务的创建和使用，提高了代码的可测试性和可维护性。通过延迟求值确保单例只在首次访问时创建。",
+        "confidence": 0.95,
+        "alternative_titles": ["Dependency Injection", "IoC Container", "Factory Pattern with DI"]
+      }]
+    },
+    {
+      "id": "DP-TS-007",
+      "description": "Strategy Pattern with TypeScript interfaces",
+      "code_snippets": [{
+        "file": "src/strategies/PricingStrategy.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "interface PricingStrategy {\n  calculatePrice(basePrice: number, context: PricingContext): number;\n  getName(): string;\n}\n\ninterface PricingContext {\n  userId: string;\n  itemCount: number;\n  membershipLevel: 'basic' | 'premium' | 'vip';\n  isFirstPurchase: boolean;\n  cartTotal: number;\n}\n\nclass VolumeDiscountStrategy implements PricingStrategy {\n  getName(): string { return 'Volume Discount'; }\n  \n  calculatePrice(basePrice: number, context: PricingContext): number {\n    if (context.itemCount >= 10) return basePrice * 0.8;\n    if (context.itemCount >= 5) return basePrice * 0.9;\n    return basePrice;\n  }\n}\n\nclass MembershipDiscountStrategy implements PricingStrategy {\n  getName(): string { return 'Membership Discount'; }\n  \n  calculatePrice(basePrice: number, context: PricingContext): number {\n    switch (context.membershipLevel) {\n      case 'vip': return basePrice * 0.7;\n      case 'premium': return basePrice * 0.85;\n      default: return basePrice;\n    }\n  }\n}\n\nclass NewUserDiscountStrategy implements PricingStrategy {\n  getName(): string { return 'New User Discount'; }\n  \n  calculatePrice(basePrice: number, context: PricingContext): number {\n    return context.isFirstPurchase ? basePrice * 0.9 : basePrice;\n  }\n}\n\nclass PricingEngine {\n  private strategies: PricingStrategy[] = [];\n\n  addStrategy(strategy: PricingStrategy): void {\n    this.strategies.push(strategy);\n  }\n\n  calculateFinalPrice(basePrice: number, context: PricingContext): number {\n    let finalPrice = basePrice;\n    for (const strategy of this.strategies) {\n      finalPrice = strategy.calculatePrice(finalPrice, context);\n    }\n    return Math.max(finalPrice, 0);\n  }\n}",
+        "highlighted_lines": [1, 2, 3, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-StrategyTS",
+        "title": "接口策略模式",
+        "description": "使用TypeScript接口定义PricingStrategy策略契约，实现多种定价策略如VolumeDiscountStrategy（数量折扣）、MembershipDiscountStrategy（会员折扣）和NewUserDiscountStrategy（新用户折扣）。PricingEngine类组合多个策略，按顺序应用每个策略计算最终价格。这种设计允许动态添加和移除定价策略，无需修改核心逻辑，符合开闭原则。每个策略独立实现calculatePrice方法，通过接口保证类型安全。",
+        "confidence": 0.94,
+        "alternative_titles": ["Strategy Pattern", "Policy Pattern", "Interface Strategy"]
+      }]
+    },
+    {
+      "id": "DP-TS-008",
+      "description": "Composite Pattern for hierarchical content structure",
+      "code_snippets": [{
+        "file": "src/composite/ContentNode.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface ContentNode {\n  render(): string;\n  getDepth(): number;\n  getChildCount(): number;\n  findNodeById(id: string): ContentNode | null;\n}\n\nclass LeafNode implements ContentNode {\n  constructor(\n    private id: string,\n    private type: 'text' | 'image' | 'video',\n    private content: string,\n    private depth: number = 0\n  ) {}\n\n  render(): string {\n    switch (this.type) {\n      case 'text': return `<p>${this.content}</p>`;\n      case 'image': return `<img src=\"${this.content}\" />`;\n      case 'video': return `<video src=\"${this.content}\"></video>`;\n    }\n  }\n\n  getDepth(): number { return this.depth; }\n  getChildCount(): number { return 0; }\n  findNodeById(id: string): ContentNode | null {\n    return this.id === id ? this : null;\n  }\n}\n\nclass CompositeNode implements ContentNode {\n  private children: ContentNode[] = [];\n\n  constructor(private id: string, private depth: number = 0) {}\n\n  addChild(child: ContentNode): void {\n    child['depth'] = this.depth + 1;\n    this.children.push(child);\n  }\n\n  render(): string {\n    return `<div id=\"${this.id}\">${this.children.map(c => c.render()).join('')}</div>`;\n  }\n\n  getDepth(): number { return this.depth; }\n  getChildCount(): number { return this.children.length; }\n  findNodeById(id: string): ContentNode | null {\n    if (this.id === id) return this;\n    return this.children.find(c => c.findNodeById(id))?.findNodeById(id) || null;\n  }\n}",
+        "highlighted_lines": [1, 2, 3, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-CompositeTS",
+        "title": "组合模式",
+        "description": "实现组合模式处理层级化的内容结构。ContentNode接口定义了统一的组件契约，LeafNode表示叶子节点（文本、图片、视频），CompositeNode表示容器节点。两者都实现render、getDepth、getChildCount和findNodeById方法，客户端可以统一处理单个节点和组合节点。CompositeNode通过addChild添加子节点并递归渲染，findNodeById递归搜索指定ID的节点。这种模式消除了客户端对具体类型的判断，简化了层级结构的处理。",
+        "confidence": 0.95,
+        "alternative_titles": ["Composite Pattern", "Part-Whole Hierarchy", "Tree Structure"]
+      }]
+    }
+  ]
+}

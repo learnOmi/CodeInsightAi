@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-et-java",
+  "category": "ET",
+  "language": "java",
+  "description": "Engineering techniques implemented in Java",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "ET-JAVA-001",
+      "description": "Connection Pool with HikariCP-like implementation",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/pool/HikariPool.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.pool;\n\nimport javax.sql.DataSource;\nimport java.sql.Connection;\nimport java.sql.SQLException;\nimport java.util.concurrent.BlockingQueue;\nimport java.util.concurrent.LinkedBlockingQueue;\nimport java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicInteger;\n\npublic class HikariPool implements DataSource {\n    private final BlockingQueue<PooledConnection> availableConnections;\n    private final ConnectionFactory connectionFactory;\n    private final int maxSize;\n    private final int minIdle;\n    private final long maxLifetimeMs;\n    private final long idleTimeoutMs;\n    private final AtomicInteger activeCount = new AtomicInteger(0);\n    private volatile boolean isShutdown = false;\n\n    public HikariPool(ConnectionFactory factory, int poolSize, int minIdle,\n                      long maxLifetimeMs, long idleTimeoutMs) {\n        this.connectionFactory = factory;\n        this.maxSize = poolSize;\n        this.minIdle = minIdle;\n        this.maxLifetimeMs = maxLifetimeMs;\n        this.idleTimeoutMs = idleTimeoutMs;\n        this.availableConnections = new LinkedBlockingQueue<>(poolSize);\n        \n        // Initialize minimum idle connections\n        for (int i = 0; i < minIdle; i++) {\n            try {\n                availableConnections.put(createNewConnection());\n            } catch (InterruptedException e) {\n                Thread.currentThread().interrupt();\n            }\n        }\n    }\n\n    @Override\n    public Connection getConnection() throws SQLException {\n        if (isShutdown) throw new SQLException(\"Pool is shut down\");\n\n        PooledConnection conn = availableConnections.poll();\n        if (conn != null && !conn.isExpired()) {\n            return conn;\n        }\n\n        if (activeCount.get() < maxSize) {\n            try {\n                return createNewConnection();\n            } catch (SQLException e) {\n                throw new SQLException(\"Failed to create new connection\", e);\n            }\n        }\n\n        // Wait for a connection to be returned\n        try {\n            conn = availableConnections.poll(30, TimeUnit.SECONDS);\n            if (conn == null || conn.isExpired()) {\n                throw new SQLException(\"Connection acquisition timeout\");\n            }\n            return conn;\n        } catch (InterruptedException e) {\n            Thread.currentThread().interrupt();\n            throw new SQLException(\"Interrupted while waiting for connection\");\n        }\n    }\n\n    public void releaseConnection(PooledConnection conn) {\n        activeCount.decrementAndGet();\n        if (!isShutdown && !conn.isExpired()) {\n            availableConnections.offer(conn);\n        }\n    }\n\n    private PooledConnection createNewConnection() throws SQLException {\n        activeCount.incrementAndGet();\n        Connection physicalConn = connectionFactory.create();\n        return new PooledConnection(physicalConn, maxLifetimeMs);\n    }\n\n    public int getActiveConnections() { return activeCount.get(); }\n    public int getIdleConnections() { return availableConnections.size(); }\n\n    public void shutdown() {\n        isShutdown = true;\n        availableConnections.forEach(PooledConnection::close);\n        availableConnections.clear();\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-HikariCPJava",
+        "title": "HikariCP连接池",
+        "description": "实现类似HikariCP的高性能数据库连接池。HikariPool实现DataSource接口，通过BlockingQueue管理可用连接。构造时预创建minIdle个连接。getConnection优先从队列获取空闲连接，若队列空且未达到maxSize则创建新连接，否则等待30秒超时。PooledConnection包装物理连接并跟踪创建时间用于过期检测。releaseConnection归还连接到队列并递减活跃计数。shutdown方法关闭所有连接并清空队列。AtomicInteger保证活跃计数的线程安全。这种连接池有效减少了数据库连接的频繁创建销毁开销，提高了系统吞吐量。",
+        "confidence": 0.95,
+        "alternative_titles": ["HikariCP", "Connection Pool", "DataSource Pool"]
+      }]
+    },
+    {
+      "id": "ET-JAVA-002",
+      "description": "Rate Limiter with Guava RateLimiter",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/ratelimit/RateLimitAspect.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.ratelimit;\n\nimport com.google.common.util.concurrent.RateLimiter;\nimport org.aspectj.lang.ProceedingJoinPoint;\nimport org.aspectj.lang.annotation.Around;\nimport org.aspectj.lang.annotation.Aspect;\nimport org.springframework.stereotype.Component;\n\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n@Aspect\n@Component\npublic class RateLimitAspect {\n    private final Map<String, RateLimiter> limiters = new ConcurrentHashMap<>();\n\n    @Around(\"@annotation(com.example.ratelimit.RateLimit)\")\n    public Object rateLimit(ProceedingJoinPoint joinPoint) throws Throwable {\n        String key = generateKey(joinPoint);\n        RateLimiter limiter = limiters.computeIfAbsent(key, k -> {\n            RateLimit annotation = getAnnotation(joinPoint);\n            return RateLimiter.create(annotation.permitsPerSecond());\n        });\n\n        if (!limiter.tryAcquire(annotation.timeoutSeconds(), java.util.concurrent.TimeUnit.SECONDS)) {\n            throw new RateLimitExceededException(\n                \"Rate limit exceeded for: \" + key + \n                \" (\" + annotation.permitsPerSecond() + \" permits/second)\"\n            );\n        }\n\n        return joinPoint.proceed();\n    }\n\n    private String generateKey(ProceedingJoinPoint joinPoint) {\n        String className = joinPoint.getTarget().getClass().getSimpleName();\n        String methodName = joinPoint.getSignature().getName();\n        return className + \".\" + methodName;\n    }\n\n    private RateLimit getAnnotation(ProceedingJoinPoint joinPoint) {\n        return joinPoint.getMethod().getAnnotation(RateLimit.class);\n    }\n}\n\nimport java.lang.annotation.ElementType;\nimport java.lang.annotation.Retention;\nimport java.lang.annotation.RetentionPolicy;\nimport java.lang.annotation.Target;\n\n@Target(ElementType.METHOD)\n@Retention(RetentionPolicy.RUNTIME)\npublic @interface RateLimit {\n    double permitsPerSecond() default 10.0;\n    int timeoutSeconds() default 1;\n}\n\n// Usage:\n// @Service\n// public class ApiService {\n//     @RateLimit(permitsPerSecond = 5.0, timeoutSeconds = 2)\n//     public String fetchData() { /* ... */ }\n//     \n//     @RateLimit(permitsPerSecond = 20.0)\n//     public String processRequest() { /* ... */ }\n// }",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-GuavaRLJava",
+        "title": "Guava RateLimiter限流",
+        "description": "使用Google Guava的RateLimiter实现基于AOP的速率限制。RateLimitAspect是一个Spring AOP切面，通过@Around通知拦截标注了@RateLimit注解的方法。limiters Map使用ConcurrentHashMap按方法名存储RateLimiter实例，computeIfAbsent确保线程安全的懒加载。tryAcquire在指定超时时间内尝试获取令牌，失败则抛出RateLimitExceededException。RateLimit注解定义每个方法的允许速率（每秒许可数）和超时时间。ApiService示例展示了不同方法配置不同限流速率的场景。RateLimiter使用令牌桶算法平滑控制请求速率。",
+        "confidence": 0.94,
+        "alternative_titles": ["Rate Limiter", "Guava RateLimiter", "Token Bucket"]
+      }]
+    },
+    {
+      "id": "ET-JAVA-003",
+      "description": "Health Check with Spring Boot Actuator",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/health/CustomHealthIndicator.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.health;\n\nimport org.springframework.boot.actuate.health.CompositeHealthContributor;\nimport org.springframework.boot.actuate.health.Health;\nimport org.springframework.boot.actuate.health.HealthIndicator;\nimport org.springframework.boot.actuate.health.NamedContributor;\nimport org.springframework.stereotype.Component;\n\nimport java.util.HashMap;\nimport java.util.Map;\n\n@Component\npublic class DatabaseHealthIndicator implements HealthIndicator {\n    private final DataSource dataSource;\n    private final Logger logger = LoggerFactory.getLogger(DatabaseHealthIndicator.class);\n\n    public DatabaseHealthIndicator(DataSource dataSource) {\n        this.dataSource = dataSource;\n    }\n\n    @Override\n    public Health health() {\n        try {\n            long startTime = System.currentTimeMillis();\n            try (var conn = dataSource.getConnection();\n                 var stmt = conn.createStatement();\n                 var rs = stmt.executeQuery(\"SELECT 1\")) {\n                \n                if (rs.next()) {\n                    long duration = System.currentTimeMillis() - startTime;\n                    return Health.up()\n                        .withDetail(\"responseTime\", duration + \"ms\")\n                        .withDetail(\"database\", conn.getMetaData().getDatabaseProductName())\n                        .build();\n                }\n            }\n        } catch (Exception e) {\n            logger.error(\"Database health check failed\", e);\n            return Health.down()\n                .withException(e)\n                .withDetail(\"error\", e.getMessage())\n                .build();\n        }\n        return Health.unknown().build();\n    }\n}\n\n@Component\npublic class RedisHealthIndicator implements HealthIndicator {\n    private final RedisTemplate<String, Object> redisTemplate;\n\n    public RedisHealthIndicator(RedisTemplate<String, Object> redisTemplate) {\n        this.redisTemplate = redisTemplate;\n    }\n\n    @Override\n    public Health health() {\n        try {\n            Boolean ping = redisTemplate.getConnectionFactory()\n                .getConnection().ping();\n            \n            if (Boolean.TRUE.equals(ping)) {\n                return Health.up().build();\n            } else {\n                return Health.down().build();\n            }\n        } catch (Exception e) {\n            return Health.down().withException(e).build();\n        }\n    }\n}\n\n@Component\npublic class CompositeHealthContributorImpl implements CompositeHealthContributor {\n    private final Map<String, HealthIndicator> indicators = new HashMap<>();\n\n    public CompositeHealthContributorImpl(List<HealthIndicator> indicatorList) {\n        indicatorList.forEach(indicator -> \n            indicators.put(indicator.getClass().getSimpleName(), indicator)\n        );\n    }\n\n    @Override\n    public HealthIndicator getIndicator(String name) {\n        return indicators.get(name);\n    }\n\n    @Override\n    public Iterator<NamedContributor<HealthIndicator>> iterator() {\n        return indicators.entrySet().stream()\n            .map(e -> NamedContributor.of(e.getKey(), e.getValue()))\n            .iterator();\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-ActuatorJava",
+        "title": "Spring Boot Actuator健康检查",
+        "description": "实现基于Spring Boot Actuator的健康检查系统。DatabaseHealthIndicator通过执行SELECT 1测试数据库连接，记录响应时间和数据库产品名称，成功返回up状态，异常返回down状态。RedisHealthIndicator使用RedisTemplate的ping方法测试Redis连通性。CompositeHealthContributorImpl聚合多个HealthIndicator，Spring Actuator自动将它们注册为/actuator/health端点。每个HealthIndicator独立测试自己的依赖，整体健康状态由各组件状态综合得出。这种模式被Kubernetes、负载均衡器等外部系统用于决定流量路由和实例生命周期。",
+        "confidence": 0.95,
+        "alternative_titles": ["Actuator Health Check", "Service Health", "Readiness Probe"]
+      }]
+    },
+    {
+      "id": "ET-JAVA-004",
+      "description": "Retry with Spring Retry",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/retry/RetryConfig.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.retry;\n\nimport org.springframework.context.annotation.Bean;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.retry.backoff.ExponentialBackOffPolicy;\nimport org.springframework.retry.interceptor.SimpleRetryPolicy;\nimport org.springframework.retry.policy.RetryPolicy;\nimport org.springframework.retry.support.RetryTemplate;\n\nimport java.util.Collections;\n\n@Configuration\npublic class RetryConfig {\n\n    @Bean\n    public RetryTemplate retryTemplate() {\n        RetryTemplate template = new RetryTemplate();\n\n        // Configure retry policy\n        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();\n        retryPolicy.setMaxAttempts(3);\n        template.setRetryPolicy(retryPolicy);\n\n        // Configure back-off policy\n        ExponentialBackOffPolicy backOffPolicy = new ExponentialBackOffPolicy();\n        backOffPolicy.setInitialInterval(1000);\n        backOffPolicy.setMultiplier(2.0);\n        backOffPolicy.setMaxInterval(30000);\n        template.setBackOffPolicy(backOffPolicy);\n\n        return template;\n    }\n\n    @Bean\n    public RetryTemplate httpRetryTemplate() {\n        RetryTemplate template = new RetryTemplate();\n\n        // Only retry on specific exceptions\n        Map<Class<? extends Throwable>, Boolean> retryableExceptions = \n            Collections.singletonMap(java.net.ConnectException.class, true);\n        template.setRetryPolicy(new SimpleRetryPolicy(5, retryableExceptions));\n\n        // Fixed back-off\n        FixedBackOffPolicy backOff = new FixedBackOffPolicy();\n        backOff.setBackOffPeriod(2000);\n        template.setBackOffPolicy(backOff);\n\n        return template;\n    }\n}\n\n@Service\npublic class ResilientHttpClient {\n    private final RetryTemplate retryTemplate;\n    private final RestTemplate restTemplate;\n\n    public ResilientHttpClient(RetryTemplate retryTemplate, RestTemplate restTemplate) {\n        this.retryTemplate = retryTemplate;\n        this.restTemplate = restTemplate;\n    }\n\n    public ResponseEntity<String> fetchWithRetry(String url) {\n        return retryTemplate.execute(context -> {\n            System.out.println(\"Attempt: \" + context.getRetryCount());\n            return restTemplate.getForEntity(url, String.class);\n        },\n        (retryContext, exception) -> {\n            System.err.println(\"Retry failed after attempts: \" + retryContext.getRetryCount());\n        });\n    }\n\n    public User getUserWithRetry(String userId) {\n        return retryTemplate.execute(context -> {\n            ResponseEntity<UserResponse> response = restTemplate.exchange(\n                \"/api/users/\" + userId, HttpMethod.GET, null, UserResponse.class);\n            return UserMapper.toDomain(response.getBody());\n        });\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-SpringRetryJava",
+        "title": "Spring Retry重试机制",
+        "description": "使用Spring Retry框架实现可配置的重试机制。RetryConfig定义两种RetryTemplate：通用模板使用指数退避（初始1秒、倍增2倍、最大30秒），HTTP模板针对ConnectException配置5次重试和固定2秒间隔。ResilientHttpClient通过execute方法包装HTTP调用，context提供重试次数信息。execute方法接受回调和回退处理器，当所有重试耗尽时调用回退逻辑。Spring Retry支持多种重试策略（简单计数、异常类型匹配）和退避策略（固定、指数、随机），可与Spring AOP集成实现声明式重试。",
+        "confidence": 0.93,
+        "alternative_titles": ["Spring Retry", "Retry Template", "Exponential Backoff"]
+      }]
+    },
+    {
+      "id": "ET-JAVA-005",
+      "description": "Configuration with @ConfigurationProperties",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/config/AppConfigProperties.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.config;\n\nimport jakarta.validation.constraints.*;\nimport org.springframework.boot.context.properties.ConfigurationProperties;\nimport org.springframework.boot.context.properties.bind.DefaultValue;\nimport org.springframework.boot.context.properties.bind.Nested;\nimport org.springframework.stereotype.Component;\nimport org.springframework.validation.annotation.Validated;\n\nimport java.time.Duration;\nimport java.util.List;\nimport java.util.Map;\n\n@Component\n@ConfigurationProperties(prefix = \"app\")\n@Validated\npublic class AppConfigProperties {\n\n    @NotNull\n    private ServerConfig server = new ServerConfig();\n    \n    @Nested\n    private DatabaseConfig database = new DatabaseConfig();\n    \n    private List<String> allowedOrigins = List.of(\"http://localhost:3000\");\n    \n    private Map<String, FeatureFlag> features = new java.util.HashMap<>();\n\n    // Getters and setters\n\n    public static class ServerConfig {\n        private int port = 8080;\n        private String host = \"0.0.0.0\";\n        private Duration readTimeout = Duration.ofSeconds(30);\n        private boolean corsEnabled = true;\n\n        // getters/setters\n    }\n\n    @Validated\n    public static class DatabaseConfig {\n        @NotBlank\n        private String url;\n        \n        @Min(1)\n        @Max(100)\n        private int poolSize = 10;\n        \n        private Duration connectionTimeout = Duration.ofSeconds(5);\n        \n        private boolean ssl = false;\n\n        // getters/setters\n    }\n\n    public static class FeatureFlag {\n        private boolean enabled;\n        private String description;\n        private List<String> targetRoles;\n\n        // getters/setters\n    }\n}\n\n// application.yml:\n// app:\n//   server:\n//     port: 8080\n//     read-timeout: 30s\n//   database:\n//     url: jdbc:postgresql://localhost:5432/mydb\n//     pool-size: 20\n//     ssl: true\n//   features:\n//     newCheckout:\n//       enabled: true\n//       description: New checkout flow\n//       target-roles: [ADMIN, PREMIUM_USER]",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-ConfigPropsJava",
+        "title": "@ConfigurationProperties配置绑定",
+        "description": "使用Spring Boot的@ConfigurationProperties实现类型安全的配置绑定。AppConfigProperties类通过@ConfigurationProperties(prefix=\"app\")将application.yml中的app.*属性映射到Java对象。支持嵌套对象（ServerConfig、DatabaseConfig）、集合（allowedOrigins）、Map（features）。@Validated配合JSR-380验证注解（@NotNull、@NotBlank、@Min、@Max）在启动时验证配置合法性。FeatureFlag内部类支持动态配置特性标志。这种配置方式相比@Value提供更强的类型安全和结构化验证，适合复杂的应用配置管理。",
+        "confidence": 0.94,
+        "alternative_titles": ["Configuration Properties", "Typed Configuration", "Spring Boot Config"]
+      }]
+    },
+    {
+      "id": "ET-JAVA-006",
+      "description": "Structured Logging with Logback MDC",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/logging/MdcFilter.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.logging;\n\nimport jakarta.servlet.FilterChain;\nimport jakarta.servlet.ServletException;\nimport jakarta.servlet.http.HttpServletRequest;\nimport jakarta.servlet.http.HttpServletResponse;\nimport org.slf4j.Logger;\nimport org.slf4j.LoggerFactory;\nimport org.slf4j.MDC;\nimport org.springframework.stereotype.Component;\nimport org.springframework.web.filter.OncePerRequestFilter;\n\nimport java.io.IOException;\nimport java.util.UUID;\n\n@Component\npublic class MdcFilter extends OncePerRequestFilter {\n    private static final Logger logger = LoggerFactory.getLogger(MdcFilter.class);\n\n    @Override\n    protected void doFilterInternal(HttpServletRequest request,\n                                    HttpServletResponse response,\n                                    FilterChain filterChain) \n            throws ServletException, IOException {\n        String requestId = request.getHeader(\"X-Request-ID\");\n        if (requestId == null) {\n            requestId = UUID.randomUUID().toString();\n        }\n\n        MDC.put(\"requestId\", requestId);\n        MDC.put(\"remoteAddr\", request.getRemoteAddr());\n        MDC.put(\"method\", request.getMethod());\n        MDC.put(\"uri\", request.getRequestURI());\n\n        long startTime = System.currentTimeMillis();\n        try {\n            filterChain.doFilter(request, response);\n        } finally {\n            long duration = System.currentTimeMillis() - startTime;\n            MDC.put(\"duration\", String.valueOf(duration));\n            MDC.put(\"status\", String.valueOf(response.getStatus()));\n            logger.info(\"Request completed\");\n            MDC.clear();\n        }\n    }\n}\n\n// logback-spring.xml:\n// <configuration>\n//     <appender name=\"JSON\" class=\"ch.qos.logback.core.ConsoleAppender\">\n//         <encoder class=\"net.logstash.logback.encoder.LogstashEncoder\">\n//             <customFields>{\"service\":\"user-service\",\"version\":\"1.0.0\"}</customFields>\n//         </encoder>\n//     </appender>\n//     <root level=\"INFO\">\n//         <appender-ref ref=\"JSON\"/>\n//     </root>\n// </configuration>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-LogbackMDCJava",
+        "title": "Logback MDC结构化日志",
+        "description": "实现基于SLF4J MDC（Mapped Diagnostic Context）的结构化日志系统。MdcFilter继承OncePerRequestFilter，在每个HTTP请求开始时提取或生成requestId，并将requestId、remoteAddr、method、uri等信息放入MDC上下文。请求处理完成后记录duration和status。finally块中确保MDC.clear()清理上下文防止线程复用导致的数据污染。配合LogstashEncoder输出JSON格式的日志，包含自定义字段如service和version。MDC中的上下文信息会自动包含在每条日志中，便于在日志聚合系统中按requestId追踪完整的请求链路。",
+        "confidence": 0.95,
+        "alternative_titles": ["MDC Logging", "Structured Logging", "Logback Context"]
+      }]
+    },
+    {
+      "id": "ET-JAVA-007",
+      "description": "Circuit Breaker with Resilience4j",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/circuitbreaker/CircuitBreakerService.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.circuitbreaker;\n\nimport io.github.resilience4j.circuitbreaker.CircuitBreaker;\nimport io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;\nimport io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;\nimport io.github.resilience4j.timelimiter.TimeLimiter;\nimport io.github.resilience4j.timelimiter.TimeLimiterConfig;\nimport io.github.resilience4j.timelimiter.TimeLimiterRegistry;\n\nimport java.time.Duration;\nimport java.util.concurrent.CompletableFuture;\nimport java.util.function.Supplier;\n\npublic class CircuitBreakerService {\n    private final CircuitBreakerRegistry circuitBreakerRegistry;\n    private final TimeLimiterRegistry timeLimiterRegistry;\n\n    public CircuitBreakerService() {\n        CircuitBreakerConfig config = CircuitBreakerConfig.custom()\n            .failureRateThreshold(50)\n            .waitDurationInOpenState(Duration.ofSeconds(30))\n            .slidingWindowSize(10)\n            .minimumNumberOfCalls(5)\n            .permittedNumberOfCallsInHalfOpenState(3)\n            .automaticTransitionFromOpenToHalfOpenEnabled(true)\n            .recordExceptions(\n                java.net.SocketTimeoutException.class,\n                java.net.ConnectException.class\n            )\n            .ignoreExceptions(\n                IllegalArgumentException.class\n            )\n            .build();\n\n        this.circuitBreakerRegistry = CircuitBreakerRegistry.of(config);\n        \n        TimeLimiterConfig tlConfig = TimeLimiterConfig.custom()\n            .timeoutDuration(Duration.ofSeconds(5))\n            .cancelRunningFuture(true)\n            .build();\n        this.timeLimiterRegistry = TimeLimiterRegistry.of(tlConfig);\n    }\n\n    public <T> CompletableFuture<T> executeWithCircuitBreaker(\n            String serviceName, Supplier<CompletableFuture<T>> supplier) {\n        \n        CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker(serviceName);\n        TimeLimiter timeLimiter = timeLimiterRegistry.timeLimiter(serviceName);\n\n        Supplier<CompletableFuture<T>> decoratedSupplier = \n            CircuitBreaker.decorateFutureSupplier(circuitBreaker, supplier);\n        decoratedSupplier = TimeLimiter.decorateFutureSupplier(timeLimiter, decoratedSupplier);\n\n        return decoratedSupplier.get().exceptionally(ex -> {\n            if (ex.getCause() instanceof io.github.resilience4j.circuitbreaker.CallNotPermittedException) {\n                throw new ServiceUnavailableException(serviceName + \" is circuit open\");\n            }\n            throw new RuntimeException(ex);\n        });\n    }\n\n    public void reportMetrics(String serviceName, CircuitBreaker.Metrics metrics) {\n        System.out.printf(\"Service: %s | State: %s | Failure Rate: %.1f%% | Call Count: %d%n\",\n            serviceName,\n            metrics.getState(),\n            metrics.getFailureRate(),\n            metrics.getNumberOfBufferedCalls()\n        );\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-Resilience4jCBJava",
+        "title": "Resilience4j熔断器",
+        "description": "使用Resilience4j实现熔断器模式保护微服务调用。CircuitBreakerConfig设置失败率阈值50%、打开状态等待30秒、滑动窗口10次调用、最少5次触发评估。recordExceptions配置需要记录的异常类型（SocketTimeoutException、ConnectException），ignoreExceptions配置忽略的异常（IllegalArgumentException）。TimeLimiter配置5秒超时并取消正在运行的Future。executeWithCircuitBreaker方法通过decorateFutureSupplier装饰异步调用，组合熔断器和超时限制。exceptionally处理器捕获CallNotPermittedException并转换为ServiceUnavailableException。reportMetrics输出熔断器当前状态和统计数据。",
+        "confidence": 0.94,
+        "alternative_titles": ["Circuit Breaker", "Resilience4j", "Fail Fast Pattern"]
+      }]
+    },
+    {
+      "id": "ET-JAVA-008",
+      "description": "Metrics with Micrometer",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/metrics/MetricsService.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.metrics;\n\nimport io.micrometer.core.instrument.Counter;\nimport io.micrometer.core.instrument.DistributionSummary;\nimport io.micrometer.core.instrument.MeterRegistry;\nimport io.micrometer.core.instrument.Timer;\nimport org.springframework.stereotype.Service;\n\nimport java.time.Duration;\nimport java.util.concurrent.ConcurrentHashMap;\nimport java.util.concurrent.TimeUnit;\n\n@Service\npublic class MetricsService {\n    private final MeterRegistry meterRegistry;\n    private final Timer httpRequestTimer;\n    private final Counter httpErrorsCounter;\n    private final DistributionSummary requestSizeSummary;\n\n    public MetricsService(MeterRegistry meterRegistry) {\n        this.meterRegistry = meterRegistry;\n        \n        this.httpRequestTimer = Timer.builder(\"http.request.duration\")\n            .description(\"HTTP request duration\")\n            .tags(\"service\", \"user-service\")\n            .register(meterRegistry);\n\n        this.httpErrorsCounter = Counter.builder(\"http.errors.total\")\n            .description(\"Total HTTP errors\")\n            .tags(\"service\", \"user-service\")\n            .register(meterRegistry);\n\n        this.requestSizeSummary = DistributionSummary.builder(\"http.request.size.bytes\")\n            .description(\"HTTP request body size\")\n            .baseUnit(\"bytes\")\n            .register(meterRegistry);\n    }\n\n    public <T> T timedOperation(String operationName, java.util.function.Supplier<T> supplier) {\n        return httpRequestTimer.record(supplier);\n    }\n\n    public void recordError() {\n        httpErrorsCounter.increment();\n    }\n\n    public void recordRequestSize(long sizeBytes) {\n        requestSizeSummary.record(sizeBytes);\n    }\n\n    public void recordBusinessMetric(String metricName, double value) {\n        io.micrometer.core.instrument.Gauge.builder(\"business.\" + metricName, \n            this, obj -> getMetricValue(metricName))\n            .tag(\"name\", metricName)\n            .register(meterRegistry);\n    }\n\n    private double getMetricValue(String name) {\n        // Retrieve from internal storage\n        return 0.0;\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-MicrometerJava",
+        "title": "Micrometer指标采集",
+        "description": "使用Micrometer实现应用指标采集。MetricsService通过MeterRegistry注册三种类型的指标：Timer（http.request.duration）测量HTTP请求耗时，Counter（http.errors.total）统计错误数量，DistributionSummary（http.request.size.bytes）分析请求体大小分布。每个指标都带有service标签用于区分不同服务实例。timedOperation方法通过Timer.record自动测量业务方法的执行时间。recordError和recordRequestSize分别递增错误计数和记录请求大小。Micrometer作为抽象层支持对接Prometheus、Datadog、New Relic等多种后端监控系统。",
+        "confidence": 0.93,
+        "alternative_titles": ["Micrometer Metrics", "Application Metrics", "Observability"]
+      }]
+    }
+  ]
+}

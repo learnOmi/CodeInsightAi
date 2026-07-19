@@ -1,5 +1,6 @@
 {
   "repo_id": "benchmark-dp",
+  "language": "python",
   "category": "DP",
   "description": "设计模式检测评估数据集",
   "prompt_version": "1.0.0",

@@ -1,0 +1,193 @@
+{
+  "repo_id": "benchmark-dp-javascript",
+  "category": "DP",
+  "language": "javascript",
+  "description": "JavaScript design pattern detection evaluation dataset",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DP-JS-001",
+      "description": "Module Pattern - Revealing Module",
+      "code_snippets": [
+        {
+          "file": "src/modules/cart.js",
+          "start_line": 1,
+          "end_line": 48,
+          "content": "const CartModule = (() => {\n  let items = [];\n  let total = 0;\n\n  function addItem(product, qty = 1) {\n    const existing = items.find(i => i.id === product.id);\n    if (existing) {\n      existing.qty += qty;\n    } else {\n      items.push({ id: product.id, name: product.name, price: product.price, qty });\n    }\n    recalculateTotal();\n  }\n\n  function removeItem(productId) {\n    items = items.filter(i => i.id !== productId);\n    recalculateTotal();\n  }\n\n  function recalculateTotal() {\n    total = items.reduce((sum, item) => sum + item.price * item.qty, 0);\n  }\n\n  function getItems() {\n    return [...items];\n  }\n\n  function getTotal() {\n    return total;\n  }\n\n  return {\n    addItem,\n    removeItem,\n    getItems,\n    getTotal\n  };\n})();\n\nexport default CartModule;",
+          "highlighted_lines": [1, 20, 25, 33, 37]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-ModuleJS",
+          "title": "模块模式",
+          "description": "使用立即执行函数表达式(IIFE)实现模块模式，通过闭包封装私有状态(items, total)，仅暴露公共API(addItem, removeItem, getItems, getTotal)",
+          "confidence": 0.95,
+          "alternative_titles": ["Module Pattern", "Revealing Module Pattern"]
+        }
+      ]
+    },
+    {
+      "id": "DP-JS-002",
+      "description": "Observer/PubSub Pattern - Event Emitter",
+      "code_snippets": [
+        {
+          "file": "src/events/emitter.js",
+          "start_line": 1,
+          "end_line": 55,
+          "content": "class EventEmitter {\n  constructor() {\n    this._events = new Map();\n  }\n\n  on(event, listener) {\n    if (!this._events.has(event)) {\n      this._events.set(event, new Set());\n    }\n    this._events.get(event).add(listener);\n    return () => this.off(event, listener);\n  }\n\n  off(event, listener) {\n    const listeners = this._events.get(event);\n    if (listeners) {\n      listeners.delete(listener);\n    }\n  }\n\n  emit(event, ...args) {\n    const listeners = this._events.get(event);\n    if (listeners) {\n      listeners.forEach(listener => {\n        try {\n          listener(...args);\n        } catch (err) {\n          console.error(`Error in event ${event}:`, err);\n        }\n      });\n    }\n  }\n\n  once(event, listener) {\n    const wrapper = (...args) => {\n      this.off(event, wrapper);\n      listener(...args);\n    };\n    return this.on(event, wrapper);\n  }\n}\n\nmodule.exports = EventEmitter;",
+          "highlighted_lines": [5, 8, 17, 23, 33]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-ObserverJS",
+          "title": "观察者模式",
+          "description": "通过 EventEmitter 类实现观察者模式，使用 Map 存储事件与监听器的映射关系，支持 on/off/once/emit 完整生命周期管理，提供取消订阅的清理函数",
+          "confidence": 0.95,
+          "alternative_titles": ["发布-订阅模式", "PubSub Pattern", "Event Emitter Pattern"]
+        }
+      ]
+    },
+    {
+      "id": "DP-JS-003",
+      "description": "Factory Function Pattern - Entity Creation",
+      "code_snippets": [
+        {
+          "file": "src/factories/user.js",
+          "start_line": 1,
+          "end_line": 62,
+          "content": "function createUser(id, name, role) {\n  let sessions = [];\n\n  const validateSession = (sessionId) => {\n    return sessions.includes(sessionId);\n  };\n\n  function grantSession(sessionId) {\n    if (!sessions.includes(sessionId)) {\n      sessions.push(sessionId);\n    }\n  }\n\n  function revokeSession(sessionId) {\n    sessions = sessions.filter(s => s !== sessionId);\n  }\n\n  return Object.freeze({\n    getId: () => id,\n    getName: () => name,\n    getRole: () => role,\n    grantSession,\n    revokeSession,\n    validateSession,\n    getSessionCount: () => sessions.length,\n    toJSON() {\n      return { id, name, role, sessionCount: sessions.length };\n    }\n  });\n}\n\nfunction createAdminUser(id, name, permissions) {\n  const user = createUser(id, name, 'admin');\n  return Object.setPrototypeOf({ permissions }, user);\n}\n\nmodule.exports = { createUser, createAdminUser };",
+          "highlighted_lines": [1, 30, 38, 46, 52]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-FactoryJS",
+          "title": "工厂函数模式",
+          "description": "使用工厂函数 createUser 创建用户对象，通过闭包维护私有状态(sessions)，返回冻结的对象以保护内部数据；createAdminUser 演示了工厂函数之间的组合扩展",
+          "confidence": 0.92,
+          "alternative_titles": ["Factory Function", "Object Factory"]
+        }
+      ]
+    },
+    {
+      "id": "DP-JS-004",
+      "description": "Middleware Chain of Responsibility Pattern",
+      "code_snippets": [
+        {
+          "file": "src/middleware/router.js",
+          "start_line": 1,
+          "end_line": 50,
+          "content": "class MiddlewarePipeline {\n  constructor() {\n    this.stack = [];\n  }\n\n  use(middleware) {\n    this.stack.push(middleware);\n    return this;\n  }\n\n  async execute(context) {\n    let index = 0;\n\n    async function next(err) {\n      if (err) throw err;\n      const middleware = this.stack[index++];\n      if (!middleware) return context;\n      return middleware(context, next.bind(this));\n    }\n\n    return next.call(this);\n  }\n\n  async handleRequest(req) {\n    const ctx = {\n      req,\n      res: { status: 200, body: null, headers: {} },\n      next\n    };\n\n    try {\n      await this.execute(ctx);\n      return ctx.res;\n    } catch (error) {\n      return { status: 500, body: { error: error.message } };\n    }\n  }\n}\n\nmodule.exports = MiddlewarePipeline;",
+          "highlighted_lines": [8, 12, 18, 25, 35]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-MiddlewareJS",
+          "title": "中间件链模式",
+          "description": "使用责任链模式实现 Express/Koa 风格的中间件管道，通过 stack 数组存储中间件，next 函数控制链式调用流程，支持错误传递和上下文共享",
+          "confidence": 0.93,
+          "alternative_titles": ["Middleware Pattern", "Chain of Responsibility", "中间件管道"]
+        }
+      ]
+    },
+    {
+      "id": "DP-JS-005",
+      "description": "Proxy/Decorator Pattern - Reactive Properties",
+      "code_snippets": [
+        {
+          "file": "src/reactivity/proxy.js",
+          "start_line": 1,
+          "end_line": 45,
+          "content": "function reactive(target = {}) {\n  const handlers = {\n    get(obj, prop, receiver) {\n      track(obj, prop);\n      const value = Reflect.get(obj, prop, receiver);\n      return typeof value === 'object' ? reactive(value) : value;\n    },\n\n    set(obj, prop, value, receiver) {\n      const oldValue = obj[prop];\n      const result = Reflect.set(obj, prop, value, receiver);\n      if (!Object.is(oldValue, value)) {\n        trigger(obj, prop, value, oldValue);\n      }\n      return result;\n    }\n  };\n\n  return new Proxy(target, handlers);\n}\n\nconst deps = new WeakMap();\n\nfunction track(target, key) {\n  const effect = activeEffect;\n  if (effect) {\n    if (!deps.has(target)) deps.set(target, new Map());\n    const map = deps.get(target);\n    if (!map.has(key)) map.set(key, new Set());\n    map.get(key).add(effect);\n  }\n}\n\nfunction trigger(target, key, newValue, oldValue) {\n  const map = deps.get(target);\n  if (!map) return;\n  const effects = map.get(key);\n  if (effects) effects.forEach(fn => fn(newValue, oldValue));\n}\n\nmodule.exports = { reactive };",
+          "highlighted_lines": [2, 4, 11, 25, 35]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-ProxyJS",
+          "title": "代理模式",
+          "description": "使用 ES6 Proxy 实现响应式数据绑定，通过 get trap 追踪依赖(track)，通过 set trap 触发更新(trigger)，支持嵌套对象的自动响应式转换",
+          "confidence": 0.94,
+          "alternative_titles": ["Proxy Pattern", "Reactive Proxy", "响应式代理"]
+        }
+      ]
+    },
+    {
+      "id": "DP-JS-006",
+      "description": "Singleton Pattern - Database Connection Pool",
+      "code_snippets": [
+        {
+          "file": "src/db/pool.js",
+          "start_line": 1,
+          "end_line": 50,
+          "content": "class ConnectionPool {\n  static #instance = null;\n\n  constructor(options = {}) {\n    if (ConnectionPool.#instance) {\n      throw new Error('Use ConnectionPool.getInstance() instead');\n    }\n    this.maxConnections = options.max || 10;\n    this.connections = [];\n    this.pendingRequests = [];\n    this._initialized = false;\n  }\n\n  static getInstance(options) {\n    if (!ConnectionPool.#instance) {\n      ConnectionPool.#instance = new ConnectionPool(options);\n    }\n    return ConnectionPool.#instance;\n  }\n\n  async acquire() {\n    if (this.connections.length > 0) {\n      return this.connections.pop();\n    }\n    if (this.connections.length < this.maxConnections) {\n      return this._createConnection();\n    }\n    return new Promise((resolve) => {\n      this.pendingRequests.push(resolve);\n    });\n  }\n\n  release(connection) {\n    this.connections.push(connection);\n    const request = this.pendingRequests.shift();\n    if (request) request(this.acquire());\n  }\n}\n\nmodule.exports = ConnectionPool;",
+          "highlighted_lines": [2, 15, 22, 28, 38]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-SingletonJS",
+          "title": "单例模式",
+          "description": "使用私有静态字段(#instance)和 getInstance 静态方法实现单例模式，确保全局只有一个连接池实例，通过 pendingRequests 队列管理连接获取等待",
+          "confidence": 0.93,
+          "alternative_titles": ["Singleton Pattern", "单例模式", "实例唯一性"]
+        }
+      ]
+    },
+    {
+      "id": "DP-JS-007",
+      "description": "Strategy Pattern - Sorting Algorithms",
+      "code_snippets": [
+        {
+          "file": "src/utils/sort-strategies.js",
+          "start_line": 1,
+          "end_line": 42,
+          "content": "const SortStrategies = {\n  ascending: (a, b) => a - b,\n  descending: (a, b) => b - a,\n  byCreatedAt: (a, b) => new Date(a.createdAt) - new Date(b.createdAt),\n  byPriority: (a, b) => b.priority - a.priority,\n  custom: (comparator) => comparator\n};\n\nclass SortEngine {\n  constructor(strategy = SortStrategies.ascending) {\n    this.strategy = strategy;\n  }\n\n  setStrategy(strategy) {\n    this.strategy = strategy;\n  }\n\n  sort(items) {\n    return [...items].sort(this.strategy);\n  }\n\n  stableSort(items, keyFn) {\n    const wrapped = items.map((item, i) => ({ item, index: i, key: keyFn(item) }));\n    wrapped.sort((a, b) => {\n      const cmp = this.strategy(a.key, b.key);\n      return cmp !== 0 ? cmp : a.index - b.index;\n    });\n    return wrapped.map(w => w.item);\n  }\n}\n\nmodule.exports = { SortStrategies, SortEngine };",
+          "highlighted_lines": [1, 14, 19, 22, 27]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-StrategyJS",
+          "title": "策略模式",
+          "description": "SortEngine 使用策略模式封装不同的排序算法，通过 setStrategy 动态切换排序策略，stableSort 方法演示了稳定排序的实现，符合开闭原则",
+          "confidence": 0.91,
+          "alternative_titles": ["Strategy Pattern", "排序策略", "算法替换"]
+        }
+      ]
+    },
+    {
+      "id": "DP-JS-008",
+      "description": "Mixin Pattern - Component Composition",
+      "code_snippets": [
+        {
+          "file": "src/components/mixins.js",
+          "start_line": 1,
+          "end_line": 40,
+          "content": "const LifecycleMixin = {\n  mounted() { this._isMounted = true; },\n  unmounted() { this._isMounted = false; }\n};\n\nconst EventMixin = {\n  $on(event, handler) {\n    if (!this._handlers) this._handlers = {};\n    if (!this._handlers[event]) this._handlers[event] = [];\n    this._handlers[event].push(handler);\n  },\n\n  $emit(event, ...args) {\n    if (this._handlers?.[event]) {\n      this._handlers[event].forEach(h => h(...args));\n    }\n  },\n\n  $off(event, handler) {\n    if (handler) {\n      this._handlers?.[event]?.splice(\n        this._handlers[event].indexOf(handler), 1\n      );\n    } else {\n      delete this._handlers?.[event];\n    }\n  }\n};\n\nconst StateMixin = {\n  $set(path, value) {\n    const keys = path.split('.');\n    let target = this;\n    for (let i = 0; i < keys.length - 1; i++) {\n      target = target[keys[i]] = target[keys[i]] ?? {};\n    }\n    target[keys.at(-1)] = value;\n  }\n};\n\nfunction applyMixins(ctor, mixins) {\n  mixins.forEach(m => {\n    Object.getOwnPropertyNames(m).forEach(name => {\n      if (name !== 'constructor') {\n        Object.defineProperty(ctor.prototype, name, Object.getOwnPropertyDescriptor(m, name));\n      }\n    });\n  });\n}\n\nmodule.exports = { LifecycleMixin, EventMixin, StateMixin, applyMixins };",
+          "highlighted_lines": [1, 5, 14, 29, 37]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-MixinJS",
+          "title": "混入模式",
+          "description": "通过 Mixin 对象(LifecycleMixin, EventMixin, StateMixin)复用组件逻辑，applyMixins 函数将混入的方法注入到类的原型上，实现横向功能扩展而不增加继承深度",
+          "confidence": 0.92,
+          "alternative_titles": ["Mixin Pattern", "混入模式", "Composition Mixin"]
+        }
+      ]
+    }
+  ]
+}

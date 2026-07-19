@@ -144,7 +144,7 @@ class TestLoadDataset:
         dataset = load_dataset_from_file(dp_file)
         assert dataset is not None
         assert len(dataset.test_cases) == 5
-        assert dataset.language == "unknown"  # 旧格式无 language 字段
+        assert dataset.language == "python"  # 新格式有 language 字段
         assert dataset.category == "DP"
 
     def test_load_from_dir(self):
@@ -394,8 +394,8 @@ class TestEvalEngine:
 
     async def test_run_filter_by_language(self, engine):
         """按语言筛选"""
-        # 现有数据无 language 字段，默认为 "unknown"
-        report = await engine.run(languages=["unknown"])
+        # 现有数据有 language="python"
+        report = await engine.run(languages=["python"])
         assert report.summary.total_test_cases > 0
 
     async def test_report_by_language(self, engine):

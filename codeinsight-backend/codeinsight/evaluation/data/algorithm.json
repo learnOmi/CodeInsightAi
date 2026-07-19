@@ -1,5 +1,6 @@
 {
   "repo_id": "benchmark-al",
+  "language": "python",
   "category": "AL",
   "description": "算法实现识别评估数据集",
   "prompt_version": "1.0.0",

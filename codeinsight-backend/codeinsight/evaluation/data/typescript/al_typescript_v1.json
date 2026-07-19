@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-al-typescript",
+  "category": "AL",
+  "language": "typescript",
+  "description": "Algorithms implemented in TypeScript",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AL-TS-001",
+      "description": "Generic binary search implementation",
+      "code_snippets": [{
+        "file": "src/algorithms/binarySearch.ts",
+        "start_line": 1,
+        "end_line": 40,
+        "content": "function binarySearch<T>(\n  array: T[],\n  target: T,\n  comparator: (a: T, b: T) => number = (a, b) => {\n    if (a < b) return -1;\n    if (a > b) return 1;\n    return 0;\n  }\n): number {\n  let left = 0;\n  let right = array.length - 1;\n\n  while (left <= right) {\n    const mid = Math.floor((left + right) / 2);\n    const comparison = comparator(array[mid], target);\n\n    if (comparison === 0) {\n      return mid;\n    } else if (comparison < 0) {\n      left = mid + 1;\n    } else {\n      right = mid - 1;\n    }\n  }\n\n  return -1; // Not found\n}\n\n// Usage examples\nconst numbers = [1, 3, 5, 7, 9, 11, 13, 15];\nconsole.log(binarySearch(numbers, 7)); // 3\n\nconst users = [\n  { id: 1, name: 'Alice' },\n  { id: 2, name: 'Bob' },\n  { id: 3, name: 'Charlie' }\n];\n\nconsole.log(binarySearch(users, { id: 2 }, (a, b) => a.id - b.id)); // 1",
+        "highlighted_lines": [1, 5, 10, 15, 20, 25, 30, 35]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-BinarySearchTS",
+        "title": "泛型二分查找算法",
+        "description": "实现泛型二分查找算法，支持任意可比较类型的数据。通过可选的comparator函数提供自定义比较逻辑，默认使用JavaScript的严格比较。算法在有序数组中通过不断缩小搜索范围来定位目标元素，时间复杂度为O(log n)。当找到目标元素时返回其索引，未找到时返回-1。支持数字数组和对象数组的查找，通过传入自定义comparator实现基于对象属性的搜索。",
+        "confidence": 0.95,
+        "alternative_titles": ["Binary Search", "Logarithmic Search", "Half-Interval Search"]
+      }]
+    },
+    {
+      "id": "AL-TS-002",
+      "description": "Dijkstra algorithm with priority queue",
+      "code_snippets": [{
+        "file": "src/algorithms/dijkstra.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "class MinPriorityQueue<T> {\n  private heap: T[] = [];\n  private comparator: (a: T, b: T) => number;\n\n  constructor(comparator: (a: T, b: T) => number) {\n    this.comparator = comparator;\n  }\n\n  enqueue(value: T): void {\n    this.heap.push(value);\n    this.siftUp(this.heap.length - 1);\n  }\n\n  dequeue(): T | undefined {\n    if (this.heap.length === 0) return undefined;\n    \n    const min = this.heap[0];\n    const last = this.heap.pop()!;\n    \n    if (this.heap.length > 0) {\n      this.heap[0] = last;\n      this.siftDown(0);\n    }\n    \n    return min;\n  }\n\n  private siftUp(index: number): void {\n    while (index > 0) {\n      const parentIndex = Math.floor((index - 1) / 2);\n      if (this.comparator(this.heap[index], this.heap[parentIndex]) < 0) {\n        [this.heap[index], this.heap[parentIndex]] = [this.heap[parentIndex], this.heap[index]];\n        index = parentIndex;\n      } else {\n        break;\n      }\n    }\n  }\n\n  private siftDown(index: number): void {\n    const length = this.heap.length;\n    const leftChild = 2 * index + 1;\n    const rightChild = 2 * index + 2;\n    let smallest = index;\n\n    if (leftChild < length && this.comparator(this.heap[leftChild], this.heap[smallest]) < 0) {\n      smallest = leftChild;\n    }\n    if (rightChild < length && this.comparator(this.heap[rightChild], this.heap[smallest]) < 0) {\n      smallest = rightChild;\n    }\n    if (smallest !== index) {\n      [this.heap[index], this.heap[smallest]] = [this.heap[smallest], this.heap[index]];\n      this.siftDown(smallest);\n    }\n  }\n}\n\ninterface Edge {\n  to: string;\n  weight: number;\n}\n\ntype Graph = Map<string, Edge[]>;\n\nfunction dijkstra(graph: Graph, start: string): Map<string, number> {\n  const distances = new Map<string, number>();\n  const pq = new MinPriorityQueue<{node: string, distance: number}>(\n    (a, b) => a.distance - b.distance\n  );\n\n  for (const node of graph.keys()) {\n    distances.set(node, Infinity);\n  }\n  distances.set(start, 0);\n  pq.enqueue({ node: start, distance: 0 });\n\n  while (pq.heap.length > 0) {\n    const { node, distance } = pq.dequeue()!;\n    if (distance > distances.get(node)!) continue;\n\n    const edges = graph.get(node) || [];\n    for (const edge of edges) {\n      const newDistance = distance + edge.weight;\n      const currentDistance = distances.get(edge.to) || Infinity;\n      if (newDistance < currentDistance) {\n        distances.set(edge.to, newDistance);\n        pq.enqueue({ node: edge.to, distance: newDistance });\n      }\n    }\n  }\n\n  return distances;\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-DijkstraTS",
+        "title": "带优先队列的Dijkstra最短路径算法",
+        "description": "实现使用最小优先队列优化的Dijkstra算法求解单源最短路径问题。MinPriorityQueue类使用二叉堆实现高效的插入和删除最小值操作。dijkstra函数接收图结构和起点，初始化所有节点距离为无穷大，起点距离为0。使用优先队列按距离排序处理节点，对于每个节点的邻居，如果通过当前节点到达的距离更短，则更新距离并加入队列。算法保证在正权边图中找到从起点到所有其他节点的最短路径，时间复杂度为O((V+E)log V)。",
+        "confidence": 0.94,
+        "alternative_titles": ["Dijkstra's Algorithm", "Shortest Path", "Greedy Shortest Path"]
+      }]
+    },
+    {
+      "id": "AL-TS-003",
+      "description": "Merge intervals algorithm",
+      "code_snippets": [{
+        "file": "src/algorithms/mergeIntervals.ts",
+        "start_line": 1,
+        "end_line": 35,
+        "content": "interface Interval {\n  start: number;\n  end: number;\n}\n\nfunction mergeIntervals(intervals: Interval[]): Interval[] {\n  if (intervals.length === 0) return [];\n\n  // Sort intervals by start time\n  const sorted = [...intervals].sort((a, b) => a.start - b.start);\n  \n  const merged: Interval[] = [sorted[0]];\n\n  for (let i = 1; i < sorted.length; i++) {\n    const lastMerged = merged[merged.length - 1];\n    const current = sorted[i];\n\n    // If intervals overlap, merge them\n    if (current.start <= lastMerged.end) {\n      lastMerged.end = Math.max(lastMerged.end, current.end);\n    } else {\n      // No overlap, add new interval\n      merged.push(current);\n    }\n  }\n\n  return merged;\n}\n\n// Usage\nconst intervals: Interval[] = [\n  [1, 3], [2, 6], [8, 10], [15, 18]\n].map(([start, end]) => ({ start, end }));\n\nconsole.log(mergeIntervals(intervals));\n// Output: [{start: 1, end: 6}, {start: 8, end: 10}, {start: 15, end: 18}]",
+        "highlighted_lines": [1, 5, 10, 15, 20, 25, 30]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-MergeIntervalsTS",
+        "title": "区间合并算法",
+        "description": "实现区间合并算法，用于合并重叠的时间区间。首先按区间的起始时间对所有区间进行排序，然后遍历排序后的区间列表。对于每个区间，如果它与前一个合并区间有重叠（当前区间的开始时间小于等于前一个区间的结束时间），则将它们合并，新的结束时间为两者中的较大值。如果没有重叠，则将当前区间添加到结果列表。该算法时间复杂度为O(n log n)，主要由排序步骤决定，合并过程为O(n)。",
+        "confidence": 0.95,
+        "alternative_titles": ["Interval Merging", "Overlap Resolution", "Time Range Consolidation"]
+      }]
+    },
+    {
+      "id": "AL-TS-004",
+      "description": "Topological sort using Kahn's algorithm",
+      "code_snippets": [{
+        "file": "src/algorithms/topologicalSort.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "function topologicalSort(vertices: string[], edges: [string, string][]): string[] {\n  // Build adjacency list and in-degree map\n  const adjList = new Map<string, string[]>();\n  const inDegree = new Map<string, number>();\n\n  // Initialize\n  for (const vertex of vertices) {\n    adjList.set(vertex, []);\n    inDegree.set(vertex, 0);\n  }\n\n  // Build graph\n  for (const [from, to] of edges) {\n    adjList.get(from)!.push(to);\n    inDegree.set(to, (inDegree.get(to) || 0) + 1);\n  }\n\n  // Queue all vertices with in-degree 0\n  const queue: string[] = [];\n  for (const [vertex, degree] of inDegree.entries()) {\n    if (degree === 0) {\n      queue.push(vertex);\n    }\n  }\n\n  const result: string[] = [];\n\n  while (queue.length > 0) {\n    const vertex = queue.shift()!;\n    result.push(vertex);\n\n    const neighbors = adjList.get(vertex) || [];\n    for (const neighbor of neighbors) {\n      const newDegree = (inDegree.get(neighbor) || 0) - 1;\n      inDegree.set(neighbor, newDegree);\n\n      if (newDegree === 0) {\n        queue.push(neighbor);\n      }\n    }\n  }\n\n  // Check for cycle\n  if (result.length !== vertices.length) {\n    throw new Error('Graph contains a cycle');\n  }\n\n  return result;\n}\n\n// Usage\nconst vertices = ['A', 'B', 'C', 'D', 'E'];\nconst edges: [string, string][] = [\n  ['A', 'C'], ['B', 'C'], ['C', 'D'], ['D', 'E']\n];\n\nconsole.log(topologicalSort(vertices, edges));\n// Possible output: ['A', 'B', 'C', 'D', 'E']",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-TopoSortTS",
+        "title": "拓扑排序算法",
+        "description": "实现Kahn算法进行拓扑排序，用于有向无环图（DAG）的线性排序。算法首先构建邻接表和入度表，将所有入度为0的顶点加入队列。然后从队列中取出顶点加入结果，并将其邻居的入度减1，如果邻居入度变为0则加入队列。重复此过程直到队列为空。如果最终结果中的顶点数不等于总顶点数，说明图中存在环，无法进行拓扑排序。该算法时间复杂度为O(V+E)，适用于任务调度、依赖解析等场景。",
+        "confidence": 0.94,
+        "alternative_titles": ["Topological Sorting", "Kahn's Algorithm", "DAG Ordering"]
+      }]
+    },
+    {
+      "id": "AL-TS-005",
+      "description": "LRU Cache implemented with Map",
+      "code_snippets": [{
+        "file": "src/datastructures/LRUCache.ts",
+        "start_line": 1,
+        "end_line": 45,
+        "content": "class LRUCache<K, V> {\n  private capacity: number;\n  private cache: Map<K, V>;\n\n  constructor(capacity: number) {\n    if (capacity <= 0) {\n      throw new Error('Capacity must be positive');\n    }\n    this.capacity = capacity;\n    this.cache = new Map();\n  }\n\n  get(key: K): V | undefined {\n    if (!this.cache.has(key)) {\n      return undefined;\n    }\n\n    // Move accessed item to the end (most recently used)\n    const value = this.cache.get(key)!;\n    this.cache.delete(key);\n    this.cache.set(key, value);\n\n    return value;\n  }\n\n  put(key: K, value: V): void {\n    if (this.cache.has(key)) {\n      // Update existing key and move to end\n      this.cache.delete(key);\n    } else if (this.cache.size >= this.capacity) {\n      // Remove least recently used item (first item in Map)\n      const firstKey = this.cache.keys().next().value;\n      this.cache.delete(firstKey);\n    }\n\n    this.cache.set(key, value);\n  }\n\n  size(): number {\n    return this.cache.size;\n  }\n\n  clear(): void {\n    this.cache.clear();\n  }\n\n  keys(): IterableIterator<K> {\n    return this.cache.keys();\n  }\n}\n\n// Usage\nconst cache = new LRUCache<string, number>(3);\ncache.put('a', 1);\ncache.put('b', 2);\ncache.put('c', 3);\ncache.get('a'); // Returns 1, 'a' becomes most recently used\ncache.put('d', 4); // Evicts 'b', the least recently used item",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 45]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-LRUCacheTS",
+        "title": "Map实现的LRU缓存",
+        "description": "使用JavaScript的Map数据结构实现最近最少使用（LRU）缓存。Map的键值对保持插入顺序的特性完美契合LRU的需求。get方法访问键时，将其从Map中删除后重新插入，使其成为最新使用的元素。put方法在容量满时删除Map中第一个元素（最久未使用），然后插入新元素。所有操作的时间复杂度均为O(1)，包括查找、插入和淘汰。这种实现简洁高效，适用于需要限制缓存大小和快速访问的场景。",
+        "confidence": 0.95,
+        "alternative_titles": ["LRU Cache", "Least Recently Used", "Cache Eviction"]
+      }]
+    },
+    {
+      "id": "AL-TS-006",
+      "description": "Trie data structure with generics",
+      "code_snippets": [{
+        "file": "src/datastructures/Trie.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "class TrieNode<T = string> {\n  children: Map<string, TrieNode<T>> = new Map();\n  value: T | null = null;\n  isEndOfWord: boolean = false;\n}\n\nclass Trie<T = string> {\n  private root: TrieNode<T> = new TrieNode<T>();\n\n  insert(word: string, value: T): void {\n    let node = this.root;\n    \n    for (const char of word) {\n      if (!node.children.has(char)) {\n        node.children.set(char, new TrieNode<T>());\n      }\n      node = node.children.get(char)!;\n    }\n    \n    node.isEndOfWord = true;\n    node.value = value;\n  }\n\n  search(word: string): T | undefined {\n    const node = this.findNode(word);\n    return node?.isEndOfWord ? node.value : undefined;\n  }\n\n  startsWith(prefix: string): boolean {\n    return this.findNode(prefix) !== undefined;\n  }\n\n  autocomplete(prefix: string, maxResults: number = 10): Array<{word: string, value: T}> {\n    const results: Array<{word: string, value: T}> = [];\n    const node = this.findNode(prefix);\n    \n    if (!node) return results;\n\n    this.collectWords(node, prefix, results, maxResults);\n    return results;\n  }\n\n  private findNode(prefix: string): TrieNode<T> | undefined {\n    let node = this.root;\n    \n    for (const char of prefix) {\n      if (!node.children.has(char)) {\n        return undefined;\n      }\n      node = node.children.get(char)!;\n    }\n    \n    return node;\n  }\n\n  private collectWords(\n    node: TrieNode<T>,\n    prefix: string,\n    results: Array<{word: string, value: T}>,\n    maxResults: number\n  ): void {\n    if (results.length >= maxResults) return;\n\n    if (node.isEndOfWord) {\n      results.push({ word: prefix, value: node.value! });\n    }\n\n    for (const [char, child] of node.children) {\n      this.collectWords(child, prefix + char, results, maxResults);\n    }\n  }\n\n  delete(word: string): boolean {\n    return this.deleteHelper(this.root, word, 0);\n  }\n\n  private deleteHelper(node: TrieNode<T>, word: string, depth: number): boolean {\n    if (depth === word.length) {\n      if (!node.isEndOfWord) return false;\n      node.isEndOfWord = false;\n      node.value = null;\n      return node.children.size === 0;\n    }\n\n    const char = word[depth];\n    const child = node.children.get(char);\n    \n    if (!child) return false;\n\n    const shouldDeleteChild = this.deleteHelper(child, word, depth + 1);\n\n    if (shouldDeleteChild) {\n      node.children.delete(char);\n      return !node.isEndOfWord && node.children.size === 0;\n    }\n\n    return false;\n  }\n}\n\nexport { Trie, TrieNode };",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-TrieTS",
+        "title": "泛型字典树数据结构",
+        "description": "实现泛型Trie字典树数据结构，用于高效存储和检索字符串键。TrieNode包含子节点映射、值和词尾标记。Trie类提供insert、search、startsWith、autocomplete和delete操作。insert方法逐个字符构建路径，在词尾设置值和标记。search和startsWith通过遍历字符路径查找节点。autocomplete使用深度优先搜索收集以给定前缀开头的所有单词。delete方法递归删除节点并清理空路径。Trie特别适合前缀搜索和自动补全场景，查找时间复杂度为O(m)，m为键的长度。",
+        "confidence": 0.94,
+        "alternative_titles": ["Trie", "Prefix Tree", "Dictionary Tree"]
+      }]
+    },
+    {
+      "id": "AL-TS-007",
+      "description": "Memoized Fibonacci with dynamic programming",
+      "code_snippets": [{
+        "file": "src/algorithms/memoizedFibonacci.ts",
+        "start_line": 1,
+        "end_line": 40,
+        "content": "function memoize<T extends (...args: any[]) => any>(fn: T): T {\n  const cache = new Map<string, ReturnType<T>>();\n  \n  return ((...args: any[]) => {\n    const key = JSON.stringify(args);\n    \n    if (cache.has(key)) {\n      return cache.get(key)!;\n    }\n    \n    const result = fn(...args);\n    cache.set(key, result);\n    \n    return result;\n  }) as T;\n}\n\n// Basic memoized Fibonacci\nconst fibonacci = memoize((n: number): number => {\n  if (n <= 1) return n;\n  return fibonacci(n - 1) + fibonacci(n - 2);\n});\n\n// Memoized with custom key function\nfunction memoizedFibonacciCustom(n: number): number {\n  const cache = new Map<number, number>();\n  \n  const fib = (num: number): number => {\n    if (num in cache) return cache.get(num)!;\n    if (num <= 1) return num;\n    \n    const result = fib(num - 1) + fib(num - 2);\n    cache.set(num, result);\n    return result;\n  };\n  \n  return fib(n);\n}\n\n// Bottom-up approach\nfunction fibonacciBottomUp(n: number): number {\n  if (n <= 1) return n;\n  \n  const dp = new Array(n + 1).fill(0);\n  dp[1] = 1;\n  \n  for (let i = 2; i <= n; i++) {\n    dp[i] = dp[i - 1] + dp[i - 2];\n  }\n  \n  return dp[n];\n}\n\n// Space-optimized bottom-up\nfunction fibonacciOptimized(n: number): number {\n  if (n <= 1) return n;\n  \n  let prev2 = 0;\n  let prev1 = 1;\n  \n  for (let i = 2; i <= n; i++) {\n    const current = prev1 + prev2;\n    prev2 = prev1;\n    prev1 = current;\n  }\n  \n  return prev1;\n}\n\nconsole.log(fibonacci(50)); // 12586269025\nconsole.log(fibonacciBottomUp(50)); // 12586269025\nconsole.log(fibonacciOptimized(50)); // 12586269025",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-FibTS",
+        "title": "记忆化斐波那契算法",
+        "description": "实现多种斐波那契数列计算方法，展示动态规划和记忆化技术。memoize高阶函数通过缓存函数调用结果避免重复计算。基础版本使用自顶向下的递归加记忆化，时间复杂度从指数级优化到O(n)。custom版本使用Map显式管理缓存。bottomUp版本采用自底向上的迭代方法，避免递归开销。optimized版本进一步优化空间复杂度，只保留前两个值而非整个数组。所有方法都能高效计算较大的斐波那契数，如第50项。",
+        "confidence": 0.93,
+        "alternative_titles": ["Memoization", "Dynamic Programming", "Fibonacci Optimization"]
+      }]
+    },
+    {
+      "id": "AL-TS-008",
+      "description": "QuickSelect algorithm for finding kth element",
+      "code_snippets": [{
+        "file": "src/algorithms/quickselect.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "function quickSelect<T>(\n  array: T[],\n  k: number,\n  comparator: (a: T, b: T) => number = (a, b) => {\n    if (a < b) return -1;\n    if (a > b) return 1;\n    return 0;\n  }\n): T {\n  if (array.length === 0) {\n    throw new Error('Array is empty');\n  }\n\n  if (k < 1 || k > array.length) {\n    throw new Error('k is out of bounds');\n  }\n\n  return quickSelectHelper(array, 0, array.length - 1, k - 1, comparator);\n}\n\nfunction quickSelectHelper<T>(\n  array: T[],\n  left: number,\n  right: number,\n  k: number,\n  comparator: (a: T, b: T) => number\n): T {\n  if (left === right) {\n    return array[left];\n  }\n\n  // Choose pivot randomly\n  const pivotIndex = left + Math.floor(Math.random() * (right - left + 1));\n  const pivotNewIndex = partition(array, left, right, pivotIndex, comparator);\n\n  if (k === pivotNewIndex) {\n    return array[k];\n  } else if (k < pivotNewIndex) {\n    return quickSelectHelper(array, left, pivotNewIndex - 1, k, comparator);\n  } else {\n    return quickSelectHelper(array, pivotNewIndex + 1, right, k, comparator);\n  }\n}\n\nfunction partition<T>(\n  array: T[],\n  left: number,\n  right: number,\n  pivotIndex: number,\n  comparator: (a: T, b: T) => number\n): number {\n  const pivotValue = array[pivotIndex];\n  \n  // Move pivot to end\n  swap(array, pivotIndex, right);\n  \n  let storeIndex = left;\n  \n  for (let i = left; i < right; i++) {\n    if (comparator(array[i], pivotValue) < 0) {\n      swap(array, storeIndex, i);\n      storeIndex++;\n    }\n  }\n  \n  // Move pivot to its final place\n  swap(array, storeIndex, right);\n  \n  return storeIndex;\n}\n\nfunction swap<T>(array: T[], i: number, j: number): void {\n  [array[i], array[j]] = [array[j], array[i]];\n}\n\n// Usage\nconst numbers = [3, 2, 1, 5, 6, 4];\nconsole.log(quickSelect(numbers, 2)); // 2nd smallest: 2\nconsole.log(quickSelect(numbers, 4)); // 4th smallest: 4",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-QuickSelectTS",
+        "title": "快速选择算法",
+        "description": "实现QuickSelect算法用于在未排序数组中查找第k小的元素。算法基于快速排序的分区思想，每次选择一个枢轴元素并将数组分为两部分。通过比较目标位置与枢轴位置，只递归处理包含目标的那一部分，从而将平均时间复杂度从O(n log n)降低到O(n)。支持自定义比较器以适应不同数据类型。partition函数将小于枢轴的元素移到左边，大于等于的移到右边。随机选择枢轴避免最坏情况。该算法适用于找中位数、Top K元素等问题。",
+        "confidence": 0.94,
+        "alternative_titles": ["QuickSelect", "Selection Algorithm", "Kth Element"]
+      }]
+    }
+  ]
+}

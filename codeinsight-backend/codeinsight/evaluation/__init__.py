@@ -6,6 +6,7 @@
 
 from codeinsight.evaluation.engine import EvalConfig, EvalEngine, EvalReport, EvalSummary
 from codeinsight.evaluation.evaluator import KnowledgePointEvaluator, SelfEvaluator
+from codeinsight.evaluation.history import SnapshotStore
 from codeinsight.evaluation.matcher import (
     CompositeMatcher,
     ExactTitleMatcher,
@@ -18,7 +19,7 @@ from codeinsight.evaluation.metrics import (
     EvaluationResult,
     MetricCalculator,
 )
-from codeinsight.evaluation.reporters import ConsoleReporter, JsonReporter, Reporter
+from codeinsight.evaluation.reporters import ConsoleReporter, HistoryReporter, JsonReporter, Reporter
 from codeinsight.evaluation.runner import EvaluationRunner, load_test_cases
 
 __all__ = [
@@ -41,4 +42,6 @@ __all__ = [
     "Reporter",
     "ConsoleReporter",
     "JsonReporter",
+    "HistoryReporter",
+    "SnapshotStore",
 ]

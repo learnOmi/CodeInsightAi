@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-ad-typescript",
+  "category": "AD",
+  "language": "typescript",
+  "description": "Architecture decisions implemented in TypeScript",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AD-TS-001",
+      "description": "Layered architecture with clear separation of concerns",
+      "code_snippets": [{
+        "file": "src/controllers/UserController.ts",
+        "start_line": 1,
+        "end_line": 40,
+        "content": "import { Request, Response } from 'express';\nimport { UserService } from '../services/UserService';\nimport { UserRepository } from '../repositories/UserRepository';\nimport { UserValidator } from '../validators/UserValidator';\nimport { Logger } from '../utils/Logger';\n\nexport class UserController {\n  private userService: UserService;\n  private validator: UserValidator;\n  private logger: Logger;\n\n  constructor() {\n    const db = new UserRepository();\n    this.userService = new UserService(db);\n    this.validator = new UserValidator();\n    this.logger = new Logger('UserController');\n  }\n\n  async createUser(req: Request, res: Response): Promise<void> {\n    try {\n      const userData = req.body;\n      \n      if (!this.validator.validate(userData)) {\n        res.status(400).json({ error: 'Invalid user data' });\n        return;\n      }\n\n      const user = await this.userService.createUser(userData);\n      this.logger.info('User created', { userId: user.id });\n      \n      res.status(201).json({\n        id: user.id,\n        email: user.email,\n        createdAt: user.createdAt\n      });\n    } catch (error) {\n      this.logger.error('Failed to create user', error);\n      res.status(500).json({ error: 'Internal server error' });\n    }\n  }\n\n  async getUser(req: Request, res: Response): Promise<void> {\n    const user = await this.userService.findById(req.params.id);\n    if (!user) {\n      res.status(404).json({ error: 'User not found' });\n      return;\n    }\n    res.json(user);\n  }\n}",
+        "highlighted_lines": [1, 5, 10, 15, 20, 25, 30, 35]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-LayeredTS",
+        "title": "分层架构模式",
+        "description": "采用典型的分层架构设计，将应用程序分为控制器层、服务层、仓储层和工具层。UserController负责处理HTTP请求和响应，UserService封装业务逻辑，UserRepository负责数据访问，UserValidator进行输入验证。每层职责清晰，通过依赖注入实现层间通信。这种架构有利于代码组织、测试和维护，各层可以独立开发和替换。",
+        "confidence": 0.93,
+        "alternative_titles": ["Layered Architecture", "N-Tier Architecture", "Separation of Concerns"]
+      }]
+    },
+    {
+      "id": "AD-TS-002",
+      "description": "Hexagonal Architecture with ports and adapters",
+      "code_snippets": [{
+        "file": "src/port/UserPort.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "// Port interface - domain logic depends on this\nclass UserDomainService {\n  private userPort: UserPort;\n  private notificationPort: NotificationPort;\n\n  constructor(userPort: UserPort, notificationPort: NotificationPort) {\n    this.userPort = userPort;\n    this.notificationPort = notificationPort;\n  }\n\n  async registerUser(email: string, password: string): Promise<User> {\n    // Domain logic\n    const existingUser = await this.userPort.findByEmail(email);\n    if (existingUser) {\n      throw new ConflictError('Email already exists');\n    }\n\n    const hashedPassword = await this.hashPassword(password);\n    const user = User.create({\n      email,\n      passwordHash: hashedPassword,\n      createdAt: new Date()\n    });\n\n    const savedUser = await this.userPort.save(user);\n    \n    // Notify other systems\n    await this.notificationPort.sendWelcomeEmail(email);\n    \n    return savedUser;\n  }\n}\n\n// Adapters - infrastructure implementation\nclass HttpUserAdapter implements UserPort {\n  private apiClient: ApiClient;\n  \n  constructor(apiClient: ApiClient) {\n    this.apiClient = apiClient;\n  }\n\n  async findByEmail(email: string): Promise<User | null> {\n    return this.apiClient.get(`/users/email/${email}`);\n  }\n\n  async save(user: User): Promise<User> {\n    return this.apiClient.post('/users', user);\n  }\n}\n\ninterface UserPort {\n  findByEmail(email: string): Promise<User | null>;\n  save(user: User): Promise<User>;\n  findById(id: string): Promise<User | null>;\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-HexagonalTS",
+        "title": "六边形架构模式",
+        "description": "实现六边形架构（Ports and Adapters），将核心领域逻辑与外部基础设施分离。UserDomainService位于中心，只依赖端口接口而不关心具体实现。UserPort定义了领域服务需要的操作契约，HttpUserAdapter作为适配器实现这些端口，通过HTTP API与外部系统交互。这种架构使得核心业务逻辑不依赖于任何具体的技术框架，可以轻松地替换或添加不同的适配器实现，如数据库适配器、消息队列适配器等。",
+        "confidence": 0.94,
+        "alternative_titles": ["Hexagonal Architecture", "Ports and Adapters", "Clean Architecture"]
+      }]
+    },
+    {
+      "id": "AD-TS-003",
+      "description": "Event Sourcing pattern for audit trail",
+      "code_snippets": [{
+        "file": "src/eventstore/EventStore.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface DomainEvent {\n  eventType: string;\n  aggregateId: string;\n  timestamp: Date;\n  payload: any;\n  version: number;\n}\n\nclass EventStore {\n  private events: Map<string, DomainEvent[]> = new Map();\n  private subscribers: Map<string, Set<(event: DomainEvent) => void>> = new Map();\n\n  appendEvent(aggregateId: string, event: DomainEvent): void {\n    if (!this.events.has(aggregateId)) {\n      this.events.set(aggregateId, []);\n    }\n    \n    const eventHistory = this.events.get(aggregateId)!;\n    event.version = eventHistory.length + 1;\n    eventHistory.push(event);\n\n    // Notify subscribers\n    const eventSubscribers = this.subscribers.get(event.eventType);\n    if (eventSubscribers) {\n      eventSubscribers.forEach(subscriber => subscriber(event));\n    }\n  }\n\n  getEvents(aggregateId: string, fromVersion?: number): DomainEvent[] {\n    const events = this.events.get(aggregateId) || [];\n    if (fromVersion !== undefined) {\n      return events.filter(e => e.version > fromVersion);\n    }\n    return [...events];\n  }\n\n  subscribeToEvent(eventType: string, handler: (event: DomainEvent) => void): void {\n    if (!this.subscribers.has(eventType)) {\n      this.subscribers.set(eventType, new Set());\n    }\n    this.subscribers.get(eventType)!.add(handler);\n  }\n\n  rebuildState(aggregateId: string): any {\n    const events = this.getEvents(aggregateId);\n    let state = {};\n    \n    for (const event of events) {\n      state = this.applyEvent(state, event);\n    }\n    \n    return state;\n  }\n\n  private applyEvent(currentState: any, event: DomainEvent): any {\n    switch (event.eventType) {\n      case 'UserCreated':\n        return { ...currentState, ...event.payload };\n      case 'UserUpdated':\n        return { ...currentState, ...event.payload };\n      case 'UserDeleted':\n        return { ...currentState, deleted: true };\n      default:\n        return currentState;\n    }\n  }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-EventSourcingTS",
+        "title": "事件溯源模式",
+        "description": "实现事件溯源架构，将所有状态变更存储为不可变的事件序列。EventStore管理聚合根的事件历史，通过appendEvent追加新事件并自动分配版本号。getEvents方法支持查询完整历史或增量事件。subscribeToEvent实现事件订阅机制，允许其他系统响应特定类型的事件。rebuildState方法从事件流重建当前状态，体现了事件溯源的核心思想：状态是事件的函数。这种模式提供了完整的审计轨迹和时间旅行能力。",
+        "confidence": 0.95,
+        "alternative_titles": ["Event Sourcing", "Audit Trail", "State Reconstruction"]
+      }]
+    },
+    {
+      "id": "AD-TS-004",
+      "description": "API Gateway pattern with routing and middleware",
+      "code_snippets": [{
+        "file": "src/gateway/GatewayServer.ts",
+        "start_line": 1,
+        "end_line": 60,
+        "content": "class RouteConfig {\n  path: string;\n  methods: string[];\n  service: string;\n  authRequired: boolean;\n  rateLimit?: number;\n  timeout?: number;\n}\n\nclass GatewayServer {\n  private routes: Map<string, RouteConfig> = new Map();\n  private services: Map<string, ServiceClient> = new Map();\n  private middlewares: Middleware[] = [];\n\n  registerRoute(config: RouteConfig): void {\n    this.routes.set(`${config.methods.join(',').toUpperCase()}:${config.path}`, config);\n  }\n\n  registerService(name: string, client: ServiceClient): void {\n    this.services.set(name, client);\n  }\n\n  addMiddleware(middleware: Middleware): void {\n    this.middlewares.push(middleware);\n  }\n\n  async handleRequest(request: GatewayRequest): Promise<GatewayResponse> {\n    const routeKey = `${request.method}:${request.path}`;\n    const route = this.routes.get(routeKey);\n    \n    if (!route) {\n      return { status: 404, body: { error: 'Route not found' } };\n    }\n\n    // Execute middleware chain\n    for (const middleware of this.middlewares) {\n      const result = await middleware.handle(request, route);\n      if (result instanceof GatewayResponse) {\n        return result;\n      }\n    }\n\n    // Forward to service\n    const service = this.services.get(route.service);\n    if (!service) {\n      return { status: 500, body: { error: 'Service not available' } };\n    }\n\n    return service.forward(request);\n  }\n}\n\n// Middleware implementations\nclass AuthMiddleware implements Middleware {\n  async handle(request: GatewayRequest, route: RouteConfig): Promise<any> {\n    if (route.authRequired && !request.headers.authorization) {\n      return { status: 401, body: { error: 'Unauthorized' } };\n    }\n  }\n}\n\nclass RateLimitMiddleware implements Middleware {\n  async handle(request: GatewayRequest, route: RouteConfig): Promise<any> {\n    if (route.rateLimit) {\n      // Check rate limit\n    }\n  }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50, 60]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-GatewayTS",
+        "title": "API网关模式",
+        "description": "实现API网关作为统一入口，负责路由请求到后端微服务。GatewayServer维护路由配置和服务注册表，支持认证、限流等中间件链。每个路由配置指定路径、HTTP方法、目标服务和认证要求。中间件按顺序执行，可以拦截请求并返回响应，也可以放行到下游服务。这种架构集中处理横切关注点，简化了客户端调用，提供了统一的安全、监控和流量控制能力。",
+        "confidence": 0.93,
+        "alternative_titles": ["API Gateway", "Proxy Pattern", "Unified Entry Point"]
+      }]
+    },
+    {
+      "id": "AD-TS-005",
+      "description": "Micro Frontends architecture with module federation",
+      "code_snippets": [{
+        "file": "src/microfrontend/AppHost.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "interface MicroFrontendModule {\n  name: string;\n  version: string;\n  mount(container: HTMLElement): void;\n  unmount(container: HTMLElement): void;\n}\n\nclass ModuleRegistry {\n  private modules: Map<string, MicroFrontendModule> = new Map();\n\n  register(module: MicroFrontendModule): void {\n    this.modules.set(module.name, module);\n  }\n\n  get(name: string): MicroFrontendModule | undefined {\n    return this.modules.get(name);\n  }\n}\n\nclass AppHost {\n  private registry: ModuleRegistry;\n  private activeModules: Map<string, HTMLElement> = new Map();\n\n  constructor() {\n    this.registry = new ModuleRegistry();\n  }\n\n  async loadModule(moduleName: string, remoteUrl: string): Promise<void> {\n    const module = await import(/* webpackChunkName: \"[request]\" */ remoteUrl);\n    this.registry.register(module.default);\n  }\n\n  mountModule(moduleName: string, containerId: string): void {\n    const module = this.registry.get(moduleName);\n    if (!module) {\n      throw new Error(`Module ${moduleName} not found`);\n    }\n\n    const container = document.getElementById(containerId);\n    if (!container) {\n      throw new Error(`Container ${containerId} not found`);\n    }\n\n    module.mount(container);\n    this.activeModules.set(moduleName, container);\n  }\n\n  unmountAll(): void {\n    this.activeModules.forEach((container, moduleName) => {\n      const module = this.registry.get(moduleName);\n      if (module) {\n        module.unmount(container);\n      }\n    });\n    this.activeModules.clear();\n  }\n}\n\nexport { AppHost, ModuleRegistry };",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-MicroFEts",
+        "title": "微前端架构",
+        "description": "实现微前端架构，通过Module Federation将大型应用拆分为独立部署的前端模块。AppHost作为宿主应用，管理模块的加载、挂载和卸载生命周期。ModuleRegistry维护已注册模块的集合，支持动态加载远程模块。每个微前端模块暴露mount和unmount方法，宿主应用负责提供容器元素。这种架构允许不同团队独立开发、测试和部署各自的模块，提高了开发效率和系统的可扩展性。",
+        "confidence": 0.94,
+        "alternative_titles": ["Micro Frontends", "Module Federation", "Distributed UI"]
+      }]
+    },
+    {
+      "id": "AD-TS-006",
+      "description": "Serverless Functions architecture",
+      "code_snippets": [{
+        "file": "src/serverless/handlers.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface LambdaContext {\n  functionName: string;\n  memoryLimitInMB: number;\n  awsRequestId: string;\n  log: (message: string) => void;\n}\n\nclass ServerlessHandler {\n  private handlers: Map<string, HandlerFunction> = new Map();\n\n  register(eventType: string, handler: HandlerFunction): void {\n    this.handlers.set(eventType, handler);\n  }\n\n  async invoke(event: any, context: LambdaContext): Promise<any> {\n    const handler = this.handlers.get(event.eventType);\n    if (!handler) {\n      throw new Error(`No handler registered for event type: ${event.eventType}`);\n    }\n\n    context.log(`Invoking handler for ${event.eventType}`);\n    const startTime = Date.now();\n    \n    try {\n      const result = await handler(event, context);\n      const duration = Date.now() - startTime;\n      context.log(`Handler completed in ${duration}ms`);\n      return result;\n    } catch (error) {\n      context.log(`Handler failed: ${error.message}`);\n      throw error;\n    }\n  }\n}\n\ntype HandlerFunction = (event: any, context: LambdaContext) => Promise<any>;\n\n// Example handlers\nconst createUserHandler: HandlerFunction = async (event, context) => {\n  context.log('Creating user...');\n  const newUser = await database.insert(event.data);\n  return { statusCode: 201, body: newUser };\n};\n\nconst processPaymentHandler: HandlerFunction = async (event, context) => {\n  context.log('Processing payment...');\n  const result = await paymentService.charge(event.payment);\n  return { statusCode: 200, body: result };\n};\n\nconst handler = new ServerlessHandler();\nhandler.register('USER_CREATED', createUserHandler);\nhandler.register('PAYMENT_PROCESSED', processPaymentHandler);",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-ServerlessTS",
+        "title": "无服务器函数架构",
+        "description": "实现无服务器函数架构，ServerlessHandler管理不同事件类型的处理函数。每个HandlerFunction接收事件和上下文对象，执行特定的业务逻辑并返回结果。LambdaContext提供函数名称、内存限制和日志能力等运行时信息。这种架构将应用分解为独立的小函数，每个函数专注于单一任务，按需执行，自动扩展。适合处理异步事件、定时任务和HTTP请求等场景，降低了运维复杂度。",
+        "confidence": 0.93,
+        "alternative_titles": ["Serverless Functions", "FaaS", "Event-Driven Functions"]
+      }]
+    },
+    {
+      "id": "AD-TS-007",
+      "description": "GraphQL Federation architecture",
+      "code_snippets": [{
+        "file": "src/graphql/federation/schema.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "import { GraphQLSchema, GraphQLObjectType, GraphQLString, GraphQLInt, GraphQLList } from 'graphql';\n\n// Subgraph 1: User Service\nclass UserService {\n  private users: Map<string, User> = new Map();\n\n  async getUser(id: string): Promise<User | null> {\n    return this.users.get(id) || null;\n  }\n\n  async getUsers(): Promise<User[]> {\n    return Array.from(this.users.values());\n  }\n}\n\n// Subgraph 2: Product Service  \nclass ProductService {\n  private products: Map<string, Product> = new Map();\n\n  async getProduct(id: string): Promise<Product | null> {\n    return this.products.get(id) || null;\n  }\n\n  async getProducts(): Promise<Product[]> {\n    return Array.from(this.products.values());\n  }\n}\n\n// Federation Gateway\nclass Gateway {\n  private services: Map<string, ServiceClient> = new Map();\n\n  registerService(name: string, client: ServiceClient): void {\n    this.services.set(name, client);\n  }\n\n  async query(query: string, variables: any): Promise<any> {\n    const parsedQuery = parseQuery(query);\n    \n    // Resolve entities from different services\n    const results = await Promise.allSettled(\n      parsedQuery.fields.map(field => \n        this.resolveField(field, variables)\n      )\n    );\n\n    return results.map(result => {\n      if (result.status === 'fulfilled') {\n        return result.value;\n      }\n      throw result.reason;\n    });\n  }\n\n  private async resolveField(field: FieldNode, variables: any): Promise<any> {\n    const service = this.services.get(field.serviceName);\n    if (!service) throw new Error(`Service ${field.serviceName} not found`);\n    \n    return service.query(field.operation, field.arguments);\n  }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-GraphQLFedTS",
+        "title": "GraphQL联邦架构",
+        "description": "实现GraphQL联邦架构，将不同领域的服务作为子图独立运行。UserService和ProductService分别管理用户和产品数据，提供各自的查询能力。Gateway作为联邦网关，统一对外暴露GraphQL接口，负责将查询路由到相应的服务。Gateway解析查询语句，识别需要调用的服务，并行执行各个字段的查询，然后合并结果返回给客户端。这种架构允许不同团队独立开发和维护各自的GraphQL服务，同时提供统一的查询入口。",
+        "confidence": 0.94,
+        "alternative_titles": ["GraphQL Federation", "Federated GraphQL", "Subgraph Architecture"]
+      }]
+    },
+    {
+      "id": "AD-TS-008",
+      "description": "Backend for Frontend (BFF) pattern",
+      "code_snippets": [{
+        "file": "src/bff/BffServer.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "class BffServer {\n  private routes: Map<string, RouteHandler> = new Map();\n  private backendServices: Map<string, BackendClient> = new Map();\n\n  registerRoute(path: string, method: string, handler: RouteHandler): void {\n    this.routes.set(`${method.toUpperCase()}${path}`, handler);\n  }\n\n  registerBackend(name: string, client: BackendClient): void {\n    this.backendServices.set(name, client);\n  }\n\n  async handleRequest(request: BffRequest): Promise<BffResponse> {\n    const routeKey = `${request.method}:${request.path}`;\n    const handler = this.routes.get(routeKey);\n    \n    if (!handler) {\n      return { status: 404, body: { error: 'Not found' } };\n    }\n\n    return handler(request, this.backendServices);\n  }\n}\n\n// Web BFF - optimized for web clients\nclass WebBff extends BffServer {\n  constructor() {\n    super();\n    this.registerRoute('/api/users/profile', 'GET', async (req, services) => {\n      const [user, preferences, orders] = await Promise.all([\n        services.get('user-service').getProfile(req.userId),\n        services.get('preference-service').getPreferences(req.userId),\n        services.get('order-service').getRecentOrders(req.userId, 5)\n      ]);\n\n      return {\n        status: 200,\n        body: {\n          user: {\n            ...user,\n            preferences,\n            recentOrders: orders.map(o => ({\n              id: o.id,\n              total: o.total,\n              status: o.status\n            }))\n          }\n        }\n      };\n    });\n  }\n}\n\n// Mobile BFF - optimized for mobile clients\nclass MobileBff extends BffServer {\n  constructor() {\n    super();\n    this.registerRoute('/api/feed', 'GET', async (req, services) => {\n      const [posts, notifications] = await Promise.all([\n        services.get('post-service').getFeed(req.userId, 20),\n        services.get('notification-service').getUnreadCount(req.userId)\n      ]);\n\n      return {\n        status: 200,\n        body: {\n          posts: posts.map(p => ({\n            id: p.id,\n            title: p.title,\n            excerpt: p.content.substring(0, 100),\n            likes: p.likes.count\n          })),\n          unreadNotifications: notifications\n        }\n      };\n    });\n  }\n}\n\nexport { BffServer, WebBff, MobileBff };",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-BFFts",
+        "title": "后端前缀模式",
+        "description": "实现BFF（Backend for Frontend）模式，为不同类型的客户端提供定制化的后端服务。WebBff和MobileBff继承BffServer，针对web和移动客户端优化数据格式和聚合逻辑。WebBff聚合用户资料、偏好设置和最近订单，MobileBff则提供简化的feed数据和通知计数。每个BFF实例维护自己的路由和处理逻辑，从多个后端服务获取数据并进行转换。这种模式减少了客户端与后端服务的直接耦合，优化了移动端网络效率，提高了用户体验。",
+        "confidence": 0.95,
+        "alternative_titles": ["Backend for Frontend", "BFF Pattern", "Client-Specific Backend"]
+      }]
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-dp-vue",
+  "category": "DP",
+  "language": "vue",
+  "description": "Design patterns implemented in Vue.js",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DP-VUE-001",
+      "description": "Component Composition Pattern with renderless components",
+      "code_snippets": [{
+        "file": "src/components/DataTable.vue",
+        "start_line": 1,
+        "end_line": 60,
+        "content": "<template>\n  <div class=\"data-table\">\n    <slot name=\"header\" :columns=\"columns\" />\n    <table>\n      <thead>\n        <tr>\n          <th v-for=\"col in columns\" :key=\"col.key\">\n            <slot name=\"column-header\" :column=\"col\">\n              {{ col.label }}\n            </slot>\n          </th>\n        </tr>\n      </thead>\n      <tbody>\n        <tr v-for=\"(row, rowIndex) in sortedData\" :key=\"rowIndex\">\n          <td v-for=\"col in columns\" :key=\"col.key\">\n            <slot :name=\"`cell-${col.key}`\" :row=\"row\" :value=\"row[col.key]\">\n              {{ row[col.key] }}\n            </slot>\n          </td>\n        </tr>\n      </tbody>\n    </table>\n    <slot name=\"footer\" :total=\"total\" />\n  </div>\n</template>\n\n<script setup>\nimport { computed, provide, reactive, useSlots } from 'vue'\n\nconst props = defineProps({\n  data: { type: Array, required: true },\n  columns: { type: Array, required: true },\n  sortKey: { type: String, default: '' },\n  sortOrder: { type: String, default: 'asc' }\n})\n\nconst emit = defineEmits(['sort-change', 'row-click'])\n\nconst state = reactive({\n  currentPage: 1,\n  pageSize: 10,\n  selectedRows: []\n})\n\nconst total = computed(() => props.data.length)\n\nconst sortedData = computed(() => {\n  if (!props.sortKey) return [...props.data]\n  return [...props.data].sort((a, b) => {\n    const aVal = a[props.sortKey]\n    const bVal = b[props.sortKey]\n    return props.sortOrder === 'desc' ? bVal.localeCompare(aVal) : aVal.localeCompare(bVal)\n  })\n})\n\nprovide('tableState', state)\nprovide('tableEmit', emit)\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50, 60]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-CompVUE",
+        "title": "组件组合模式",
+        "description": "实现无渲染组件（Renderless Component）的组件组合模式。DataTable组件不直接定义UI，而是通过多个具名插槽（header、column-header、cell-{key}、footer）将展示逻辑交给父组件。使用computed计算排序数据和总数，reactive管理内部状态（分页、选中行）。provide/inject向下传递tableState和tableEmit给深层子组件。这种模式将数据逻辑与展示逻辑分离，父组件可以完全自定义每一列的渲染方式，实现高度可复用的表格组件。",
+        "confidence": 0.95,
+        "alternative_titles": ["Component Composition", "Renderless Component", "Slot-based Design"]
+      }]
+    },
+    {
+      "id": "DP-VUE-002",
+      "description": "Provide/Inject dependency injection pattern",
+      "code_snippets": [{
+        "file": "src/plugins/theme-provider.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { provide, reactive, readonly, computed, InjectionKey } from 'vue'\n\nexport interface ThemeContext {\n  isDark: boolean\n  primaryColor: string\n  accentColor: string\n  toggleTheme: () => void\n  setPrimaryColor: (color: string) => void\n}\n\nconst THEME_KEY: InjectionKey<ThemeContext> = Symbol('theme')\n\nexport function useThemeProvider() {\n  const state = reactive({\n    isDark: false,\n    primaryColor: '#3b82f6',\n    accentColor: '#10b981'\n  })\n\n  const theme: ThemeContext = {\n    get isDark() { return state.isDark },\n    get primaryColor() { return state.primaryColor },\n    get accentColor() { return state.accentColor },\n    toggleTheme() { state.isDark = !state.isDark },\n    setPrimaryColor(color: string) { state.primaryColor = color }\n  }\n\n  provide(THEME_KEY, theme)\n\n  return {\n    theme: readonly(theme),\n    injectTheme: () => inject(THEME_KEY)\n  }\n}\n\nexport function useTheme() {\n  const theme = inject(THEME_KEY)\n  if (!theme) {\n    throw new Error('useTheme must be used within a ThemeProvider')\n  }\n  return theme\n}\n\n// App.vue usage:\n// <script setup>\n// import { useThemeProvider } from './plugins/theme-provider'\n// const { theme } = useThemeProvider()\n// </script>\n//\n// <template>\n//   <div :class=\"{ 'dark-theme': theme.isDark }\">\n//     <button @click=\"theme.toggleTheme\">Toggle Theme</button>\n//   </div>\n// </template>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-PIVue",
+        "title": "依赖注入模式",
+        "description": "使用Vue 3的Provide/Inject机制实现跨层级依赖注入。ThemeContext接口定义主题上下文契约，THEME_KEY作为InjectionKey确保类型安全。useThemeProvider创建响应式主题状态并通过provide向下传递，readonly包装防止外部修改。useTheme在任意深层组件中通过inject获取主题上下文。App.vue作为根组件调用ThemeProvider注册主题，所有子组件无需逐层传递props即可访问主题状态。这种模式避免了props drilling，适合全局配置和共享状态。",
+        "confidence": 0.94,
+        "alternative_titles": ["Provide/Inject", "Dependency Injection", "Cross-component State"]
+      }]
+    },
+    {
+      "id": "DP-VUE-003",
+      "description": "Render Function Pattern for dynamic components",
+      "code_snippets": [{
+        "file": "src/components/DynamicRenderer.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<script setup>\nimport { h, resolveComponent, computed } from 'vue'\n\nconst props = defineProps({\n  schema: { type: Object, required: true }\n})\n\nconst renderedElement = computed(() => {\n  const { type, tag, children, attrs, events } = props.schema\n\n  if (typeof tag === 'string') {\n    return h(tag, attrs, () => renderChildren(children))\n  }\n\n  if (typeof tag === 'object') {\n    return h(tag, attrs, () => renderChildren(children))\n  }\n\n  return null\n})\n\nfunction renderChildren(nodes) {\n  if (!nodes) return null\n\n  return nodes.map(node => {\n    if (typeof node === 'string') return node\n    if (typeof node === 'number') return node\n    if (Array.isArray(node)) return renderChildren(node)\n    \n    const { type, tag, children: childNodes, attrs, events } = node\n    const resolvedTag = typeof tag === 'string' ? tag : tag.name || tag\n    \n    const vnode = h(resolvedTag, attrs, () => renderChildren(childNodes))\n    \n    if (events) {\n      Object.entries(events).forEach(([eventName, handler]) => {\n        vnode.props = vnode.props || {}\n        vnode.props[eventName] = handler\n      })\n    }\n    \n    return vnode\n  })\n}\n</script>\n\n<template>\n  <component :is=\"renderedElement\" />\n</template>\n\n<!-- Usage -->\n<!-- <DynamicRenderer :schema=\"{\n  type: 'container',\n  tag: 'div',\n  attrs: { class: 'wrapper' },\n  children: [\n    { tag: 'h1', children: ['Hello'], attrs: { class: 'title' } },\n    { tag: 'MyButton', events: { click: handleClick }, children: ['Click me'] }\n  ]\n}\" /> -->",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-RFVue",
+        "title": "渲染函数模式",
+        "description": "使用Vue 3渲染函数（Render Function）实现动态组件渲染器。DynamicRenderer接收JSON schema描述组件树，renderedElement计算属性根据schema生成VNode。h函数创建虚拟节点，支持字符串标签、组件对象和嵌套children。renderChildren递归处理文本节点、数组和子节点。events对象将事件处理器绑定到VNode的props上。这种模式允许完全由数据驱动构建UI，适用于表单生成器、可视化编辑器和低代码平台等场景。",
+        "confidence": 0.93,
+        "alternative_titles": ["Render Function", "Virtual DOM Builder", "Dynamic Rendering"]
+      }]
+    },
+    {
+      "id": "DP-VUE-004",
+      "description": "Composable Pattern for reusable logic",
+      "code_snippets": [{
+        "file": "src/composables/useDebounce.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { ref, watch, onUnmounted, computed } from 'vue'\n\nexport function useDebounce<T>(source: Ref<T>, delay = 300): ComputedRef<T> {\n  const debouncedValue = ref(source.value) as Ref<T>\n  let timeoutId: ReturnType<typeof setTimeout> | null = null\n\n  watch(source, (newValue) => {\n    if (timeoutId !== null) {\n      clearTimeout(timeoutId)\n    }\n    timeoutId = setTimeout(() => {\n      debouncedValue.value = newValue\n      timeoutId = null\n    }, delay)\n  }, { immediate: true })\n\n  onUnmounted(() => {\n    if (timeoutId !== null) {\n      clearTimeout(timeoutId)\n    }\n  })\n\n  return debouncedValue\n}\n\nexport function useSearch(initialQuery = '') {\n  const query = ref(initialQuery)\n  const results = ref([])\n  const isLoading = ref(false)\n  const error = ref(null)\n\n  const debouncedQuery = useDebounce(query, 300)\n\n  async function performSearch() {\n    isLoading.value = true\n    error.value = null\n    try {\n      const response = await fetch(`/api/search?q=${debouncedQuery.value}`)\n      if (!response.ok) throw new Error('Search failed')\n      results.value = await response.json()\n    } catch (e) {\n      error.value = e.message\n    } finally {\n      isLoading.value = false\n    }\n  }\n\n  watch(debouncedQuery, performSearch, { immediate: true })\n\n  return { query, results, isLoading, error }\n}\n\n// Usage in component:\n// <script setup>\n// import { useSearch } from '@/composables/useSearch'\n// const { query, results, isLoading, error } = useSearch()\n// </script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-ComposableVue",
+        "title": "组合式函数模式",
+        "description": "实现Vue 3 Composables模式提取和复用逻辑。useDebounce接收任意响应式源，使用watch监听变化并通过setTimeout延迟更新，返回新的响应式值。onUnmounted清理定时器防止内存泄漏。useSearch组合useDebounce和其他响应式状态（results、isLoading、error），watch debouncedQuery自动触发搜索请求。这种模式将复杂的业务逻辑封装在独立函数中，组件通过解构返回的对象使用，保持模板简洁。Composables是Vue 3替代mixins的核心复用机制。",
+        "confidence": 0.95,
+        "alternative_titles": ["Composable Functions", "Composition API Pattern", "Logic Extraction"]
+      }]
+    },
+    {
+      "id": "DP-VUE-005",
+      "description": "Slot Pattern for flexible component APIs",
+      "code_snippets": [{
+        "file": "src/components/BaseModal.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <Teleport to=\"body\">\n    <Transition name=\"modal\">\n      <div v-if=\"modelValue\" class=\"modal-overlay\" @click.self=\"close\">\n        <div class=\"modal-container\" :class=\"{ 'modal-full': fullScreen }\">\n          <header class=\"modal-header\">\n            <slot name=\"header\">\n              <h2>{{ title }}</h2>\n            </slot>\n            <button v-if=\"closable\" class=\"close-btn\" @click=\"close\">&times;</button>\n          </header>\n          \n          <div class=\"modal-body\">\n            <slot :close=\"close\" :data=\"modalData\">\n              {{ body }}\n            </slot>\n          </div>\n          \n          <footer class=\"modal-footer\">\n            <slot name=\"footer\" :confirm=\"handleConfirm\" :cancel=\"close\">\n              <button @click=\"close\">{{ cancelText }}</button>\n              <button v-if=\"showConfirm\" @click=\"handleConfirm\" :disabled=\"!canConfirm\">\n                {{ confirmText }}\n              </button>\n            </slot>\n          </footer>\n        </div>\n      </div>\n    </Transition>\n  </Teleport>\n</template>\n\n<script setup>\nimport { computed, ref } from 'vue'\n\nconst props = defineProps({\n  modelValue: Boolean,\n  title: String,\n  body: String,\n  closable: { type: Boolean, default: true },\n  fullScreen: Boolean,\n  showConfirm: Boolean,\n  canConfirm: Boolean,\n  confirmText: { default: '确认' },\n  cancelText: { default: '取消' }\n})\n\nconst emit = defineEmits(['update:modelValue', 'confirm', 'cancel'])\n\nconst modalData = ref(null)\n\nfunction close() {\n  emit('update:modelValue', false)\n  emit('cancel')\n}\n\nfunction handleConfirm() {\n  if (!props.canConfirm) return\n  emit('confirm', modalData.value)\n  close()\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-SlotVue",
+        "title": "插槽模式",
+        "description": "实现Vue插槽模式构建灵活的可复用组件。BaseModal使用Teleport将模态框渲染到body，Transition添加动画。header插槽默认显示title，body插槽接收close和data两个prop用于自定义内容，footer插槽提供confirm和cancel回调。全屏模式通过fullScreen prop切换CSS类。props定义标题、内容、按钮文本、确认条件等配置项。emit触发update:modelValue、confirm和cancel事件。插槽使组件既保持默认行为又允许父组件完全自定义，是Vue组件API设计的核心模式。",
+        "confidence": 0.94,
+        "alternative_titles": ["Slot Pattern", "Scoped Slots", "Template Slot"]
+      }]
+    },
+    {
+      "id": "DP-VUE-006",
+      "description": "Watch/Computed Pattern for reactive dependencies",
+      "code_snippets": [{
+        "file": "src/composables/useFilter.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { ref, computed, watch, shallowRef } from 'vue'\n\nexport function useFilter(data, filters, transform = null) {\n  const searchQuery = ref('')\n  const activeFilters = shallowRef({})\n  const sortBy = ref('createdAt')\n  const sortOrder = ref('asc')\n  const page = ref(1)\n  const pageSize = ref(10)\n\n  const filteredData = computed(() => {\n    let result = [...data]\n\n    // Text search\n    if (searchQuery.value) {\n      const query = searchQuery.value.toLowerCase()\n      result = result.filter(item =>\n        Object.values(item).some(val =>\n          String(val).toLowerCase().includes(query)\n        )\n      )\n    }\n\n    // Active filters\n    Object.entries(activeFilters.value).forEach(([key, value]) => {\n      if (value) {\n        result = result.filter(item => item[key] === value)\n      }\n    })\n\n    // Sort\n    result.sort((a, b) => {\n      const aVal = a[sortBy.value]\n      const bVal = b[sortBy.value]\n      return sortOrder.value === 'desc' ? bVal - aVal : aVal - bVal\n    })\n\n    // Transform\n    if (transform) {\n      result = transform(result)\n    }\n\n    return result\n  })\n\n  const paginatedData = computed(() => {\n    const start = (page.value - 1) * pageSize.value\n    return filteredData.value.slice(start, start + pageSize.value)\n  })\n\n  const totalPages = computed(() =>\n    Math.ceil(filteredData.value.length / pageSize.value)\n  )\n\n  watch([searchQuery, activeFilters, sortBy, sortOrder], () => {\n    page.value = 1\n  })\n\n  return {\n    searchQuery,\n    activeFilters,\n    sortBy,\n    sortOrder,\n    page,\n    pageSize,\n    filteredData,\n    paginatedData,\n    totalPages,\n    setFilter: (key, value) => { activeFilters.value[key] = value },\n    clearFilters: () => { activeFilters.value = {} }\n  }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-WatchCalcVue",
+        "title": "监听计算属性模式",
+        "description": "利用Vue的响应式系统实现数据过滤和分页。useFilter组合computed、watch和ref实现声明式数据处理。filteredData计算属性链式应用搜索、过滤、排序和转换四个步骤。paginatedData基于filteredData计算分页切片。totalPages计算总页数。watch监听所有影响过滤的条件，当条件变化时重置页码为1。shallowRef优化activeFilters的性能（只监听引用变化）。返回的对象包含所有状态和操作方法。这种模式充分利用Vue的依赖追踪，在数据变化时自动重新计算结果。",
+        "confidence": 0.95,
+        "alternative_titles": ["Watch/Computed", "Reactive Filtering", "Computed Properties"]
+      }]
+    },
+    {
+      "id": "DP-VUE-007",
+      "description": "Custom Directive Pattern",
+      "code_snippets": [{
+        "file": "src/directives/tooltip.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { DirectiveBinding, Directive } from 'vue'\n\ninterface TooltipOptions {\n  text: string\n  position: 'top' | 'bottom' | 'left' | 'right'\n  delay: number\n  theme: 'light' | 'dark'\n}\n\nfunction createTooltipElement(options: TooltipOptions): HTMLElement {\n  const tooltip = document.createElement('div')\n  tooltip.className = `tooltip tooltip-${options.position} tooltip-${options.theme}`\n  tooltip.textContent = options.text\n  tooltip.style.position = 'fixed'\n  tooltip.style.pointerEvents = 'none'\n  tooltip.style.zIndex = '9999'\n  tooltip.style.opacity = '0'\n  tooltip.style.transition = 'opacity 0.2s ease'\n  document.body.appendChild(tooltip)\n  return tooltip\n}\n\nexport const vTooltip: Directive = {\n  mounted(el: HTMLElement, binding: DirectiveBinding) {\n    const options: TooltipOptions = {\n      text: binding.value?.text || binding.arg || '',\n      position: binding.value?.position || 'top',\n      delay: binding.value?.delay || 200,\n      theme: binding.value?.theme || 'dark'\n    }\n\n    let timeoutId: ReturnType<typeof setTimeout>\n    let tooltip: HTMLElement\n\n    el.addEventListener('mouseenter', () => {\n      timeoutId = setTimeout(() => {\n        tooltip = createTooltipElement(options)\n        const rect = el.getBoundingClientRect()\n        tooltip.style.left = `${rect.left + rect.width / 2}px`\n        tooltip.style.top = `${rect.top - 30}px`\n        requestAnimationFrame(() => {\n          tooltip.style.opacity = '1'\n        })\n      }, options.delay)\n    })\n\n    el.addEventListener('mouseleave', () => {\n      clearTimeout(timeoutId)\n      if (tooltip) {\n        tooltip.style.opacity = '0'\n        setTimeout(() => tooltip.remove(), 200)\n      }\n    })\n\n    el._tooltip = tooltip\n  },\n\n  unmounted(el: HTMLElement) {\n    if (el._tooltip) {\n      el._tooltip.remove()\n    }\n    el.removeEventListener('mouseenter', null)\n    el.removeEventListener('mouseleave', null)\n  }\n}\n\n// Usage:\n// <button v-tooltip=\"{ text: 'Click to save', position: 'top', delay: 100 }\">Save</button>\n// <span v-tooltip:bottom=\"'Default tooltip'\">Hover me</span>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-DirectiveVue",
+        "title": "自定义指令模式",
+        "description": "实现Vue自定义指令vTooltip提供悬停提示功能。Directive对象的mounted钩子在元素挂载时绑定鼠标事件，unmounted钩子清理tooltip元素和事件监听器。createTooltipElement动态创建tooltip DOM元素并设置样式。mounted钩子解析binding.value获取配置（文本、位置、延迟、主题），使用arg作为简写文本。mouseenter通过setTimeout延迟显示，mouseleave清除超时并移除tooltip。tooltip使用fixed定位跟随鼠标元素，pointer-events:none避免遮挡交互。这种模式扩展HTML原生能力，实现声明式的DOM操作。",
+        "confidence": 0.94,
+        "alternative_titles": ["Custom Directive", "vTooltip", "DOM Extension"]
+      }]
+    },
+    {
+      "id": "DP-VUE-008",
+      "description": "Plugin Pattern for Vue application extensions",
+      "code_snippets": [{
+        "file": "src/plugins/i18n.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { App, reactive, computed, inject } from 'vue'\n\ninterface TranslationMessage {\n  [key: string]: string | TranslationMessage\n}\n\ninterface I18nOptions {\n  locale: string\n  fallbackLocale: string\n  messages: Record<string, TranslationMessage>\n}\n\nclass I18nPlugin {\n  private app: App | null = null\n  private state: {\n    locale: string\n    fallbackLocale: string\n    messages: Record<string, TranslationMessage>\n  }\n\n  constructor(options: I18nOptions) {\n    this.state = reactive({\n      locale: options.locale,\n      fallbackLocale: options.fallbackLocale,\n      messages: options.messages\n    })\n  }\n\n  install(app: App) {\n    this.app = app\n\n    const i18n = {\n      t(key: string, params?: Record<string, string>): string {\n        const message = resolveMessage(this.state.messages, this.state.locale, key)\n        const fallback = resolveMessage(this.state.messages, this.state.fallbackLocale, key)\n        return formatMessage(message || fallback || key, params)\n      },\n      setLocale(locale: string) { this.state.locale = locale },\n      getLocale(): string { return this.state.locale }\n    }\n\n    app.provide('i18n', i18n)\n    app.config.globalProperties.$t = i18n.t.bind(i18n)\n    app.config.globalProperties.$i18n = i18n\n  }\n}\n\nfunction resolveMessage(messages: Record<string, TranslationMessage>, locale: string, key: string): string | undefined {\n  const localeMessages = messages[locale] || messages[messages.fallbackLocale]\n  const parts = key.split('.')\n  let current: any = localeMessages\n\n  for (const part of parts) {\n    if (current && typeof current === 'object' && part in current) {\n      current = current[part]\n    } else {\n      return undefined\n    }\n  }\n\n  return typeof current === 'string' ? current : undefined\n}\n\nfunction formatMessage(template: string, params?: Record<string, string>): string {\n  if (!params) return template\n  return template.replace(/\\{(\\w+)\\}/g, (_, key) => params[key] || `{${key}}`)\n}\n\nexport function useI18n() {\n  const i18n = inject('i18n')\n  if (!i18n) throw new Error('useI18n must be used after installing I18nPlugin')\n  return i18n\n}\n\nexport default I18nPlugin",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-PluginVue",
+        "title": "插件模式",
+        "description": "实现Vue插件模式扩展应用功能。I18nPlugin类实现install方法，在app.use()时被调用。install中创建i18n对象提供t()翻译方法、setLocale()切换语言。通过app.provide('i18n', i18n)注入到组件树，同时挂载到globalProperties使选项式API也能使用$t。resolveMessage支持点分路径查找嵌套翻译键，formatMessage处理参数替换。useI18n组合式函数通过inject获取i18n实例。这种模式是Vue扩展应用能力的标准机制，类似Vue Router、Pinia等官方插件。",
+        "confidence": 0.95,
+        "alternative_titles": ["Plugin Pattern", "Vue Plugin", "Application Extension"]
+      }]
+    }
+  ]
+}

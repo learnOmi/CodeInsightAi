@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-al-java",
+  "category": "AL",
+  "language": "java",
+  "description": "Algorithms implemented in Java",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AL-JAVA-001",
+      "description": "Merge Sort implementation",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/algorithms/MergeSort.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.algorithms;\n\nimport java.util.Arrays;\nimport java.util.Comparator;\n\npublic class MergeSort {\n\n    public static <T extends Comparable<T>> void sort(T[] array) {\n        if (array == null || array.length <= 1) return;\n        @SuppressWarnings(\"unchecked\")\n        T[] temp = Arrays.copyOf(array, array.length);\n        mergeSort(array, temp, 0, array.length - 1);\n    }\n\n    private static <T extends Comparable<T>> void mergeSort(\n            T[] array, T[] temp, int left, int right) {\n        if (left >= right) return;\n\n        int mid = left + (right - left) / 2;\n        mergeSort(array, temp, left, mid);\n        mergeSort(array, temp, mid + 1, right);\n        merge(array, temp, left, mid, right);\n    }\n\n    private static <T extends Comparable<T>> void merge(\n            T[] array, T[] temp, int left, int mid, int right) {\n        System.arraycopy(array, left, temp, left, right - left + 1);\n\n        int i = left;       // Left subarray index\n        int j = mid + 1;    // Right subarray index\n        int k = left;       // Merge index\n\n        while (i <= mid && j <= right) {\n            if (temp[i].compareTo(temp[j]) <= 0) {\n                array[k++] = temp[i++];\n            } else {\n                array[k++] = temp[j++];\n            }\n        }\n\n        while (i <= mid) {\n            array[k++] = temp[i++];\n        }\n    }\n\n    public static <T> void sortWithComparator(T[] array, Comparator<T> comparator) {\n        if (array == null || array.length <= 1 || comparator == null) return;\n        @SuppressWarnings(\"unchecked\")\n        T[] temp = Arrays.copyOf(array, array.length);\n        mergeSortCmp(array, temp, 0, array.length - 1, comparator);\n    }\n\n    private static <T> void mergeSortCmp(\n            T[] array, T[] temp, int left, int right, Comparator<T> comparator) {\n        if (left >= right) return;\n\n        int mid = left + (right - left) / 2;\n        mergeSortCmp(array, temp, left, mid, comparator);\n        mergeSortCmp(array, temp, mid + 1, right, comparator);\n        mergeCmp(array, temp, left, mid, right, comparator);\n    }\n\n    private static <T> void mergeCmp(\n            T[] array, T[] temp, int left, int mid, int right, Comparator<T> comparator) {\n        System.arraycopy(array, left, temp, left, right - left + 1);\n\n        int i = left;\n        int j = mid + 1;\n        int k = left;\n\n        while (i <= mid && j <= right) {\n            if (comparator.compare(temp[i], temp[j]) <= 0) {\n                array[k++] = temp[i++];\n            } else {\n                array[k++] = temp[j++];\n            }\n        }\n\n        while (i <= mid) {\n            array[k++] = temp[i++];\n        }\n    }\n}\n\n// Usage:\n// Integer[] nums = {38, 27, 43, 3, 9, 82, 10};\n// MergeSort.sort(nums);\n// String[] words = {\"banana\", \"apple\", \"cherry\"};\n// MergeSort.sortWithComparator(words, Comparator.comparingInt(String::length));",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-MergeSortJava",
+        "title": "归并排序算法",
+        "description": "实现归并排序算法，采用分治策略将数组递归地分成两半分别排序后再合并。sort方法使用Comparable接口支持任意可比较类型，mergeSort递归地将数组从中间分割，merge方法使用临时数组将两个有序子数组合并为一个有序数组。为避免不必要的递归调用，当left >= right时直接返回（已有序）。mergeCmp版本支持自定义Comparator，适用于不可比较类型的排序。归并排序的时间复杂度稳定为O(n log n)，空间复杂度为O(n)，是稳定的排序算法。",
+        "confidence": 0.95,
+        "alternative_titles": ["Merge Sort", "Divide and Conquer Sort", "Stable Sorting"]
+      }]
+    },
+    {
+      "id": "AL-JAVA-002",
+      "description": "Dijkstra with PriorityQueue",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/algorithms/Dijkstra.java",
+        "start_line": 1,
+        "end_line": 60,
+        "content": "package com.example.algorithms;\n\nimport java.util.*;\n\npublic class Dijkstra {\n\n    public static Map<String, Double> findShortestPaths(\n            Map<String, List<Edge>> graph, String start) {\n        Map<String, Double> distances = new HashMap<>();\n        Map<String, String> predecessors = new HashMap<>();\n        Set<String> visited = new HashSet<>();\n\n        PriorityQueue<NodeDistance> pq = new PriorityQueue<>(\n            Comparator.comparingDouble(NodeDistance::getDistance)\n        );\n\n        for (String node : graph.keySet()) {\n            distances.put(node, Double.POSITIVE_INFINITY);\n        }\n        distances.put(start, 0.0);\n        pq.add(new NodeDistance(start, 0.0));\n\n        while (!pq.isEmpty()) {\n            NodeDistance current = pq.poll();\n            String currentNode = current.getNode();\n\n            if (visited.contains(currentNode)) continue;\n            visited.add(currentNode);\n\n            for (Edge edge : graph.getOrDefault(currentNode, Collections.emptyList())) {\n                if (visited.contains(edge.getTarget())) continue;\n\n                double newDistance = distances.get(currentNode) + edge.getWeight();\n                if (newDistance < distances.getOrDefault(edge.getTarget(), Double.POSITIVE_INFINITY)) {\n                    distances.put(edge.getTarget(), newDistance);\n                    predecessors.put(edge.getTarget(), currentNode);\n                    pq.add(new NodeDistance(edge.getTarget(), newDistance));\n                }\n            }\n        }\n\n        return distances;\n    }\n\n    public static List<String> getShortestPath(\n            Map<String, List<Edge>> graph, String start, String end) {\n        Map<String, Double> distances = findShortestPaths(graph, start);\n        \n        if (!distances.containsKey(end) || distances.get(end) == Double.POSITIVE_INFINITY) {\n            return Collections.emptyList();\n        }\n\n        List<String> path = new ArrayList<>();\n        String current = end;\n        while (current != null) {\n            path.add(0, current);\n            current = null;\n            for (Edge edge : graph.getOrDefault(current, Collections.emptyList())) {\n                // Reconstruct from predecessors\n            }\n        }\n        return path;\n    }\n\n    public record Edge(String target, double weight) {}\n    public record NodeDistance(String node, double distance) implements Comparable<NodeDistance> {\n        @Override\n        public int compareTo(NodeDistance other) {\n            return Double.compare(this.distance, other.distance);\n        }\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50, 60]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-DijkstraJava",
+        "title": "优先队列优化的Dijkstra最短路径算法",
+        "description": "实现使用Java PriorityQueue优化的Dijkstra算法求解单源最短路径。findShortestPaths方法接收图结构（邻接表表示）和起始节点，初始化所有距离为正无穷，起点距离为0。使用最小优先队列按距离排序处理节点，每次取出距离最小的未访问节点，对其邻居进行松弛操作：如果通过当前节点到达邻居的距离更短则更新距离并加入队列。visited集合确保每个节点只被处理一次。Edge记录类存储目标节点和权重，NodeDistance实现Comparable接口用于优先级排序。时间复杂度为O((V+E)log V)。",
+        "confidence": 0.94,
+        "alternative_titles": ["Dijkstra's Algorithm", "Shortest Path", "Priority Queue Dijkstra"]
+      }]
+    },
+    {
+      "id": "AL-JAVA-003",
+      "description": "Binary Search Tree implementation",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/algorithms/BinarySearchTree.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.algorithms;\n\nimport java.util.ArrayList;\nimport java.util.List;\nimport java.util.Stack;\n\npublic class BinarySearchTree<T extends Comparable<T>> {\n\n    private TreeNode<T> root;\n    private int size;\n\n    public void insert(T value) {\n        root = insertRec(root, value);\n        size++;\n    }\n\n    private TreeNode<T> insertRec(TreeNode<T> node, T value) {\n        if (node == null) {\n            return new TreeNode<>(value);\n        }\n\n        int cmp = value.compareTo(node.value);\n        if (cmp < 0) {\n            node.left = insertRec(node.left, value);\n        } else if (cmp > 0) {\n            node.right = insertRec(node.right, value);\n        }\n        return node;\n    }\n\n    public boolean search(T value) {\n        return searchRec(root, value);\n    }\n\n    private boolean searchRec(TreeNode<T> node, T value) {\n        if (node == null) return false;\n\n        int cmp = value.compareTo(node.value);\n        if (cmp == 0) return true;\n        return cmp < 0 ? searchRec(node.left, value) : searchRec(node.right, value);\n    }\n\n    public List<T> inOrderTraversal() {\n        List<T> result = new ArrayList<>();\n        inOrderRec(root, result);\n        return result;\n    }\n\n    private void inOrderRec(TreeNode<T> node, List<T> result) {\n        if (node != null) {\n            inOrderRec(node.left, result);\n            result.add(node.value);\n            inOrderRec(node.right, result);\n        }\n    }\n\n    public List<T> iterativeInOrder() {\n        List<T> result = new ArrayList<>();\n        Stack<TreeNode<T>> stack = new Stack<>();\n        TreeNode<T> current = root;\n\n        while (current != null || !stack.isEmpty()) {\n            while (current != null) {\n                stack.push(current);\n                current = current.left;\n            }\n            current = stack.pop();\n            result.add(current.value);\n            current = current.right;\n        }\n        return result;\n    }\n\n    public T findMin() {\n        if (root == null) throw new NoSuchElementException();\n        TreeNode<T> current = root;\n        while (current.left != null) {\n            current = current.left;\n        }\n        return current.value;\n    }\n\n    public T findMax() {\n        if (root == null) throw new NoSuchElementException();\n        TreeNode<T> current = root;\n        while (current.right != null) {\n            current = current.right;\n        }\n        return current.value;\n    }\n\n    public static class TreeNode<T> {\n        T value;\n        TreeNode<T> left;\n        TreeNode<T> right;\n\n        TreeNode(T value) {\n            this.value = value;\n        }\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-BSTJava",
+        "title": "二叉搜索树实现",
+        "description": "实现泛型二叉搜索树（BST），支持插入、搜索、中序遍历等操作。insert方法递归地将值插入到正确位置，保持左小右大的性质。search方法根据比较结果决定向左或向右递归查找。inOrderTraversal返回升序排列的结果列表，iterativeInOrder使用显式栈实现迭代中序遍历。findMin沿左子树找到最小值，findMax沿右子树找到最大值。TreeNode内部类封装节点数据结构和左右指针。BST的查找、插入和删除操作的平均时间复杂度为O(log n)，最坏情况下（退化为链表）为O(n)。",
+        "confidence": 0.95,
+        "alternative_titles": ["Binary Search Tree", "BST", "Ordered Tree"]
+      }]
+    },
+    {
+      "id": "AL-JAVA-004",
+      "description": "Topological Sort using Kahn's algorithm",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/algorithms/TopologicalSort.java",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "package com.example.algorithms;\n\nimport java.util.*;\n\npublic class TopologicalSort {\n\n    public static List<String> sort(List<String> vertices, List<Pair<String, String>> edges) {\n        Map<String, List<String>> adjList = new HashMap<>();\n        Map<String, Integer> inDegree = new HashMap<>();\n\n        for (String v : vertices) {\n            adjList.put(v, new ArrayList<>());\n            inDegree.put(v, 0);\n        }\n\n        for (Pair<String, String> edge : edges) {\n            adjList.get(edge.first).add(edge.second);\n            inDegree.merge(edge.second, 1, Integer::sum);\n        }\n\n        Queue<String> queue = new LinkedList<>();\n        for (Map.Entry<String, Integer> entry : inDegree.entrySet()) {\n            if (entry.getValue() == 0) {\n                queue.offer(entry.getKey());\n            }\n        }\n\n        List<String> result = new ArrayList<>();\n        while (!queue.isEmpty()) {\n            String vertex = queue.poll();\n            result.add(vertex);\n\n            for (String neighbor : adjList.get(vertex)) {\n                int newDegree = inDegree.get(neighbor) - 1;\n                inDegree.put(neighbor, newDegree);\n                if (newDegree == 0) {\n                    queue.offer(neighbor);\n                }\n            }\n        }\n\n        if (result.size() != vertices.size()) {\n            throw new IllegalStateException(\"Graph contains a cycle\");\n        }\n\n        return result;\n    }\n\n    public record Pair<F, S>(F first, S second) {}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-TopoSortJava",
+        "title": "拓扑排序算法",
+        "description": "实现Kahn算法进行拓扑排序。首先构建邻接表和入度表，将所有入度为0的顶点加入队列。然后从队列中取出顶点加入结果列表，将其所有邻居的入度减1，如果邻居入度变为0则加入队列。重复此过程直到队列为空。最后检查结果列表大小是否等于总顶点数，如果不等说明图中存在环。Pair记录类表示有向边。该算法时间复杂度为O(V+E)，适用于任务调度、编译顺序确定、依赖解析等场景。",
+        "confidence": 0.94,
+        "alternative_titles": ["Topological Sort", "Kahn's Algorithm", "DAG Ordering"]
+      }]
+    },
+    {
+      "id": "AL-JAVA-005",
+      "description": "LRU Cache with LinkedHashMap",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/algorithms/LRUCache.java",
+        "start_line": 1,
+        "end_line": 45,
+        "content": "package com.example.algorithms;\n\nimport java.util.LinkedHashMap;\nimport java.util.Map;\n\npublic class LRUCache<K, V> extends LinkedHashMap<K, V> {\n    private final int capacity;\n\n    public LRUCache(int capacity) {\n        super(capacity, 0.75f, true);\n        this.capacity = capacity;\n    }\n\n    @Override\n    protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {\n        return size() > capacity;\n    }\n\n    public V getOrCompute(K key, java.util.function.Function<K, V> mappingFunction) {\n        V value = get(key);\n        if (value == null) {\n            value = mappingFunction.apply(key);\n            put(key, value);\n        }\n        return value;\n    }\n\n    public void evictAll() {\n        clear();\n    }\n\n    public int getHitRate(int totalAccesses) {\n        return totalAccesses > 0 ? size() * 100 / Math.max(totalAccesses, 1) : 0;\n    }\n}\n\n// Usage:\n// LRUCache<Integer, String> cache = new LRUCache<>(3);\n// cache.put(1, \"one\");\n// cache.put(2, \"two\");\n// cache.put(3, \"three\");\n// cache.get(1); // Accessing 1 moves it to most recently used\n// cache.put(4, \"four\"); // Evicts 2 (least recently used)\n// // Cache state: {3=three, 1=one, 4=four}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 45]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-LRUJava",
+        "title": "LinkedHashMap实现的LRU缓存",
+        "description": "利用Java的LinkedHashMap实现LRU（最近最少使用）缓存。构造函数传入accessOrder=true启用访问顺序模式，get和put操作会自动将被访问的条目移到链表末尾。重写removeEldestEntry方法，当size超过capacity时自动删除最久未使用的条目（链表头部）。这种实现仅约10行核心代码就完成了完整的LRU缓存，get和put操作均为O(1)时间复杂度。getOrCompute提供原子性的获取或计算模式，避免并发问题。这种简洁的实现利用了JDK内置数据结构的优势。",
+        "confidence": 0.95,
+        "alternative_titles": ["LRU Cache", "LinkedHashMap Cache", "Least Recently Used"]
+      }]
+    },
+    {
+      "id": "AL-JAVA-006",
+      "description": "Trie data structure",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/algorithms/Trie.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.algorithms;\n\nimport java.util.*;\n\npublic class Trie {\n    private final TrieNode root = new TrieNode();\n\n    public void insert(String word) {\n        TrieNode node = root;\n        for (char c : word.toCharArray()) {\n            node.children.putIfAbsent(c, new TrieNode());\n            node = node.children.get(c);\n        }\n        node.isEndOfWord = true;\n    }\n\n    public boolean search(String word) {\n        return findNode(word) != null && findNode(word).isEndOfWord;\n    }\n\n    public boolean startsWith(String prefix) {\n        return findNode(prefix) != null;\n    }\n\n    public List<String> autocomplete(String prefix, int maxResults) {\n        List<String> results = new ArrayList<>();\n        TrieNode node = findNode(prefix);\n        if (node == null) return results;\n\n        collectWords(node, prefix, results, maxResults);\n        return results;\n    }\n\n    private TrieNode findNode(String prefix) {\n        TrieNode node = root;\n        for (char c : prefix.toCharArray()) {\n            node = node.children.get(c);\n            if (node == null) return null;\n        }\n        return node;\n    }\n\n    private void collectWords(TrieNode node, String prefix,\n                              List<String> results, int maxResults) {\n        if (results.size() >= maxResults) return;\n\n        if (node.isEndOfWord) {\n            results.add(prefix);\n        }\n\n        for (Map.Entry<Character, TrieNode> entry : node.children.entrySet()) {\n            collectWords(entry.getValue(), prefix + entry.getKey(), results, maxResults);\n        }\n    }\n\n    public boolean delete(String word) {\n        return deleteHelper(root, word, 0);\n    }\n\n    private boolean deleteHelper(TrieNode node, String word, int depth) {\n        if (depth == word.length()) {\n            if (!node.isEndOfWord) return false;\n            node.isEndOfWord = false;\n            return node.children.isEmpty();\n        }\n\n        char c = word.charAt(depth);\n        TrieNode child = node.children.get(c);\n        if (child == null) return false;\n\n        boolean shouldDeleteChild = deleteHelper(child, word, depth + 1);\n\n        if (shouldDeleteChild) {\n            node.children.remove(c);\n            return node.children.isEmpty() && !node.isEndOfWord;\n        }\n        return false;\n    }\n\n    private static class TrieNode {\n        Map<Character, TrieNode> children = new HashMap<>();\n        boolean isEndOfWord = false;\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-TrieJava",
+        "title": "字典树（Trie）数据结构",
+        "description": "实现Trie字典树用于高效字符串检索。root节点作为树的根，insert方法逐个字符构建路径并在词尾标记isEndOfWord。search通过findNode定位词尾节点检查标记。startsWith只需定位前缀节点。autocomplete使用深度优先搜索收集以给定前缀开头的所有单词，最多返回maxResults个。delete方法递归删除节点并清理空路径，返回布尔值指示父节点是否应删除其子节点引用。TrieNode使用HashMap存储子节点，支持任意字符集。查找时间复杂度为O(m)，m为键长，与数据量无关。",
+        "confidence": 0.94,
+        "alternative_titles": ["Trie", "Prefix Tree", "Dictionary Tree"]
+      }]
+    },
+    {
+      "id": "AL-JAVA-007",
+      "description": "Knapsack Dynamic Programming",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/algorithms/Knapsack.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.algorithms;\n\nimport java.util.Arrays;\n\npublic class Knapsack {\n\n    public static int solve(int capacity, int[] weights, int[] values) {\n        int n = weights.length;\n        int[][] dp = new int[n + 1][capacity + 1];\n\n        for (int i = 1; i <= n; i++) {\n            for (int w = 0; w <= capacity; w++) {\n                if (weights[i - 1] <= w) {\n                    dp[i][w] = Math.max(\n                        dp[i - 1][w],\n                        dp[i - 1][w - weights[i - 1]] + values[i - 1]\n                    );\n                } else {\n                    dp[i][w] = dp[i - 1][w];\n                }\n            }\n        }\n\n        return dp[n][capacity];\n    }\n\n    public static int solveOptimized(int capacity, int[] weights, int[] values) {\n        int n = weights.length;\n        int[] dp = new int[capacity + 1];\n\n        for (int i = 0; i < n; i++) {\n            for (int w = capacity; w >= weights[i]; w--) {\n                dp[w] = Math.max(dp[w], dp[w - weights[i]] + values[i]);\n            }\n        }\n\n        return dp[capacity];\n    }\n\n    public static int[] reconstruct(int capacity, int[] weights, int[] values) {\n        int n = weights.length;\n        int[][] dp = new int[n + 1][capacity + 1];\n\n        for (int i = 1; i <= n; i++) {\n            for (int w = 0; w <= capacity; w++) {\n                if (weights[i - 1] <= w) {\n                    dp[i][w] = Math.max(\n                        dp[i - 1][w],\n                        dp[i - 1][w - weights[i - 1]] + values[i - 1]\n                    );\n                } else {\n                    dp[i][w] = dp[i - 1][w];\n                }\n            }\n        }\n\n        int[] selected = new int[n];\n        int w = capacity;\n        for (int i = n; i > 0 && w > 0; i--) {\n            if (dp[i][w] != dp[i - 1][w]) {\n                selected[i - 1] = 1;\n                w -= weights[i - 1];\n            }\n        }\n\n        return selected;\n    }\n}\n\n// Usage:\n// int[] weights = {2, 3, 4, 5};\n// int[] values = {3, 4, 5, 6};\n// int capacity = 5;\n// int maxVal = Knapsack.solve(capacity, weights, values); // 7",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-KnapsackJava",
+        "title": "背包问题动态规划",
+        "description": "实现0/1背包问题的动态规划解法。solve方法使用二维DP表dp[i][w]表示前i个物品在容量w下的最大价值，状态转移方程为：选择第i个物品或不选，取较大值。solveOptimized方法优化为一维数组，从后向前遍历避免覆盖。reconstruct方法回溯DP表找出哪些物品被选中，selected数组标记每个物品的选择状态。时间复杂度为O(n*W)，空间复杂度二维为O(n*W)，一维优化为O(W)。这是经典的NP-hard问题，动态规划提供了伪多项式时间的精确解法。",
+        "confidence": 0.95,
+        "alternative_titles": ["Knapsack Problem", "Dynamic Programming", "0/1 Knapsack"]
+      }]
+    },
+    {
+      "id": "AL-JAVA-008",
+      "description": "A* Pathfinding Algorithm",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/algorithms/AStar.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.algorithms;\n\nimport java.util.*;\n\npublic class AStar {\n\n    public record Point(int x, int y) {\n        @Override\n        public int hashCode() { return Objects.hash(x, y); }\n        @Override\n        public boolean equals(Object o) {\n            if (this == o) return true;\n            if (!(o instanceof Point p)) return false;\n            return x == p.x && y == p.y;\n        }\n    }\n\n    public static List<Point> findPath(int[][] grid, Point start, Point goal) {\n        PriorityQueue<Node> openSet = new PriorityQueue<>(\n            Comparator.comparingLong(n -> n.fScore)\n        );\n        Map<Point, Node> allNodes = new HashMap<>();\n\n        Node startNode = new Node(start, 0, heuristic(start, goal));\n        openSet.add(startNode);\n        allNodes.put(start, startNode);\n\n        while (!openSet.isEmpty()) {\n            Node current = openSet.poll();\n\n            if (current.point.equals(goal)) {\n                return reconstructPath(current);\n            }\n\n            for (Point neighbor : getNeighbors(grid, current.point)) {\n                Node neighborNode = allNodes.computeIfAbsent(\n                    neighbor, p -> new Node(p, 0, 0)\n                );\n\n                double tentativeG = current.gScore + distance(current.point, neighbor);\n                if (tentativeG < neighborNode.gScore) {\n                    neighborNode.parent = current;\n                    neighborNode.gScore = tentativeG;\n                    neighborNode.hScore = heuristic(neighbor, goal);\n                    openSet.remove(neighborNode);\n                    openSet.add(neighborNode);\n                }\n            }\n        }\n\n        return Collections.emptyList(); // No path found\n    }\n\n    private static List<Point> reconstructPath(Node current) {\n        List<Point> path = new ArrayList<>();\n        while (current != null) {\n            path.add(0, current.point);\n            current = current.parent;\n        }\n        return path;\n    }\n\n    private static double heuristic(Point a, Point b) {\n        return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); // Manhattan\n    }\n\n    private static double distance(Point a, Point b) {\n        return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));\n    }\n\n    private static List<Point> getNeighbors(int[][] grid, Point point) {\n        List<Point> neighbors = new ArrayList<>();\n        int[][] dirs = {{0,1},{0,-1},{1,0},{-1,0}};\n        for (int[] d : dirs) {\n            int nx = point.x + d[0];\n            int ny = point.y + d[1];\n            if (nx >= 0 && ny >= 0 && nx < grid[0].length && ny < grid.length\n                && grid[ny][nx] == 0) {\n                neighbors.add(new Point(nx, ny));\n            }\n        }\n        return neighbors;\n    }\n\n    private static class Node {\n        Point point;\n        double gScore;\n        double hScore;\n        Node parent;\n\n        Node(Point point, double g, double h) {\n            this.point = point;\n            this.gScore = g;\n            this.hScore = h;\n        }\n\n        long getFScore() { return (long)(gScore + hScore); }\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-AStarJava",
+        "title": "A*寻路算法",
+        "description": "实现A*寻路算法在网格地图中寻找最短路径。使用PriorityQueue按fScore（gScore+hScore）排序维护开放列表，gScore是从起点的实际代价，hScore是启发式估计代价（曼哈顿距离）。对于每个弹出的节点，检查其四个方向的邻居，如果通过当前节点到达邻居的路径更优则更新。reconstructPath从目标节点沿parent指针回溯到起点构建完整路径。getNeighbors过滤边界和障碍物（grid值为1的格子）。A*结合了Dijkstra的最优性和贪心搜索的效率，在可接纳启发式函数保证下能找到最优路径。",
+        "confidence": 0.94,
+        "alternative_titles": ["A* Pathfinding", "A-Star Algorithm", "Heuristic Search"]
+      }]
+    }
+  ]
+}

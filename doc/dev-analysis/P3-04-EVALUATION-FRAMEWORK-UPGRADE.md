@@ -7,7 +7,7 @@
 | **文档编号** | DA-001 |
 | **文档名称** | 评估框架能力提升计划 |
 | **编写日期** | 2026-07-19 |
-| **状态** | 阶段 1 已完成，待启动阶段 2-4 |
+| **状态** | 阶段 1-3 已完成，阶段 4 按需推进 |
 | **关联任务** | P3-04, P3-11 |
 
 ---
@@ -18,14 +18,14 @@
 
 | 维度 | 当前状态 | 评级 |
 |------|---------|:----:|
-| 评估语言覆盖 | 仅 Python（25 组用例） | 🔴 |
-| 匹配方式 | title 精确匹配 | 🔴 |
+| 评估语言覆盖 | Python + JS/TS/Java/Go/Vue（225 组用例） | 🟢 |
+| 匹配方式 | CompositeMatcher（精确 + 模糊 + 分类） | 🟢 |
 | 评估指标 | Precision / Recall / F1 | 🟢 |
-| 评估框架结构 | 运行器 + 评估器 + 指标计算器 | 🟢 |
-| 报告输出 | JSON 格式 | 🟡 |
-| 可扩展性 | 硬编码分类常量 | 🔴 |
-| CI 集成 | 无 | 🔴 |
-| 版本管理 | 无 | 🔴 |
+| 评估框架结构 | 引擎 + 评估器 + 指标计算器 + 注册表 | 🟢 |
+| 报告输出 | JSON + Console + History | 🟢 |
+| 可扩展性 | 数据驱动，新增语言无需改代码 | 🟢 |
+| CI 集成 | `.github/workflows/eval.yml` | 🟢 |
+| 版本管理 | 历史快照 JSONL + 回归检测 | 🟢 |
 | 自评估 | SelfEvaluator 基础实现 | 🟡 |
 
 ### 1.2 系统当前语言支持
@@ -35,11 +35,11 @@
 | 语言 | 解析器 | 评估数据 | 包名 |
 |------|--------|:--------:|------|
 | Python | ✅ `PythonParser` | ✅ 5 组 | `tree-sitter-python` |
-| JavaScript | ✅ `JavaScriptParser` | ❌ | `tree-sitter-javascript` |
-| TypeScript | ✅ `TypeScriptParser` | ❌ | `tree-sitter-typescript` |
-| Java | ✅ `JavaParser` | ❌ | `tree-sitter-java` |
-| Go | ✅ `GoParser` | ❌ | `tree-sitter-go` |
-| Vue | ✅ `VueSfcParser` | ❌ | 复用 TS |
+| JavaScript | ✅ `JavaScriptParser` | ✅ 8 组 | `tree-sitter-javascript` |
+| TypeScript | ✅ `TypeScriptParser` | ✅ 8 组 | `tree-sitter-typescript` |
+| Java | ✅ `JavaParser` | ✅ 8 组 | `tree-sitter-java` |
+| Go | ✅ `GoParser` | ✅ 8 组 | `tree-sitter-go` |
+| Vue | ✅ `VueSfcParser` | ✅ 8 组 | 复用 TS |
 
 **已声明但无解析器的语言（8 种）：** Rust, C, C++, C#, Ruby, PHP, Swift, Kotlin
 

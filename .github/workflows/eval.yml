@@ -1,0 +1,98 @@
+name: Evaluation
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run daily at 02:00 UTC for regression tracking
+    - cron: "0 2 * * *"
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Cache uv dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('codeinsight-backend/uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install dependencies
+        working-directory: codeinsight-backend
+        run: uv sync --extra dev
+
+      - name: Run evaluation (all categories)
+        id: eval-all
+        run: |
+          python scripts/evaluate.py \
+            --format console \
+            --save-snapshot \
+            --prompt-version "${{ github.sha }}" \
+            --snapshot-path codeinsight-backend/codeinsight/evaluation/history/snapshots.jsonl
+
+      - name: Run evaluation (Python only)
+        id: eval-python
+        run: |
+          python scripts/evaluate.py \
+            --languages python \
+            --format json \
+            --output codeinsight-backend/eval_report_python.json \
+            --save-snapshot \
+            --snapshot-path codeinsight-backend/codeinsight/evaluation/history/snapshots.jsonl
+
+      - name: Run evaluation (TypeScript only)
+        id: eval-typescript
+        run: |
+          python scripts/evaluate.py \
+            --languages typescript \
+            --format json \
+            --output codeinsight-backend/eval_report_typescript.json \
+            --save-snapshot \
+            --snapshot-path codeinsight-backend/codeinsight/evaluation/history/snapshots.jsonl
+
+      - name: Check for regressions
+        id: regressions
+        working-directory: codeinsight-backend
+        run: |
+          uv run python -c "
+          from codeinsight.evaluation.history import SnapshotStore
+          store = SnapshotStore()
+          regressions = store.detect_regressions(threshold_f1_drop=0.05)
+          if regressions:
+              print('=== Regressions Detected ===')
+              for r in regressions:
+                  print(f'[{r[\"severity\"].upper()}] {r[\"dimension\"]}: {r[\"previous_f1\"]:.4f} -> {r[\"current_f1\"]:.4f} (drop {r[\"drop\"]:.4f})')
+              exit(1)
+          else:
+              print('No regressions detected')
+          " 2>&1 || echo "regression_detected=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports
+          path: |
+            codeinsight-backend/eval_report_*.json
+            codeinsight-backend/codeinsight/evaluation/history/snapshots.jsonl
+
+      - name: Fail on critical regression
+        if: steps.regressions.outputs.regression_detected == 'true'
+        run: |
+          echo "::error::Critical regression detected! F1 score dropped below threshold."
+          exit 1

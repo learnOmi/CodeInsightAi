@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-al-vue",
+  "category": "AL",
+  "language": "vue",
+  "description": "Algorithms implemented in Vue.js context",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AL-VUE-001",
+      "description": "Reactive dependency tracking algorithm",
+      "code_snippets": [{
+        "file": "src/reactivity/effect.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "let activeEffect: Effect | null = null\n\ninterface Effect {\n  fn: () => any\n  deps: Set<Dep>[]\n}\n\ntype Dep = Set<Effect>\ntype TargetMap = WeakMap<any, Map<string | symbol, Dep>>\n\nconst targetMap = new WeakMap<any, TargetMap>()\n\nfunction track(target: any, key: string | symbol) {\n  if (!activeEffect) return\n\n  let depsMap = targetMap.get(target)\n  if (!depsMap) {\n    targetMap.set(target, (depsMap = new Map()))\n  }\n\n  let dep = depsMap.get(key)\n  if (!dep) {\n    depsMap.set(key, (dep = new Set()))\n  }\n\n  if (!dep.has(activeEffect)) {\n    dep.add(activeEffect)\n    activeEffect.deps.push(dep)\n  }\n}\n\nfunction trigger(target: any, key: string | symbol) {\n  const depsMap = targetMap.get(target)\n  if (!depsMap) return\n\n  const dep = depsMap.get(key)\n  if (dep) {\n    for (const effect of dep) {\n      effect.fn()\n    }\n  }\n}\n\nfunction reactive<T extends object>(target: T): T {\n  const handler: ProxyHandler<T> = {\n    get(obj, key, receiver) {\n      const result = Reflect.get(obj, key, receiver)\n      track(obj, key)\n      return typeof result === 'object' && result !== null ? reactive(result) : result\n    },\n    set(obj, key, value, receiver) {\n      const oldValue = (obj as any)[key]\n      const result = Reflect.set(obj, key, value, receiver)\n      if (oldValue !== value) {\n        trigger(obj, key)\n      }\n      return result\n    }\n  }\n  return new Proxy(target, handler)\n}\n\nfunction effect(fn: () => void) {\n  const effectFn: Effect = { fn, deps: [] }\n  activeEffect = effectFn\n  fn()\n  activeEffect = null\n  return () => {\n    for (const dep of effectFn.deps) {\n      dep.delete(effectFn)\n    }\n  }\n}\n\n// Usage:\n// const state = reactive({ count: 0 })\n// effect(() => {\n//   console.log(`Count is: ${state.count}`)\n// })\n// state.count++ // Triggers the effect",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-ReactiveVUE",
+        "title": "响应式依赖追踪算法",
+        "description": "实现Vue响应式系统的核心依赖追踪算法。track函数在get代理钩子中调用，将当前activeEffect注册到目标对象的key对应的Dep集合中。trigger函数在set钩子中调用，遍历Dep集合执行所有注册的effect。reactive使用Proxy递归包装对象，确保嵌套属性也能响应式。effect函数设置activeEffect后执行回调，收集所有访问的属性依赖。依赖图结构为WeakMap(对象)->Map(key)->Set(effect)，支持精确的细粒度更新。清理函数删除所有关联的dep引用防止内存泄漏。",
+        "confidence": 0.95,
+        "alternative_titles": ["Dependency Tracking", "Reactive System", "Proxy-based Reactivity"]
+      }]
+    },
+    {
+      "id": "AL-VUE-002",
+      "description": "Virtual DOM diff algorithm",
+      "code_snippets": [{
+        "file": "src/vdom/diff.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "type VNode = {\n  tag: string\n  props: Record<string, any>\n  children: (VNode | string)[]\n  key?: string\n}\n\ntype Element = HTMLElement\n\nfunction patch(oldVNode: VNode | null, newVNode: VNode, parent: Element) {\n  if (!oldVNode) {\n    mount(newVNode, parent)\n    return\n  }\n\n  if (typeof oldVNode === 'string' || typeof newVNode === 'string') {\n    if (oldVNode !== newVNode) {\n      parent.textContent = String(newVNode)\n    }\n    return\n  }\n\n  if (oldVNode.tag !== newVNode.tag) {\n    parent.replaceChild(createElement(newVNode), oldVNode.el)\n    return\n  }\n\n  updateElement(oldVNode, newVNode, parent)\n  patchChildren(oldVNode, newVNode, parent)\n}\n\nfunction updateElement(oldVNode: VNode, newVNode: VNode, parent: Element) {\n  const el = (newVNode.el = oldVNode.el || createElement(newVNode))\n\n  // Update props\n  const oldProps = oldVNode.props || {}\n  const newProps = newVNode.props || {}\n\n  for (const key in newProps) {\n    if (newProps[key] !== oldProps[key]) {\n      el.setAttribute(key, String(newProps[key]))\n    }\n  }\n  for (const key in oldProps) {\n    if (!(key in newProps)) {\n      el.removeAttribute(key)\n    }\n  }\n}\n\nfunction patchChildren(oldVNode: VNode, newVNode: VNode, parent: Element) {\n  const oldChildren = oldVNode.children || []\n  const newChildren = newVNode.children || []\n  const maxLen = Math.max(oldChildren.length, newChildren.length)\n\n  for (let i = 0; i < maxLen; i++) {\n    const oldChild = oldChildren[i]\n    const newChild = newChildren[i]\n\n    if (!oldChild) {\n      if (typeof newChild === 'string') {\n        parent.appendChild(document.createTextNode(newChild))\n      } else {\n        parent.appendChild(createElement(newChild))\n      }\n    } else if (!newChild) {\n      parent.removeChild(parent.children[i])\n    } else {\n      patch(oldChild, newChild, parent)\n    }\n  }\n}\n\nfunction createElement(vnode: VNode): Element {\n  const el = document.createElement(vnode.tag)\n  vnode.el = el\n  for (const [key, value] of Object.entries(vnode.props || {})) {\n    el.setAttribute(key, String(value))\n  }\n  return el\n}\n\nfunction mount(vnode: VNode, parent: Element) {\n  const el = createElement(vnode)\n  vnode.children?.forEach(child => {\n    if (typeof child === 'string') {\n      el.appendChild(document.createTextNode(child))\n    } else {\n      mount(child, el)\n    }\n  })\n  parent.appendChild(el)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-DiffVUE",
+        "title": "虚拟DOM Diff算法",
+        "description": "实现虚拟DOM的Diff和Patch算法。patch函数比较新旧VNode：无旧节点则mount创建，tag不同则替换整个元素，相同则updateElement更新属性并patchChildren处理子节点。updateElement通过比较props对象增删改属性。patchChildren按索引逐个比较子节点，处理新增、删除和复用。createElement从VNode创建真实DOM元素，mount递归挂载子树。该算法采用简单的同层比较策略，时间复杂度O(n)。Vue在此基础上优化为基于key的LCS算法提高复用率。",
+        "confidence": 0.94,
+        "alternative_titles": ["Virtual DOM Diff", "Patch Algorithm", "VNode Comparison"]
+      }]
+    },
+    {
+      "id": "AL-VUE-003",
+      "description": "Scheduler with priority queue",
+      "code_snippets": [{
+        "file": "src/reactivity/scheduler.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "import { nextTick } from 'vue'\n\nexport type SchedulerJob = () => void\n\nenum SchedulerFlags {\n  FLUSHING = 1,\n  QUEUED = 2\n}\n\nconst queue: SchedulerJob[] = []\nconst pending = new Set<SchedulerJob>()\nlet flushIndex = 0\n\nconst priorityQueue: Array<{ job: SchedulerJob, order: number }> = []\n\nexport function queuePostFlushJob(job: SchedulerJob) {\n  if (!(job as any).__skip) {\n    priorityQueue.push({ job, order: 0 })\n  }\n}\n\nexport function queueJob(job: SchedulerJob) {\n  if (!priorityQueue.find(p => p.job === job)) {\n    priorityQueue.push({ job, order: 1 })\n  }\n}\n\nasync function flushJobs() {\n  let job\n  while (priorityQueue.length > 0) {\n    // Sort by priority (lower order = higher priority)\n    priorityQueue.sort((a, b) => a.order - b.order)\n    \n    const { job: scheduledJob } = priorityQueue.shift()!\n    await scheduledJob()\n  }\n}\n\nexport function nextTickWithPriority(fn?: () => void): Promise<void> {\n  return nextTick().then(() => {\n    if (fn) fn()\n    flushJobs()\n  })\n}\n\n// Usage:\n// watch(count, () => queueJob(updateUI))\n// watch(deepData, () => queuePostFlushJob(saveToDB))",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-SchedulerVUE",
+        "title": "优先级调度器算法",
+        "description": "实现带优先级的任务调度器。queueJob和queuePostFlushJob分别将普通任务和刷新后任务加入优先级队列，通过order字段区分优先级（0为高优先级，1为低）。flushJobs异步清空队列，每次循环先按order排序再执行。nextTickWithPriority在Vue的nextTick之后执行flushJobs确保DOM已更新。这种调度机制是Vue响应式系统的核心：watch触发时不立即执行回调，而是将回调加入队列，在同一tick内去重，在下一个微任务中批量执行。避免频繁DOM操作提升性能。",
+        "confidence": 0.93,
+        "alternative_titles": ["Task Scheduler", "Priority Queue", "Microtask Scheduling"]
+      }]
+    },
+    {
+      "id": "AL-VUE-004",
+      "description": "Tree Shaking optimization",
+      "code_snippets": [{
+        "file": "src/utils/helpers.ts",
+        "start_line": 1,
+        "end_line": 40,
+        "content": "// utils/format.ts - Named exports only (tree-shakeable)\nexport function formatDate(date: Date): string {\n  return date.toLocaleDateString('en-US', {\n    year: 'numeric', month: 'long', day: 'numeric'\n  })\n}\n\nexport function formatCurrency(amount: number, currency: string = 'USD'): string {\n  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)\n}\n\nexport function formatPercentage(value: number, decimals: number = 1): string {\n  return `${(value * 100).toFixed(decimals)}%`\n}\n\n// utils/validators.ts - Named exports\nexport function isValidEmail(email: string): boolean {\n  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)\n}\n\nexport function isValidPhone(phone: string): boolean {\n  return /^\\+?[1-9]\\d{1,14}$/.test(phone)\n}\n\n// utils/index.ts - Barrel file re-exports\nexport { formatDate, formatCurrency, formatPercentage } from './format'\nexport { isValidEmail, isValidPhone } from './validators'\n\n// app.ts - Only imports what's needed\nimport { formatDate, isValidEmail } from './utils'\n// formatCurrency and isValidPhone are tree-shaken away\nconsole.log(formatDate(new Date()))\nconsole.log(isValidEmail('test@example.com'))",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-TreeShakeVUE",
+        "title": "Tree Shaking优化",
+        "description": "实现Tree Shaking优化的模块设计。format.ts和validators.ts使用命名导出（export function）而非默认导出，使打包工具能识别未使用的函数并将其移除。index.ts作为barrel文件只重新导出需要的符号。app.ts通过命名导入按需引入formatDate和isValidEmail，formatCurrency和isValidPhone不会被包含在最终bundle中。配合ESM模块系统和webpack/Vite的sideEffects配置，构建时静态分析删除死代码。这种模式显著减少生产环境包体积。",
+        "confidence": 0.94,
+        "alternative_titles": ["Tree Shaking", "Dead Code Elimination", "Bundle Optimization"]
+      }]
+    },
+    {
+      "id": "AL-VUE-005",
+      "description": "Debounced search implementation",
+      "code_snippets": [{
+        "file": "composables/useDebounceSearch.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "import { ref, watch, onUnmounted } from 'vue'\n\nexport function useDebounceSearch<T>(\n  source: Ref<string>,\n  fetchFn: (query: string) => Promise<T[]>,\n  options: { debounceMs?: number; immediate?: boolean; minQueryLength?: number } = {}\n) {\n  const { debounceMs = 300, immediate = false, minQueryLength = 1 } = options\n  const results = ref<T[]>([])\n  const isLoading = ref(false)\n  const error = ref<string | null>(null)\n  let debounceTimer: ReturnType<typeof setTimeout> | null = null\n\n  async function executeSearch(query: string) {\n    if (!query.trim() || query.length < minQueryLength) {\n      results.value = []\n      isLoading.value = false\n      return\n    }\n\n    isLoading.value = true\n    error.value = null\n\n    try {\n      results.value = await fetchFn(query)\n    } catch (e) {\n      error.value = e instanceof Error ? e.message : 'Search failed'\n    } finally {\n      isLoading.value = false\n    }\n  }\n\n  watch(source, (newQuery) => {\n    if (debounceTimer !== null) {\n      clearTimeout(debounceTimer)\n    }\n    debounceTimer = setTimeout(() => executeSearch(newQuery), debounceMs)\n  }, { immediate })\n\n  onUnmounted(() => {\n    if (debounceTimer !== null) {\n      clearTimeout(debounceTimer)\n    }\n  })\n\n  return { results, isLoading, error }\n}\n\n// Usage:\n// const query = ref('')\n// const { results, isLoading, error } = useDebounceSearch(\n//   query, searchProducts, { debounceMs: 300, minQueryLength: 2 }\n// )",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-DebounceVUE",
+        "title": "防抖搜索算法",
+        "description": "实现防抖（Debounce）搜索功能。useDebounceSearch组合式函数接收查询字符串源、异步搜索函数和配置选项。watch监听query变化，每次变化清除之前的定时器并设置新的setTimeout，只有当用户停止输入debounceMs毫秒后才执行搜索。executeSearch执行实际请求，处理加载状态和错误。minQueryLength跳过过短的查询词。onUnmounted清理定时器防止内存泄漏。这种模式减少不必要的API调用，提升用户体验和服务器负载。",
+        "confidence": 0.95,
+        "alternative_titles": ["Debounced Search", "Input Throttling", "Lazy Search"]
+      }]
+    },
+    {
+      "id": "AL-VUE-006",
+      "description": "Pagination algorithm",
+      "code_snippets": [{
+        "file": "composables/usePagination.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "import { ref, computed } from 'vue'\n\nexport function usePagination<T>(data: Ref<T[]>, pageSize: number = 10) {\n  const currentPage = ref(1)\n\n  const totalPages = computed(() => Math.ceil(data.value.length / pageSize))\n\n  const paginatedData = computed(() => {\n    const start = (currentPage.value - 1) * pageSize\n    const end = start + pageSize\n    return data.value.slice(start, end)\n  })\n\n  const pageNumbers = computed(() => {\n    const pages = []\n    const total = totalPages.value\n    const current = currentPage.value\n\n    if (total <= 7) {\n      for (let i = 1; i <= total; i++) pages.push(i)\n    } else {\n      pages.push(1)\n      if (current > 3) pages.push('...')\n      \n      const start = Math.max(2, current - 1)\n      const end = Math.min(total - 1, current + 1)\n      for (let i = start; i <= end; i++) pages.push(i)\n\n      if (current < total - 2) pages.push('...')\n      pages.push(total)\n    }\n    return pages\n  })\n\n  function goToPage(page: number) {\n    if (page >= 1 && page <= totalPages.value) {\n      currentPage.value = page\n    }\n  }\n\n  return { currentPage, totalPages, paginatedData, pageNumbers, goToPage }\n}\n\n// Usage:\n// const products = ref([...]) // large array\n// const { paginatedData, pageNumbers, goToPage } = usePagination(products, 20)",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-PaginationVUE",
+        "title": "分页算法",
+        "description": "实现智能分页算法。paginatedData使用Array.slice按页码截取数据子集。pageNumbers计算属性生成显示的分页按钮列表，当总页数超过7时采用省略号策略：始终显示第一页和最后一页，中间显示当前页前后各一页加省略号。goToPage验证页码范围防止越界。totalPages计算总页数。这种分页算法在大数据量下保持UI简洁，同时提供直观的导航体验。",
+        "confidence": 0.94,
+        "alternative_titles": ["Pagination", "Page Navigation", "Smart Pagination"]
+      }]
+    },
+    {
+      "id": "AL-VUE-007",
+      "description": "Filter pipeline pattern",
+      "code_snippets": [{
+        "file": "src/utils/filterPipeline.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "type FilterFn<T> = (item: T, context: FilterContext) => boolean\n\ninterface FilterContext {\n  searchTerm: string\n  categories: string[]\n  priceRange: { min: number; max: number }\n  sortBy: string\n  sortOrder: 'asc' | 'desc'\n}\n\nexport class FilterPipeline<T> {\n  private filters: FilterFn<T>[] = []\n  private context: FilterContext\n\n  constructor(context: FilterContext) {\n    this.context = context\n  }\n\n  addFilter(filter: FilterFn<T>): FilterPipeline<T> {\n    this.filters.push(filter)\n    return this\n  }\n\n  execute(items: T[]): T[] {\n    let result = [...items]\n\n    // Apply text search filter\n    if (this.context.searchTerm) {\n      result = result.filter(item =>\n        JSON.stringify(item).toLowerCase().includes(this.context.searchTerm.toLowerCase())\n      )\n    }\n\n    // Apply category filter\n    if (this.context.categories.length > 0) {\n      result = result.filter(item => {\n        const categories = (item as any).categories || []\n        return this.context.categories.some(cat => categories.includes(cat))\n      })\n    }\n\n    // Apply price range filter\n    result = result.filter(item => {\n      const price = (item as any).price ?? 0\n      return price >= this.context.priceRange.min && price <= this.context.priceRange.max\n    })\n\n    // Apply custom filters\n    for (const filter of this.filters) {\n      result = result.filter(item => filter(item, this.context))\n    }\n\n    // Sort\n    result.sort((a, b) => {\n      const aVal = (a as any)[this.context.sortBy] ?? 0\n      const bVal = (b as any)[this.context.sortBy] ?? 0\n      return this.context.sortOrder === 'desc' ? bVal - aVal : aVal - bVal\n    })\n\n    return result\n  }\n}\n\n// Usage:\n// const pipeline = new FilterPipeline<Product>(context)\n//   .addFilter(product => product.inStock)\n//   .addFilter(product => product.rating >= 4)\n// const filtered = pipeline.execute(allProducts)",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-FilterPipeVUE",
+        "title": "过滤流水线算法",
+        "description": "实现过滤流水线模式处理复杂数据筛选。FilterPipeline<T>泛型类维护过滤器链和执行上下文。addFilter方法支持链式添加自定义过滤器。execute方法依次应用文本搜索、分类过滤、价格范围过滤和自定义过滤器，最后排序。每个过滤步骤产生中间结果传递给下一步。FilterFn类型定义统一的过滤契约。这种模式将筛选逻辑分解为独立的、可复用的管道步骤，便于测试和维护。",
+        "confidence": 0.95,
+        "alternative_titles": ["Filter Pipeline", "Data Filtering", "Chained Filters"]
+      }]
+    },
+    {
+      "id": "AL-VUE-008",
+      "description": "Animation easing curves",
+      "code_snippets": [{
+        "file": "src/utils/easing.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "export type EasingFunction = (t: number) => number\n\nexport const Easings = {\n  linear: (t: number): number => t,\n\n  easeInQuad: (t: number): number => t * t,\n  easeOutQuad: (t: number): number => t * (2 - t),\n  easeInOutQuad: (t: number): number => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,\n\n  easeInCubic: (t: number): number => t * t * t,\n  easeOutCubic: (t: number): number => (--t) * t * t + 1,\n  easeInOutCubic: (t: number): number => t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1,\n\n  easeInElastic: (t: number): number => {\n    if (t === 0 || t === 1) return t\n    return -Math.pow(2, 10 * (t - 1)) * Math.sin((t - 1.1) * 5 * Math.PI)\n  },\n\n  easeOutBack: (t: number): number => {\n    const c1 = 1.70158\n    const c3 = c1 + 1\n    return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)\n  }\n}\n\nexport function animate(duration: number, easing: EasingFunction, onUpdate: (progress: number) => void, onComplete?: () => void) {\n  const startTime = performance.now()\n\n  function frame(now: number) {\n    const elapsed = now - startTime\n    const rawProgress = Math.min(elapsed / duration, 1)\n    const progress = easing(rawProgress)\n\n    onUpdate(progress)\n\n    if (rawProgress < 1) {\n      requestAnimationFrame(frame)\n    } else if (onComplete) {\n      onComplete()\n    }\n  }\n\n  requestAnimationFrame(frame)\n}\n\n// Usage in Vue component:\n// import { Easings, animate } from '@/utils/easing'\n// animate(500, Easings.easeOutCubic, (progress) => {\n//   element.style.transform = `translateX(${progress * 100}px)`\n// })",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AL",
+        "prefix": "AL-EasingVUE",
+        "title": "动画缓动曲线算法",
+        "description": "实现多种缓动曲线（Easing Curves）用于平滑动画。Easings对象包含linear、quad、cubic和elastic等数学函数，每个函数接收0-1的进度值返回对应的变换值。easeIn系列加速运动，easeOut系列减速运动，easeInOut先加速后减速。animate函数使用requestAnimationFrame实现动画循环，将时间进度通过easing函数映射为视觉进度。onUpdate回调每帧接收缓动后的进度值，onComplete在动画结束时调用。这种缓动算法让动画更自然流畅，避免机械的匀速运动。",
+        "confidence": 0.94,
+        "alternative_titles": ["Easing Curves", "Animation Timing", "Motion Design"]
+      }]
+    }
+  ]
+}

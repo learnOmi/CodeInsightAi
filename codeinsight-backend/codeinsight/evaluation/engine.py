@@ -43,6 +43,8 @@ class EvalConfig:
     threshold_f1: float = 0.0
     threshold_f1_drop: float = 0.05
     data_dir: str | None = None
+    prompt_version: str = "unknown"
+    verbose: bool = False
 
 
 @dataclass

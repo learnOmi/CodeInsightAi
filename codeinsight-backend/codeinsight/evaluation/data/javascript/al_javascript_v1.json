@@ -1,0 +1,193 @@
+{
+  "repo_id": "benchmark-al-javascript",
+  "category": "AL",
+  "language": "javascript",
+  "description": "JavaScript algorithm detection evaluation dataset",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AL-JS-001",
+      "description": "Merge Sort - Divide and Conquer",
+      "code_snippets": [
+        {
+          "file": "src/algorithms/merge-sort.js",
+          "start_line": 1,
+          "end_line": 35,
+          "content": "function mergeSort(arr, compare = (a, b) => a - b) {\n  if (arr.length <= 1) return arr;\n\n  const mid = Math.floor(arr.length / 2);\n  const left = mergeSort(arr.slice(0, mid), compare);\n  const right = mergeSort(arr.slice(mid), compare);\n\n  return merge(left, right, compare);\n}\n\nfunction merge(left, right, compare) {\n  const result = [];\n  let i = 0;\n  let j = 0;\n\n  while (i < left.length && j < right.length) {\n    if (compare(left[i], right[j]) <= 0) {\n      result.push(left[i]);\n      i++;\n    } else {\n      result.push(right[j]);\n      j++;\n    }\n  }\n\n  while (i < left.length) {\n    result.push(left[i]);\n    i++;\n  }\n\n  while (j < right.length) {\n    result.push(right[j]);\n    j++;\n  }\n\n  return result;\n}\n\nmodule.exports = mergeSort;",
+          "highlighted_lines": [1, 4, 10, 14, 28]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-MergeSortJS",
+          "title": "归并排序算法",
+          "description": "实现归并排序(Merge Sort)分治算法，递归地将数组分为两半分别排序后再合并，支持自定义比较函数，时间复杂度 O(n log n)，空间复杂度 O(n)",
+          "confidence": 0.95,
+          "alternative_titles": ["归并排序", "Merge Sort", "Divide and Conquer Sort"]
+        }
+      ]
+    },
+    {
+      "id": "AL-JS-002",
+      "description": "BFS - Level Order Traversal",
+      "code_snippets": [
+        {
+          "file": "src/algorithms/bfs.js",
+          "start_line": 1,
+          "end_line": 45,
+          "content": "class TreeNode {\n  constructor(val, left = null, right = null) {\n    this.val = val;\n    this.left = left;\n    this.right = right;\n  }\n}\n\nfunction levelOrder(root) {\n  if (!root) return [];\n\n  const result = [];\n  const queue = [root];\n\n  while (queue.length > 0) {\n    const levelSize = queue.length;\n    const currentLevel = [];\n\n    for (let i = 0; i < levelSize; i++) {\n      const node = queue.shift();\n      currentLevel.push(node.val);\n\n      if (node.left) queue.push(node.left);\n      if (node.right) queue.push(node.right);\n    }\n\n    result.push(currentLevel);\n  }\n\n  return result;\n}\n\nfunction bfsSearch(graph, start, target) {\n  const visited = new Set([start]);\n  const queue = [{ node: start, path: [start] }];\n\n  while (queue.length > 0) {\n    const { node, path } = queue.shift();\n    if (node === target) return path;\n\n    for (const neighbor of (graph.get(node) ?? [])) {\n      if (!visited.has(neighbor)) {\n        visited.add(neighbor);\n        queue.push({ node: neighbor, path: [...path, neighbor] });\n      }\n    }\n  }\n  return null;\n}\n\nmodule.exports = { levelOrder, bfsSearch, TreeNode };",
+          "highlighted_lines": [9, 13, 18, 27, 30]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-BFSJS",
+          "title": "广度优先搜索算法",
+          "description": "实现 BFS(广度优先搜索)算法，levelOrder 用于二叉树层序遍历，bfsSearch 用于图的最短路径查找，均使用队列(FIFO)保证按层级/距离逐层探索",
+          "confidence": 0.94,
+          "alternative_titles": ["广度优先搜索", "BFS", "Level Order Traversal", "最短路径搜索"]
+        }
+      ]
+    },
+    {
+      "id": "AL-JS-003",
+      "description": "Trie - Autocomplete Data Structure",
+      "code_snippets": [
+        {
+          "file": "src/algorithms/trie.js",
+          "start_line": 1,
+          "end_line": 50,
+          "content": "class TrieNode {\n  constructor() {\n    this.children = new Map();\n    this.isEndOfWord = false;\n    this.count = 0;\n  }\n}\n\nclass Trie {\n  constructor() {\n    this.root = new TrieNode();\n  }\n\n  insert(word) {\n    let node = this.root;\n    for (const char of word) {\n      if (!node.children.has(char)) {\n        node.children.set(char, new TrieNode());\n      }\n      node = node.children.get(char);\n      node.count++;\n    }\n    node.isEndOfWord = true;\n  }\n\n  search(word) {\n    const node = this._findNode(word);\n    return node?.isEndOfWord ?? false;\n  }\n\n  autocomplete(prefix, limit = 10) {\n    const node = this._findNode(prefix);\n    if (!node) return [];\n\n    const results = [];\n    this._collectWords(node, prefix, results, limit);\n    return results;\n  }\n\n  _collectWords(node, current, results, limit) {\n    if (results.length >= limit) return;\n    if (node.isEndOfWord) results.push(current);\n\n    for (const [char, child] of node.children) {\n      this._collectWords(child, current + char, results, limit);\n    }\n  }\n\n  _findNode(prefix) {\n    let node = this.root;\n    for (const char of prefix) {\n      if (!node.children.has(char)) return null;\n      node = node.children.get(char);\n    }\n    return node;\n  }\n}\n\nmodule.exports = { Trie, TrieNode };",
+          "highlighted_lines": [1, 13, 25, 30, 42]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-TrieJS",
+          "title": "字典树算法",
+          "description": "实现 Trie(字典树/前缀树)数据结构，每个节点用 Map 存储子节点，insert 构建前缀路径并维护计数，autocomplete 通过深度优先遍历收集以指定前缀开头的所有单词",
+          "confidence": 0.94,
+          "alternative_titles": ["字典树", "Trie", "前缀树", "Autocomplete Tree"]
+        }
+      ]
+    },
+    {
+      "id": "AL-JS-004",
+      "description": "Topological Sort - Dependency Resolution",
+      "code_snippets": [
+        {
+          "file": "src/algorithms/topo-sort.js",
+          "start_line": 1,
+          "end_line": 48,
+          "content": "function topologicalSort(dependencies) {\n  // dependencies: Map<node, Set<dependencies>>\n  const inDegree = new Map();\n  const adjList = new Map();\n\n  // Initialize all nodes\n  for (const [node] of dependencies) {\n    if (!inDegree.has(node)) inDegree.set(node, 0);\n    if (!adjList.has(node)) adjList.set(node, []);\n  }\n\n  // Build adjacency list and compute in-degrees\n  for (const [node, deps] of dependencies) {\n    for (const dep of deps) {\n      if (!adjList.has(dep)) adjList.set(dep, []);\n      if (!inDegree.has(dep)) inDegree.set(dep, 0);\n      adjList.get(dep).push(node);\n      inDegree.set(node, (inDegree.get(node) ?? 0) + 1);\n    }\n  }\n\n  // Kahn's algorithm\n  const queue = [];\n  for (const [node, degree] of inDegree) {\n    if (degree === 0) queue.push(node);\n  }\n\n  const sorted = [];\n  while (queue.length > 0) {\n    const node = queue.shift();\n    sorted.push(node);\n\n    for (const neighbor of adjList.get(node) ?? []) {\n      inDegree.set(neighbor, inDegree.get(neighbor) - 1);\n      if (inDegree.get(neighbor) === 0) {\n        queue.push(neighbor);\n      }\n    }\n  }\n\n  if (sorted.length !== dependencies.size) {\n    throw new Error('Cycle detected in dependencies');\n  }\n\n  return sorted;\n}\n\nmodule.exports = topologicalSort;",
+          "highlighted_lines": [1, 12, 25, 30, 38]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-TopoSortJS",
+          "title": "拓扑排序算法",
+          "description": "使用 Kahn 算法实现拓扑排序，通过入度(in-degree)表和邻接表构建依赖图，每次选取入度为 0 的节点加入结果，检测循环依赖确保排序正确性",
+          "confidence": 0.93,
+          "alternative_titles": ["拓扑排序", "Topological Sort", "Kahn's Algorithm", "依赖解析"]
+        }
+      ]
+    },
+    {
+      "id": "AL-JS-005",
+      "description": "Memoization - Dynamic Programming Optimization",
+      "code_snippets": [
+        {
+          "file": "src/algorithms/memoize.js",
+          "start_line": 1,
+          "end_line": 55,
+          "content": "function memoize(fn, keyFn = JSON.stringify) {\n  const cache = new Map();\n  const meta = { hitCount: 0, missCount: 0, size: 0 };\n\n  function memoized(...args) {\n    const key = keyFn(args);\n    if (cache.has(key)) {\n      meta.hitCount++;\n      return cache.get(key);\n    }\n    meta.missCount++;\n    const result = fn.apply(this, args);\n    cache.set(key, result);\n    meta.size = cache.size;\n    return result;\n  }\n\n  memoized.clearCache = () => {\n    cache.clear();\n    meta.hitCount = 0;\n    meta.missCount = 0;\n    meta.size = 0;\n  };\n\n  memoized.stats = () => ({ ...meta, hitRate: meta.hitCount / (meta.hitCount + meta.missCount) || 0 });\n\n  return memoized;\n}\n\n// Usage example\nconst fibonacci = memoize((n) => {\n  if (n <= 1) return n;\n  return fibonacci(n - 1) + fibonacci(n - 2);\n});\n\nconst sumRange = memoize((start, end) => {\n  let sum = 0;\n  for (let i = start; i <= end; i++) sum += i;\n  return sum;\n}, ([start, end]) => `${start}-${end}`);\n\nmodule.exports = { memoize, fibonacci, sumRange };",
+          "highlighted_lines": [2, 6, 9, 23, 36]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-MemoizeJS",
+          "title": "记忆化算法",
+          "description": "实现通用记忆化(memoize)高阶函数，使用 Map 缓存函数调用结果以避免重复计算，支持自定义键生成策略(keyFn)，附带命中率和统计信息追踪能力",
+          "confidence": 0.94,
+          "alternative_titles": ["记忆化", "Memoization", "动态规划优化", "缓存计算结果"]
+        }
+      ]
+    },
+    {
+      "id": "AL-JS-006",
+      "description": "LRU Cache - Hash Map + Doubly Linked List",
+      "code_snippets": [
+        {
+          "file": "src/algorithms/lru-cache.js",
+          "start_line": 1,
+          "end_line": 62,
+          "content": "class LRUCache {\n  constructor(capacity) {\n    this.capacity = capacity;\n    this.cache = new Map();\n    this.head = new Node(null, null);\n    this.tail = new Node(null, null);\n    this.head.next = this.tail;\n    this.tail.prev = this.head;\n  }\n\n  get(key) {\n    if (!this.cache.has(key)) return -1;\n    const node = this.cache.get(key);\n    this._moveToHead(node);\n    return node.value;\n  }\n\n  put(key, value) {\n    if (this.cache.has(key)) {\n      const node = this.cache.get(key);\n      node.value = value;\n      this._moveToHead(node);\n      return;\n    }\n\n    const newNode = new Node(key, value);\n    this.cache.set(key, newNode);\n    this._addToHead(newNode);\n\n    if (this.cache.size > this.capacity) {\n      const removed = this._removeTail();\n      this.cache.delete(removed.key);\n    }\n  }\n\n  _addToHead(node) {\n    node.prev = this.head;\n    node.next = this.head.next;\n    this.head.next.prev = node;\n    this.head.next = node;\n  }\n\n  _removeNode(node) {\n    node.prev.next = node.next;\n    node.next.prev = node.prev;\n  }\n\n  _moveToHead(node) {\n    this._removeNode(node);\n    this._addToHead(node);\n  }\n\n  _removeTail() {\n    const node = this.tail.prev;\n    this._removeNode(node);\n    return node;\n  }\n}\n\nclass Node {\n  constructor(key, value) {\n    this.key = key;\n    this.value = value;\n    this.prev = null;\n    this.next = null;\n  }\n}\n\nmodule.exports = LRUCache;",
+          "highlighted_lines": [1, 14, 20, 35, 43]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-LRUJS",
+          "title": "LRU缓存算法",
+          "description": "实现 LRU(最近最少使用)缓存淘汰算法，结合哈希表(Map)实现 O(1) 查找和双向链表实现 O(1) 的头部插入与尾部淘汰，容量满时自动移除最久未使用的条目",
+          "confidence": 0.95,
+          "alternative_titles": ["LRU缓存", "Least Recently Used", "缓存淘汰算法", "Hash + DLL"]
+        }
+      ]
+    },
+    {
+      "id": "AL-JS-007",
+      "description": "Deep Clone with Cycle Detection",
+      "code_snippets": [
+        {
+          "file": "src/algorithms/deep-clone.js",
+          "start_line": 1,
+          "end_line": 52,
+          "content": "function deepClone(obj, seen = new WeakMap()) {\n  if (obj === null || typeof obj !== 'object') return obj;\n\n  if (seen.has(obj)) {\n    return seen.get(obj);\n  }\n\n  if (Array.isArray(obj)) {\n    const cloneArr = [];\n    seen.set(obj, cloneArr);\n    obj.forEach((item, index) => {\n      cloneArr[index] = deepClone(item, seen);\n    });\n    return cloneArr;\n  }\n\n  if (obj instanceof Date) return new Date(obj.getTime());\n  if (obj instanceof RegExp) return new RegExp(obj.source, obj.flags);\n  if (obj instanceof Map) {\n    const mapClone = new Map();\n    seen.set(obj, mapClone);\n    obj.forEach((value, key) => {\n      mapClone.set(deepClone(key, seen), deepClone(value, seen));\n    });\n    return mapClone;\n  }\n  if (obj instanceof Set) {\n    const setClone = new Set();\n    seen.set(obj, setClone);\n    obj.forEach(value => setClone.add(deepClone(value, seen)));\n    return setClone;\n  }\n\n  const clone = {};\n  seen.set(obj, clone);\n\n  for (const key of Object.keys(obj)) {\n    clone[key] = deepClone(obj[key], seen);\n  }\n\n  // Preserve prototype chain\n  const proto = Object.getPrototypeOf(obj);\n  if (proto && proto !== Object.prototype) {\n    Object.setPrototypeOf(clone, proto);\n  }\n\n  return clone;\n}\n\nmodule.exports = deepClone;",
+          "highlighted_lines": [1, 4, 8, 19, 33]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-DeepCloneJS",
+          "title": "深拷贝算法",
+          "description": "实现深拷贝(deepClone)算法，使用 WeakMap 跟踪已访问对象以处理循环引用，递归复制数组、Date、RegExp、Map、Set 等内置类型，保留原型链关系",
+          "confidence": 0.93,
+          "alternative_titles": ["深拷贝", "Deep Clone", "结构化克隆", "Cycle-aware Clone"]
+        }
+      ]
+    },
+    {
+      "id": "AL-JS-008",
+      "description": "Throttle and Debounce - Rate Limiting Algorithms",
+      "code_snippets": [
+        {
+          "file": "src/algorithms/rate-limiters.js",
+          "start_line": 1,
+          "end_line": 55,
+          "content": "function throttle(fn, delay) {\n  let lastCall = 0;\n  let timerId = null;\n\n  function throttled(...args) {\n    const now = Date.now();\n    const remaining = delay - (now - lastCall);\n\n    if (remaining <= 0) {\n      if (timerId) {\n        clearTimeout(timerId);\n        timerId = null;\n      }\n      lastCall = now;\n      fn.apply(this, args);\n    } else if (!timerId) {\n      timerId = setTimeout(() => {\n        lastCall = Date.now();\n        timerId = null;\n        fn.apply(this, arguments);\n      }, remaining);\n    }\n  }\n\n  throttled.cancel = () => {\n    if (timerId) clearTimeout(timerId);\n    timerId = null;\n    lastCall = 0;\n  };\n\n  return throttled;\n}\n\nfunction debounce(fn, delay, options = {}) {\n  let timerId = null;\n  let lastArgs = null;\n  let lastThis = null;\n  let maxWait = options.maxWait ?? null;\n  let maxTimerId = null;\n\n  function invoke() {\n    fn.apply(lastThis, lastArgs);\n    timerId = null;\n    maxTimerId = null;\n  }\n\n  function debounced(...args) {\n    lastThis = this;\n    lastArgs = args;\n\n    if (timerId) clearTimeout(timerId);\n    if (maxWait && maxTimerId) clearTimeout(maxTimerId);\n\n    if (maxWait) {\n      maxTimerId = setTimeout(invoke, maxWait);\n    }\n\n    timerId = setTimeout(invoke, delay);\n  }\n\n  debounced.cancel = () => {\n    clearTimeout(timerId);\n    clearTimeout(maxTimerId);\n    timerId = null;\n    maxTimerId = null;\n  };\n\n  return debounced;\n}\n\nmodule.exports = { throttle, debounce };",
+          "highlighted_lines": [1, 5, 14, 27, 35]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-RateLimitJS",
+          "title": "节流与防抖算法",
+          "description": "实现节流(throttle)和防抖(debounce)两种速率限制算法。throttle 保证函数在指定间隔内最多执行一次，debounce 延迟执行并在最后一次调用后等待指定时间，支持 maxWait 防止无限延迟",
+          "confidence": 0.92,
+          "alternative_titles": ["节流/防抖", "Throttle/Debounce", "Rate Limiting", "函数去抖"]
+        }
+      ]
+    }
+  ]
+}

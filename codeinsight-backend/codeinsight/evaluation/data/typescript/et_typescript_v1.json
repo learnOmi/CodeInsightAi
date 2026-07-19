@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-et-typescript",
+  "category": "ET",
+  "language": "typescript",
+  "description": "Engineering techniques implemented in TypeScript",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "ET-TS-001",
+      "description": "Async retry mechanism with exponential backoff",
+      "code_snippets": [{
+        "file": "src/utils/retry.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface RetryOptions {\n  maxAttempts: number;\n  delayMs: number;\n  maxDelayMs: number;\n  multiplier: number;\n  jitter: boolean;\n  retryOn?: (error: Error) => boolean;\n}\n\nconst defaultOptions: RetryOptions = {\n  maxAttempts: 3,\n  delayMs: 1000,\n  maxDelayMs: 30000,\n  multiplier: 2,\n  jitter: true,\n  retryOn: () => true\n};\n\nasync function retry<T>(\n  fn: () => Promise<T>,\n  options: Partial<RetryOptions> = {}\n): Promise<T> {\n  const opts = { ...defaultOptions, ...options };\n  let lastError: Error | undefined;\n\n  for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {\n    try {\n      return await fn();\n    } catch (error) {\n      lastError = error as Error;\n      \n      if (attempt === opts.maxAttempts) break;\n      \n      if (!opts.retryOn(error as Error)) break;\n\n      const delay = calculateDelay(attempt, opts);\n      await sleep(delay);\n      \n      console.log(`Attempt ${attempt} failed, retrying in ${delay}ms...`);\n    }\n  }\n\n  throw lastError;\n}\n\nfunction calculateDelay(attempt: number, options: RetryOptions): number {\n  let delay = options.delayMs * Math.pow(options.multiplier, attempt - 1);\n  delay = Math.min(delay, options.maxDelayMs);\n  \n  if (options.jitter) {\n    delay = delay * (0.5 + Math.random() * 0.5);\n  }\n  \n  return Math.round(delay);\n}\n\nfunction sleep(ms: number): Promise<void> {\n  return new Promise(resolve => setTimeout(resolve, ms));\n}\n\n// Usage\nasync function fetchUserData(userId: string) {\n  return retry(async () => {\n    const response = await fetch(`/api/users/${userId}`);\n    if (!response.ok) throw new Error('Failed to fetch user');\n    return response.json();\n  }, {\n    maxAttempts: 5,\n    delayMs: 500,\n    maxDelayMs: 10000,\n    retryOn: (error) => error.message.includes('Timeout') || error.status >= 500\n  });\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-RetryTS",
+        "title": "异步重试与指数退避",
+        "description": "实现带有指数退避策略的异步重试机制。retry函数接受一个异步函数和配置选项，包括最大尝试次数、初始延迟、最大延迟、增长倍数和是否添加抖动。每次失败后计算延迟时间，使用指数增长公式delay = initialDelay * multiplier^(attempt-1)，并限制在maxDelayMs范围内。jitter选项添加随机因子避免多个客户端同时重试导致的雪崩效应。retryOn回调允许自定义哪些错误需要重试。这种模式提高了网络请求和外部服务调用的可靠性。",
+        "confidence": 0.95,
+        "alternative_titles": ["Retry with Backoff", "Exponential Backoff", "Resilient Retry"]
+      }]
+    },
+    {
+      "id": "ET-TS-002",
+      "description": "Connection pool management",
+      "code_snippets": [{
+        "file": "src/pool/ConnectionPool.ts",
+        "start_line": 1,
+        "end_line": 60,
+        "content": "interface Connection {\n  id: string;\n  isConnected: boolean;\n  lastUsed: Date;\n  execute(query: string): Promise<any>;\n  close(): Promise<void>;\n}\n\ninterface PoolOptions {\n  min: number;\n  max: number;\n  acquireTimeout: number;\n  idleTimeout: number;\n  creationTimeout: number;\n}\n\nclass ConnectionPool {\n  private available: Connection[] = [];\n  private inUse: Map<Connection, string> = new Map();\n  private options: Required<PoolOptions>;\n  private nextId = 1;\n\n  constructor(options: Partial<PoolOptions>) {\n    this.options = {\n      min: 2,\n      max: 10,\n      acquireTimeout: 5000,\n      idleTimeout: 30000,\n      creationTimeout: 10000,\n      ...options\n    };\n\n    // Pre-fill minimum connections\n    for (let i = 0; i < this.options.min; i++) {\n      this.available.push(this.createConnection());\n    }\n  }\n\n  async acquire(clientId: string): Promise<Connection> {\n    const timeout = new Promise<Connection>((_, reject) =>\n      setTimeout(() => reject(new Error('Acquire timeout')), this.options.acquireTimeout)\n    );\n\n    const connectionPromise = this.tryAcquire(clientId);\n    return Promise.race([connectionPromise, timeout]);\n  }\n\n  private async tryAcquire(clientId: string): Promise<Connection> {\n    if (this.available.length > 0) {\n      const connection = this.available.shift()!;\n      this.inUse.set(connection, clientId);\n      return connection;\n    }\n\n    if (this.available.length + this.inUse.size < this.options.max) {\n      const connection = this.createConnection();\n      this.inUse.set(connection, clientId);\n      return connection;\n    }\n\n    return new Promise((resolve) => {\n      const checkInterval = setInterval(() => {\n        if (this.available.length > 0) {\n          clearInterval(checkInterval);\n          const connection = this.available.shift()!;\n          this.inUse.set(connection, clientId);\n          resolve(connection);\n        }\n      }, 100);\n    });\n  }\n\n  release(connection: Connection, clientId: string): void {\n    this.inUse.delete(connection);\n    connection.lastUsed = new Date();\n    \n    if (this.available.length < this.options.min) {\n      this.available.push(connection);\n    } else {\n      connection.close();\n    }\n  }\n\n  private createConnection(): Connection {\n    const id = `conn-${this.nextId++}`;\n    return {\n      id,\n      isConnected: true,\n      lastUsed: new Date(),\n      async execute(query: string) { /* ... */ },\n      async close() { this.isConnected = false; }\n    };\n  }\n\n  getStats(): { available: number; inUse: number; total: number } {\n    return {\n      available: this.available.length,\n      inUse: this.inUse.size,\n      total: this.available.length + this.inUse.size\n    };\n  }\n}\n\nexport { ConnectionPool };",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50, 60]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-PoolTS",
+        "title": "连接池管理",
+        "description": "实现连接池管理资源复用和并发控制。ConnectionPool维护可用连接列表和正在使用的连接映射，支持最小和最大连接数配置。acquire方法从池中获取连接，如果可用连接不足且未达到最大值则创建新连接，否则等待其他客户端释放。release方法将连接归还到池中，如果低于最小连接数则保留，否则关闭连接。通过超时机制防止无限等待，pre-fill初始化最小连接数提高性能。这种模式有效管理数据库、HTTP等昂贵资源的创建和销毁，提高系统吞吐量和响应速度。",
+        "confidence": 0.94,
+        "alternative_titles": ["Connection Pool", "Resource Pool", "Object Pool"]
+      }]
+    },
+    {
+      "id": "ET-TS-003",
+      "description": "Rate limiter implementation",
+      "code_snippets": [{
+        "file": "src/middleware/rateLimiter.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface RateLimitConfig {\n  windowMs: number;\n  maxRequests: number;\n  keyGenerator?: (req: any) => string;\n}\n\nclass RateLimiter {\n  private stores: Map<string, { count: number; resetTime: number }> = new Map();\n  private config: RateLimitConfig;\n\n  constructor(config: RateLimitConfig) {\n    this.config = config;\n  }\n\n  async checkLimit(req: any): Promise<{ allowed: boolean; remaining: number; resetAt: Date }> {\n    const key = this.config.keyGenerator ? this.config.keyGenerator(req) : req.ip;\n    const now = Date.now();\n    \n    let record = this.stores.get(key);\n    \n    if (!record || now > record.resetTime) {\n      record = {\n        count: 0,\n        resetTime: now + this.config.windowMs\n      };\n      this.stores.set(key, record);\n    }\n\n    if (record.count >= this.config.maxRequests) {\n      return {\n        allowed: false,\n        remaining: 0,\n        resetAt: new Date(record.resetTime)\n      };\n    }\n\n    record.count++;\n    \n    return {\n      allowed: true,\n      remaining: this.config.maxRequests - record.count,\n      resetAt: new Date(record.resetTime)\n    };\n  }\n\n  cleanup(): void {\n    const now = Date.now();\n    for (const [key, record] of this.stores.entries()) {\n      if (now > record.resetTime) {\n        this.stores.delete(key);\n      }\n    }\n  }\n\n  reset(key?: string): void {\n    if (key) {\n      this.stores.delete(key);\n    } else {\n      this.stores.clear();\n    }\n  }\n\n  getUsage(key: string): { count: number; limit: number; remaining: number } | null {\n    const record = this.stores.get(key);\n    if (!record) return null;\n    \n    return {\n      count: record.count,\n      limit: this.config.maxRequests,\n      remaining: Math.max(0, this.config.maxRequests - record.count)\n    };\n  }\n}\n\n// Express middleware\nfunction rateLimitMiddleware(config: RateLimitConfig) {\n  const limiter = new RateLimiter(config);\n  \n  return async (req: any, res: any, next: any) => {\n    const result = await limiter.checkLimit(req);\n    \n    res.set('X-RateLimit-Limit', String(config.maxRequests));\n    res.set('X-RateLimit-Remaining', String(result.remaining));\n    res.set('X-RateLimit-Reset', String(result.resetAt.getTime()));\n\n    if (!result.allowed) {\n      res.status(429).json({\n        error: 'Too many requests',\n        retryAfter: Math.ceil((result.resetAt.getTime() - Date.now()) / 1000)\n      });\n      return;\n    }\n\n    next();\n  };\n}\n\nexport { RateLimiter, rateLimitMiddleware };",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-RateLimitTS",
+        "title": "速率限制器",
+        "description": "实现固定窗口速率限制器，控制单位时间内的请求数量。RateLimiter使用Map存储每个客户端的请求计数和窗口重置时间。checkLimit方法检查当前请求是否超过限制，如果超出窗口时间则重置计数器。返回允许状态、剩余配额和重置时间。cleanup方法定期清除过期的记录防止内存泄漏。rateLimitMiddleware封装为Express中间件，设置响应头提供限流信息，超出限制时返回429状态码和重试等待时间。这种模式保护API免受滥用和DDoS攻击。",
+        "confidence": 0.93,
+        "alternative_titles": ["Rate Limiter", "Request Throttling", "API Limiting"]
+      }]
+    },
+    {
+      "id": "ET-TS-004",
+      "description": "Health check endpoint implementation",
+      "code_snippets": [{
+        "file": "src/health/HealthChecker.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface HealthCheckResult {\n  status: 'healthy' | 'unhealthy' | 'degraded';\n  checks: Map<string, CheckResult>;\n  timestamp: Date;\n  duration: number;\n}\n\ninterface CheckResult {\n  status: 'ok' | 'error';\n  message?: string;\n  duration: number;\n  details?: any;\n}\n\nclass HealthChecker {\n  private checks: Map<string, () => Promise<CheckResult>> = new Map();\n\n  registerCheck(name: string, checkFn: () => Promise<CheckResult>): void {\n    this.checks.set(name, checkFn);\n  }\n\n  async checkAll(): Promise<HealthCheckResult> {\n    const startTime = Date.now();\n    const results = new Map<string, CheckResult>();\n    let hasErrors = false;\n    let hasWarnings = false;\n\n    const checkPromises = Array.from(this.checks.entries()).map(async ([name, checkFn]) => {\n      const checkStart = Date.now();\n      try {\n        const result = await checkFn();\n        result.duration = Date.now() - checkStart;\n        results.set(name, result);\n        if (result.status === 'error') hasErrors = true;\n        if (result.details?.warning) hasWarnings = true;\n      } catch (error) {\n        results.set(name, {\n          status: 'error',\n          message: error instanceof Error ? error.message : 'Unknown error',\n          duration: Date.now() - checkStart\n        });\n        hasErrors = true;\n      }\n    });\n\n    await Promise.all(checkPromises);\n\n    const overallStatus: 'healthy' | 'unhealthy' | 'degraded' = \n      hasErrors ? 'unhealthy' : hasWarnings ? 'degraded' : 'healthy';\n\n    return {\n      status: overallStatus,\n      checks: results,\n      timestamp: new Date(),\n      duration: Date.now() - startTime\n    };\n  }\n\n  async checkCritical(): Promise<HealthCheckResult> {\n    const criticalChecks = new Map<string, () => Promise<CheckResult>>();\n    \n    for (const [name, checkFn] of this.checks.entries()) {\n      if (name.startsWith('critical:')) {\n        criticalChecks.set(name.replace('critical:', ''), checkFn);\n      }\n    }\n\n    const originalChecks = this.checks;\n    this.checks = criticalChecks;\n    \n    try {\n      return await this.checkAll();\n    } finally {\n      this.checks = originalChecks;\n    }\n  }\n}\n\n// Example checks\nconst checker = new HealthChecker();\nchecker.registerCheck('database', async () => {\n  try {\n    await db.ping();\n    return { status: 'ok', message: 'Database connection successful' };\n  } catch (error) {\n    return { status: 'error', message: 'Database connection failed' };\n  }\n});\nchecker.registerCheck('redis', async () => {\n  try {\n    await redis.ping();\n    return { status: 'ok', message: 'Redis connection successful' };\n  } catch (error) {\n    return { status: 'error', message: 'Redis connection failed' };\n  }\n});",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-HealthTS",
+        "title": "健康检查端点",
+        "description": "实现健康检查系统，用于监控服务及其依赖的状态。HealthChecker注册多个检查函数，包括数据库、Redis、外部API等。checkAll方法并行执行所有检查，收集每个检查的结果和耗时。整体状态根据检查结果判定：有任何错误则为unhealthy，有警告则为degraded，全部正常则为healthy。checkCritical方法只运行标记为critical的检查，用于快速判断服务是否完全可用。这种模式被负载均衡器、Kubernetes等系统用于决定流量的路由和实例的生命周期管理。",
+        "confidence": 0.95,
+        "alternative_titles": ["Health Check", "Service Health", "Readiness Probe"]
+      }]
+    },
+    {
+      "id": "ET-TS-005",
+      "description": "Configuration management with environment variables",
+      "code_snippets": [{
+        "file": "src/config/configManager.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface ConfigSchema {\n  port: number;\n  host: string;\n  database: {\n    url: string;\n    poolSize: number;\n    ssl: boolean;\n  };\n  redis: {\n    url: string;\n    password?: string;\n  };\n  jwt: {\n    secret: string;\n    expiresIn: string;\n  };\n  logging: {\n    level: 'debug' | 'info' | 'warn' | 'error';\n    format: 'json' | 'pretty';\n  };\n  features: {\n    enableNewCheckout: boolean;\n    maxUploadSize: number;\n  };\n}\n\nclass ConfigManager {\n  private config: Partial<ConfigSchema> = {};\n  private validators: Map<string, (value: any) => boolean> = new Map();\n\n  define<T extends keyof ConfigSchema>(\n    key: T,\n    defaultValue: ConfigSchema[T],\n    envVar: string,\n    validator?: (value: any) => boolean\n  ): void {\n    const value = process.env[envVar];\n    \n    if (value !== undefined) {\n      this.config[key] = this.parseValue(value, defaultValue);\n    } else {\n      this.config[key] = defaultValue;\n    }\n\n    if (validator) {\n      this.validators.set(key, validator);\n    }\n  }\n\n  get<T extends keyof ConfigSchema>(key: T): ConfigSchema[T] {\n    const value = this.config[key];\n    if (value === undefined) {\n      throw new Error(`Configuration key '${key}' is not defined`);\n    }\n    \n    const validator = this.validators.get(key);\n    if (validator && !validator(value)) {\n      throw new Error(`Configuration validation failed for '${key}'`);\n    }\n    \n    return value as ConfigSchema[T];\n  }\n\n  private parseValue(value: string, defaultValue: any): any {\n    if (typeof defaultValue === 'number') return Number(value);\n    if (typeof defaultValue === 'boolean') return value.toLowerCase() === 'true';\n    if (defaultValue instanceof Array) return value.split(',');\n    return value;\n  }\n\n  validate(): void {\n    for (const [key, validator] of this.validators.entries()) {\n      const value = this.config[key];\n      if (value !== undefined && !validator(value)) {\n        throw new Error(`Invalid configuration value for '${key}': ${value}`);\n      }\n    }\n  }\n\n  toObject(): ConfigSchema {\n    return this.config as ConfigSchema;\n  }\n}\n\n// Usage\nconst config = new ConfigManager();\nconfig.define('port', 3000, 'PORT', (v: number) => v > 0 && v < 65536);\nconfig.define('host', 'localhost', 'HOST');\nconfig.define('database.url', 'mongodb://localhost:27017/myapp', 'DATABASE_URL');\nconfig.define('database.poolSize', 10, 'DB_POOL_SIZE', (v: number) => v > 0);\nconfig.define('logging.level', 'info', 'LOG_LEVEL', (v: string) => ['debug', 'info', 'warn', 'error'].includes(v));\nconfig.validate();\n\nexport const appConfig = config.toObject();",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-ConfigTS",
+        "title": "配置管理",
+        "description": "实现配置管理系统，支持从环境变量和默认值加载配置。ConfigManager使用define方法注册配置项，指定键名、默认值、环境变量名和验证函数。get方法获取配置值并在未定义或验证失败时抛出错误。parseValue方法根据默认值的类型将字符串环境变量转换为正确的数据类型。validate方法在应用启动时验证所有配置。这种模式将配置与代码分离，支持不同环境的配置差异，提供类型安全和验证保障，是生产环境应用的最佳实践。",
+        "confidence": 0.94,
+        "alternative_titles": ["Configuration Management", "Environment Configuration", "App Settings"]
+      }]
+    },
+    {
+      "id": "ET-TS-006",
+      "description": "Structured logging with context",
+      "code_snippets": [{
+        "file": "src/utils/structuredLogger.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';\n\ninterface LogEntry {\n  timestamp: string;\n  level: LogLevel;\n  message: string;\n  service: string;\n  requestId?: string;\n  userId?: string;\n  context: Record<string, any>;\n  stack?: string;\n}\n\nclass StructuredLogger {\n  private service: string;\n  private minLevel: LogLevel;\n  private output: (entry: LogEntry) => void;\n  private contextStack: Record<string, any>[] = [];\n\n  constructor(service: string, minLevel: LogLevel = 'info', output?: (entry: LogEntry) => void) {\n    this.service = service;\n    this.minLevel = minLevel;\n    this.output = output || this.defaultOutput;\n  }\n\n  info(message: string, context?: Record<string, any>): void {\n    this.log('info', message, context);\n  }\n\n  error(message: string, context?: Record<string, any>, error?: Error): void {\n    this.log('error', message, context, error);\n  }\n\n  warn(message: string, context?: Record<string, any>): void {\n    this.log('warn', message, context);\n  }\n\n  debug(message: string, context?: Record<string, any>): void {\n    this.log('debug', message, context);\n  }\n\n  trace(message: string, context?: Record<string, any>): void {\n    this.log('trace', message, context);\n  }\n\n  child(context: Record<string, any>): StructuredLogger {\n    const childLogger = new StructuredLogger(this.service, this.minLevel, this.output);\n    childLogger.contextStack = [...this.contextStack, context];\n    return childLogger;\n  }\n\n  private log(level: LogLevel, message: string, context?: Record<string, any>, error?: Error): void {\n    if (this.getLevelIndex(level) < this.getLevelIndex(this.minLevel)) return;\n\n    const entry: LogEntry = {\n      timestamp: new Date().toISOString(),\n      level,\n      message,\n      service: this.service,\n      requestId: this.contextStack.find(c => c.requestId)?.requestId,\n      userId: this.contextStack.find(c => c.userId)?.userId,\n      context: this.mergeContext(context),\n      stack: error?.stack\n    };\n\n    this.output(entry);\n  }\n\n  private mergeContext(extra: Record<string, any> | undefined): Record<string, any> {\n    let merged: Record<string, any> = {};\n    for (const ctx of this.contextStack) {\n      merged = { ...merged, ...ctx };\n    }\n    if (extra) {\n      merged = { ...merged, ...extra };\n    }\n    return merged;\n  }\n\n  private defaultOutput(entry: LogEntry): void {\n    console.log(JSON.stringify(entry));\n  }\n\n  private getLevelIndex(level: LogLevel): number {\n    const levels: LogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];\n    return levels.indexOf(level);\n  }\n}\n\n// Usage with request context\nconst logger = new StructuredLogger('user-service');\n\napp.use((req, res, next) => {\n  const requestLogger = logger.child({\n    requestId: req.headers['x-request-id'],\n    userId: req.user?.id,\n    ip: req.ip\n  });\n  \n  requestLogger.info('Request received', { method: req.method, path: req.path });\n  next();\n});",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-LogTS",
+        "title": "结构化日志",
+        "description": "实现结构化日志系统，输出JSON格式的日志条目。StructuredLogger支持多种日志级别（trace、debug、info、warn、error、fatal），并可通过minLevel过滤低优先级日志。child方法创建带有额外上下文的子日志器，用于在请求处理链中传递请求ID、用户ID等信息。日志条目包含时间戳、级别、服务名、消息、上下文和可选的堆栈跟踪。defaultOutput将日志序列化为JSON便于日志聚合系统解析。这种模式提高了日志的可搜索性和机器可读性，便于问题排查和监控告警。",
+        "confidence": 0.95,
+        "alternative_titles": ["Structured Logging", "JSON Logging", "Contextual Logging"]
+      }]
+    },
+    {
+      "id": "ET-TS-007",
+      "description": "Feature flags system",
+      "code_snippets": [{
+        "file": "src/features/FeatureFlags.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "interface FeatureFlag {\n  name: string;\n  enabled: boolean;\n  rolloutPercentage?: number;\n  targetUsers?: string[];\n  conditions?: Record<string, any>;\n  description: string;\n  createdBy: string;\n  createdAt: Date;\n}\n\nclass FeatureFlagManager {\n  private flags: Map<string, FeatureFlag> = new Map();\n  private listeners: Set<(flagName: string, enabled: boolean) => void> = new Set();\n\n  registerFlag(flag: FeatureFlag): void {\n    this.flags.set(flag.name, flag);\n  }\n\n  isEnabled(flagName: string, context?: Record<string, any>): boolean {\n    const flag = this.flags.get(flagName);\n    \n    if (!flag) {\n      return false;\n    }\n\n    if (!flag.enabled) {\n      return false;\n    }\n\n    // Check target users\n    if (flag.targetUsers && context?.userId) {\n      if (!flag.targetUsers.includes(context.userId)) {\n        return false;\n      }\n    }\n\n    // Check rollout percentage\n    if (flag.rolloutPercentage !== undefined && flag.rolloutPercentage < 100) {\n      const hash = this.hashCode(context?.userId || 'anonymous');\n      const percentage = Math.abs(hash % 100);\n      \n      if (percentage >= flag.rolloutPercentage) {\n        return false;\n      }\n    }\n\n    // Check custom conditions\n    if (flag.conditions && context) {\n      return this.evaluateConditions(flag.conditions, context);\n    }\n\n    return true;\n  }\n\n  private hashCode(str: string): number {\n    let hash = 0;\n    for (let i = 0; i < str.length; i++) {\n      const char = str.charCodeAt(i);\n      hash = ((hash << 5) - hash) + char;\n      hash = hash & hash;\n    }\n    return hash;\n  }\n\n  private evaluateConditions(conditions: Record<string, any>, context: Record<string, any>): boolean {\n    return Object.entries(conditions).every(([key, expected]) => {\n      return context[key] === expected;\n    });\n  }\n\n  toggleFlag(flagName: string, enabled: boolean): void {\n    const flag = this.flags.get(flagName);\n    if (flag) {\n      flag.enabled = enabled;\n      this.notifyListeners(flagName, enabled);\n    }\n  }\n\n  onFlagChange(listener: (flagName: string, enabled: boolean) => void): void {\n    this.listeners.add(listener);\n  }\n\n  private notifyListeners(flagName: string, enabled: boolean): void {\n    this.listeners.forEach(listener => listener(flagName, enabled));\n  }\n}\n\n// Usage\nconst featureFlags = new FeatureFlagManager();\nfeatureFlags.registerFlag({\n  name: 'newCheckout',\n  enabled: true,\n  rolloutPercentage: 50,\n  description: 'New checkout flow',\n  createdBy: 'admin',\n  createdAt: new Date()\n});\n\nif (featureFlags.isEnabled('newCheckout', { userId: 'user123' })) {\n  showNewCheckout();\n} else {\n  showOldCheckout();\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-FeatureFlagTS",
+        "title": "特性标志系统",
+        "description": "实现特性标志（Feature Flags）系统，支持按用户、百分比 rollout 和条件启用功能。FeatureFlagManager管理特性标志的注册、查询和切换。isEnabled方法综合考虑标志的启用状态、目标用户列表、 rollout 百分比和自定义条件。rolloutPercentage使用哈希函数确保同一用户始终获得一致的结果。toggleFlag方法切换标志状态并通知监听器，支持运行时动态调整。这种模式允许团队渐进式发布新功能，降低上线风险，支持A/B测试和灰度发布。",
+        "confidence": 0.94,
+        "alternative_titles": ["Feature Flags", "Feature Toggles", "Feature Management"]
+      }]
+    },
+    {
+      "id": "ET-TS-008",
+      "description": "Error boundary component for React",
+      "code_snippets": [{
+        "file": "src/components/ErrorBoundary.tsx",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import React, { Component, ErrorInfo, ReactNode } from 'react';\n\ninterface Props {\n  children: ReactNode;\n  fallback?: ReactNode | ((error: Error, reset: () => void) => ReactNode);\n  onError?: (error: Error, errorInfo: ErrorInfo) => void;\n  retryCallback?: () => Promise<void>;\n}\n\ninterface State {\n  hasError: boolean;\n  error: Error | null;\n  errorInfo: ErrorInfo | null;\n}\n\nclass ErrorBoundary extends Component<Props, State> {\n  constructor(props: Props) {\n    super(props);\n    this.state = { hasError: false, error: null, errorInfo: null };\n  }\n\n  static getDerivedStateFromError(error: Error): State {\n    return { hasError: true, error, errorInfo: null };\n  }\n\n  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {\n    this.setState({ errorInfo });\n    \n    // Log error to monitoring service\n    console.error('Error caught by ErrorBoundary:', error, errorInfo);\n    \n    if (this.props.onError) {\n      this.props.onError(error, errorInfo);\n    }\n\n    // Send to error tracking service\n    errorTrackingService.captureException(error, {\n      componentStack: errorInfo.componentStack,\n      timestamp: new Date().toISOString()\n    });\n  }\n\n  resetErrorBoundary = (): void => {\n    this.setState({ hasError: false, error: null, errorInfo: null });\n    \n    if (this.props.retryCallback) {\n      this.props.retryCallback().catch(console.error);\n    }\n  };\n\n  render(): ReactNode {\n    if (this.state.hasError) {\n      if (this.props.fallback) {\n        if (typeof this.props.fallback === 'function') {\n          return this.props.fallback(this.state.error!, this.resetErrorBoundary);\n        }\n        return this.props.fallback;\n      }\n\n      return (\n        <div className=\"error-boundary\">\n          <h2>Something went wrong</h2>\n          <p>{this.state.error?.message}</p>\n          <button onClick={this.resetErrorBoundary}>\n            Try again\n          </button>\n        </div>\n      );\n    }\n\n    return this.props.children;\n  }\n}\n\nexport default ErrorBoundary;",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-ErrorBoundTS",
+        "title": "错误边界组件",
+        "description": "实现React错误边界组件，捕获子组件树中的JavaScript错误。ErrorBoundary通过getDerivedStateFromError和componentDidCatch生命周期方法捕获错误并更新状态。render方法在发生错误时显示自定义fallback UI，可以是静态内容或由错误和重置函数生成的动态内容。componentDidCatch将错误发送到监控服务，包含组件堆栈信息。resetErrorBoundary方法允许用户点击重试按钮恢复组件状态，并可执行自定义的重试回调。这种模式防止单个组件的错误导致整个应用崩溃，提升用户体验和应用稳定性。",
+        "confidence": 0.93,
+        "alternative_titles": ["Error Boundary", "Error Handling", "Component Error Recovery"]
+      }]
+    }
+  ]
+}

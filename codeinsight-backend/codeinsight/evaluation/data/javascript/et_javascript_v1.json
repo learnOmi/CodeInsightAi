@@ -1,0 +1,193 @@
+{
+  "repo_id": "benchmark-et-javascript",
+  "category": "ET",
+  "language": "javascript",
+  "description": "JavaScript engineering technique detection evaluation dataset",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "ET-JS-001",
+      "description": "Error Boundary - Graceful Degradation",
+      "code_snippets": [
+        {
+          "file": "src/utils/error-boundary.js",
+          "start_line": 1,
+          "end_line": 65,
+          "content": "class ErrorBoundary {\n  constructor(options = {}) {\n    this.fallback = options.fallback;\n    this.onError = options.onError;\n    this.maxRetries = options.maxRetries ?? 3;\n    this.retryCount = 0;\n    this.isError = false;\n  }\n\n  async run(fn, context) {\n    try {\n      return await fn.call(context);\n    } catch (error) {\n      this.isError = true;\n      if (this.onError) this.onError(error);\n\n      if (this.retryCount < this.maxRetries) {\n        this.retryCount++;\n        const delay = Math.min(1000 * Math.pow(2, this.retryCount), 10000);\n        await new Promise(resolve => setTimeout(resolve, delay));\n        return this.run(fn, context);\n      }\n\n      return this._renderFallback(error);\n    }\n  }\n\n  _renderFallback(error) {\n    if (typeof this.fallback === 'function') {\n      return this.fallback(error);\n    }\n    if (this.fallback) return this.fallback;\n    return { status: 'error', message: error.message, code: error.code };\n  }\n\n  reset() {\n    this.isError = false;\n    this.retryCount = 0;\n  }\n}\n\n// Usage with component rendering\nasync function renderWithBoundary(component, props) {\n  const boundary = new ErrorBoundary({\n    fallback: (error) => ({\n      type: 'Alert',\n      variant: 'error',\n      message: `Failed to load ${component.name}: ${error.message}`\n    })\n  });\n\n  return boundary.run(() => component(props));\n}\n\nmodule.exports = { ErrorBoundary, renderWithBoundary };",
+          "highlighted_lines": [1, 10, 17, 25, 40]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "ET",
+          "prefix": "ET-ErrorBoundaryJS",
+          "title": "错误边界技术",
+          "description": "实现错误边界(ErrorBoundary)用于优雅降级，捕获组件渲染中的异常并提供降级UI，支持指数退避重试(maxRetries次)，通过 run 方法包装异步操作确保单点故障不扩散",
+          "confidence": 0.91,
+          "alternative_titles": ["错误边界", "Error Boundary", "Graceful Degradation", "异常隔离"]
+        }
+      ]
+    },
+    {
+      "id": "ET-JS-002",
+      "description": "Connection Pool - Resource Reuse",
+      "code_snippets": [
+        {
+          "file": "src/pooling/connection-pool.js",
+          "start_line": 1,
+          "end_line": 68,
+          "content": "class ConnectionPool {\n  constructor(factory, options = {}) {\n    this.factory = factory;\n    this.minSize = options.minSize ?? 2;\n    this.maxSize = options.maxSize ?? 20;\n    this.idleTimeout = options.idleTimeout ?? 30000;\n    this.connections = [];\n    this.waitingQueue = [];\n    this.activeCount = 0;\n\n    for (let i = 0; i < this.minSize; i++) {\n      this._createConnection().then(conn => {\n        conn.inUse = false;\n        this.connections.push(conn);\n      });\n    }\n  }\n\n  async acquire() {\n    const idleConn = this.connections.find(c => !c.inUse);\n    if (idleConn) {\n      idleConn.inUse = true;\n      idleConn.lastUsed = Date.now();\n      return idleConn;\n    }\n\n    if (this.connections.length < this.maxSize) {\n      const conn = await this._createConnection();\n      conn.inUse = true;\n      this.connections.push(conn);\n      return conn;\n    }\n\n    return new Promise((resolve, reject) => {\n      this.waitingQueue.push({ resolve, reject, timeout: setTimeout(() => reject(new Error('Pool timeout')), 5000) });\n    });\n  }\n\n  release(connection) {\n    connection.inUse = false;\n    connection.lastUsed = Date.now();\n    const waiter = this.waitingQueue.shift();\n    if (waiter) {\n      clearTimeout(waiter.timeout);\n      connection.inUse = true;\n      waiter.resolve(connection);\n    }\n  }\n\n  _createConnection() {\n    return this.factory({ maxRetries: 3, timeout: 5000 });\n  }\n\n  destroy() {\n    this.connections.forEach(conn => conn.close?.());\n    this.connections = [];\n    this.waitingQueue.forEach(w => w.reject(new Error('Pool destroyed')));\n    this.waitingQueue = [];\n  }\n}\n\nmodule.exports = ConnectionPool;",
+          "highlighted_lines": [1, 15, 20, 33, 48]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "ET",
+          "prefix": "ET-ConnPoolJS",
+          "title": "连接池技术",
+          "description": "实现连接池(ConnectionPool)进行数据库连接复用，预创建最小连接(minSize)，空闲连接自动回收，等待队列管理并发请求，超时自动拒绝并支持优雅销毁(destroy)",
+          "confidence": 0.92,
+          "alternative_titles": ["连接池", "Connection Pool", "Resource Pool", "对象池"]
+        }
+      ]
+    },
+    {
+      "id": "ET-JS-003",
+      "description": "Rate Limiter - Token Bucket Algorithm",
+      "code_snippets": [
+        {
+          "file": "src/middleware/rate-limiter.js",
+          "start_line": 1,
+          "end_line": 58,
+          "content": "class TokenBucketLimiter {\n  constructor(options = {}) {\n    this.tokensPerSecond = options.rate ?? 10;\n    this.maxTokens = options.burst ?? 20;\n    this.buckets = new Map();\n  }\n\n  allow(clientId) {\n    const now = Date.now();\n    const bucket = this.buckets.get(clientId) || {\n      tokens: this.maxTokens,\n      lastRefill: now\n    };\n\n    // Refill tokens based on elapsed time\n    const elapsed = (now - bucket.lastRefill) / 1000;\n    bucket.tokens = Math.min(\n      this.maxTokens,\n      bucket.tokens + elapsed * this.tokensPerSecond\n    );\n    bucket.lastRefill = now;\n\n    if (bucket.tokens >= 1) {\n      bucket.tokens -= 1;\n      this.buckets.set(clientId, bucket);\n      return { allowed: true, remaining: Math.floor(bucket.tokens), resetAt: now + (this.maxTokens - bucket.tokens) / this.tokensPerSecond * 1000 };\n    }\n\n    this.buckets.set(clientId, bucket);\n    return { allowed: false, remaining: 0, retryAfter: (1 - bucket.tokens) / this.tokensPerSecond };\n  }\n\n  getRemaining(clientId) {\n    const bucket = this.buckets.get(clientId);\n    return bucket ? Math.floor(bucket.tokens) : this.maxTokens;\n  }\n\n  reset(clientId) {\n    this.buckets.delete(clientId);\n  }\n}\n\nmodule.exports = TokenBucketLimiter;",
+          "highlighted_lines": [1, 12, 18, 25, 35]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "ET",
+          "prefix": "ET-RateLimitJS",
+          "title": "速率限制器技术",
+          "description": "使用令牌桶算法(Token Bucket)实现速率限制器，按时间比例补充令牌，burst 参数控制突发流量上限，支持 per-client 独立计数和剩余令牌查询",
+          "confidence": 0.93,
+          "alternative_titles": ["令牌桶限流", "Token Bucket", "Rate Limiter", "速率限制"]
+        }
+      ]
+    },
+    {
+      "id": "ET-JS-004",
+      "description": "Health Check Endpoint - Service Monitoring",
+      "code_snippets": [
+        {
+          "file": "src/monitoring/health-check.js",
+          "start_line": 1,
+          "end_line": 62,
+          "content": "class HealthChecker {\n  constructor() {\n    this.checks = new Map();\n    this.status = 'starting';\n    this.lastChecked = null;\n  }\n\n  register(name, checkFn, timeout = 5000) {\n    this.checks.set(name, { fn: checkFn, timeout });\n    return this;\n  }\n\n  async checkAll() {\n    const results = [];\n    let hasCriticalFailure = false;\n\n    for (const [name, { fn, timeout }] of this.checks) {\n      try {\n        const result = await Promise.race([\n          fn(),\n          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeout))\n        ]);\n        results.push({ name, status: result?.status ?? 'healthy', healthy: true });\n      } catch (error) {\n        hasCriticalFailure = true;\n        results.push({ name, status: 'unhealthy', healthy: false, error: error.message });\n      }\n    }\n\n    this.status = hasCriticalFailure ? 'degraded' : 'healthy';\n    this.lastChecked = new Date().toISOString();\n    return { status: this.status, checks: results, timestamp: this.lastChecked };\n  }\n\n  handleRequest(req, res) {\n    if (req.url === '/health') {\n      return this.checkAll().then(result => {\n        res.statusCode = result.status === 'healthy' ? 200 : 503;\n        res.setHeader('Content-Type', 'application/json');\n        res.end(JSON.stringify(result));\n      });\n    }\n    if (req.url === '/ready') {\n      res.statusCode = this.status === 'healthy' ? 200 : 503;\n      res.end(this.status);\n    }\n  }\n}\n\nmodule.exports = HealthChecker;",
+          "highlighted_lines": [1, 8, 14, 23, 42]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "ET",
+          "prefix": "ET-HealthCheckJS",
+          "title": "健康检查端点技术",
+          "description": "实现服务健康检查(HealthChecker)，注册多个子检查项(数据库、缓存、外部API等)并行检测，支持超时控制，返回整体状态(healthy/degraded)，提供 /health 和 /ready 两个端点区分就绪状态",
+          "confidence": 0.92,
+          "alternative_titles": ["健康检查", "Health Check", "Service Monitoring", "Liveness Probe"]
+        }
+      ]
+    },
+    {
+      "id": "ET-JS-005",
+      "description": "Config Loader - Layered Configuration Merging",
+      "code_snippets": [
+        {
+          "file": "src/config/loader.js",
+          "start_line": 1,
+          "end_line": 58,
+          "content": "class ConfigLoader {\n  constructor(defaults = {}) {\n    this.defaults = defaults;\n    this.layers = [];\n  }\n\n  addLayer(name, source, priority = 0) {\n    this.layers.push({ name, source, priority, loaded: false });\n    this.layers.sort((a, b) => b.priority - a.priority);\n    return this;\n  }\n\n  async load() {\n    const merged = { ...this.defaults };\n\n    for (const layer of this.layers) {\n      try {\n        const config = await this._loadSource(layer.source);\n        Object.assign(merged, this._deepMerge(merged, config));\n        layer.loaded = true;\n      } catch (err) {\n        console.warn(`Config layer \"${layer.name}\" failed to load:`, err.message);\n      }\n    }\n\n    return this._validate(merged);\n  }\n\n  _loadSource(source) {\n    if (typeof source === 'function') return source();\n    if (source instanceof Promise) return source;\n    if (typeof source === 'string') return JSON.parse(require('fs').readFileSync(source, 'utf8'));\n    return { ...source };\n  }\n\n  _deepMerge(target, source) {\n    const result = { ...target };\n    for (const key of Object.keys(source)) {\n      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {\n        result[key] = this._deepMerge(result[key] ?? {}, source[key]);\n      } else {\n        result[key] = source[key];\n      }\n    }\n    return result;\n  }\n\n  _validate(config) {\n    const required = this.defaults.__required ?? [];\n    for (const key of required) {\n      if (!(key in config) || config[key] === undefined) {\n        throw new Error(`Missing required config key: ${key}`);\n      }\n    }\n    return config;\n  }\n}\n\nmodule.exports = ConfigLoader;",
+          "highlighted_lines": [1, 7, 15, 30, 43]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "ET",
+          "prefix": "ET-ConfigLoaderJS",
+          "title": "分层配置加载技术",
+          "description": "实现分层配置加载器(ConfigLoader)，支持默认值、环境变量、文件、函数等多种配置源按优先级合并，深度合并嵌套对象，单层加载失败不影响其他层，最终进行必填字段校验",
+          "confidence": 0.91,
+          "alternative_titles": ["配置加载器", "Config Loader", "Layered Configuration", "配置合并"]
+        }
+      ]
+    },
+    {
+      "id": "ET-JS-006",
+      "description": "Structured Logger - JSON Logging",
+      "code_snippets": [
+        {
+          "file": "src/logging/logger.js",
+          "start_line": 1,
+          "end_line": 60,
+          "content": "class StructuredLogger {\n  constructor(options = {}) {\n    this.serviceName = options.serviceName ?? 'app';\n    this.level = options.level ?? 'info';\n    this.outputStream = options.stream ?? process.stdout;\n    this.context = options.context ?? {};\n    this.levels = { debug: 10, info: 20, warn: 30, error: 40 };\n  }\n\n  child(extraContext) {\n    return new StructuredLogger({\n      serviceName: this.serviceName,\n      level: this.level,\n      stream: this.outputStream,\n      context: { ...this.context, ...extraContext }\n    });\n  }\n\n  log(level, message, meta = {}) {\n    if (this.levels[level] < this.levels[this.level]) return;\n\n    const entry = {\n      timestamp: new Date().toISOString(),\n      level,\n      service: this.serviceName,\n      ...this.context,\n      ...meta,\n      msg: message\n    };\n\n    this.outputStream.write(JSON.stringify(entry) + '\\n');\n  }\n\n  debug(msg, meta) { this.log('debug', msg, meta); }\n  info(msg, meta) { this.log('info', msg, meta); }\n  warn(msg, meta) { this.log('warn', msg, meta); }\n  error(msg, meta) { this.log('error', msg, meta); }\n\n  requestLog(req) {\n    const start = Date.now();\n    return {\n      before: () => this.info('request.start', { method: req.method, url: req.url }),\n      after: (res) => this.info('request.complete', {\n        method: req.method,\n        url: req.url,\n        status: res.statusCode,\n        durationMs: Date.now() - start\n      })\n    };\n  }\n}\n\nmodule.exports = StructuredLogger;",
+          "highlighted_lines": [1, 6, 13, 23, 38]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "ET",
+          "prefix": "ET-LoggerJS",
+          "title": "结构化日志技术",
+          "description": "实现结构化日志记录器(StructuredLogger)，输出 JSON 格式日志条目包含时间戳、级别、服务名、上下文和元数据，支持 child 创建带额外上下文的子记录器，requestLog 提供请求级前后日志关联",
+          "confidence": 0.92,
+          "alternative_titles": ["结构化日志", "JSON Logger", "Structured Logging", "可观测性日志"]
+        }
+      ]
+    },
+    {
+      "id": "ET-JS-007",
+      "description": "Retry with Exponential Backoff",
+      "code_snippets": [
+        {
+          "file": "src/utils/retry.js",
+          "start_line": 1,
+          "end_line": 55,
+          "content": "async function retryWithBackoff(fn, options = {}) {\n  const maxAttempts = options.attempts ?? 3;\n  const baseDelay = options.baseDelay ?? 1000;\n  const maxDelay = options.maxDelay ?? 30000;\n  const factor = options.factor ?? 2;\n  const jitter = options.jitter ?? true;\n  const retryOn = options.retryOn ?? (() => true);\n\n  let lastError;\n\n  for (let attempt = 1; attempt <= maxAttempts; attempt++) {\n    try {\n      const result = await fn({ attempt });\n      return { success: true, result, attempts: attempt };\n    } catch (error) {\n      lastError = error;\n\n      if (attempt === maxAttempts) break;\n      if (!retryOn(error, attempt)) break;\n\n      const exponentialDelay = baseDelay * Math.pow(factor, attempt - 1);\n      const jitterValue = jitter ? Math.random() * exponentialDelay * 0.2 : 0;\n      const delay = Math.min(exponentialDelay + jitterValue, maxDelay);\n\n      console.log(`Attempt ${attempt} failed, retrying in ${Math.round(delay)}ms...`);\n      await sleep(delay);\n    }\n  }\n\n  return {\n    success: false,\n    error: lastError,\n    attempts: maxAttempts,\n    lastError\n  };\n}\n\nfunction sleep(ms) {\n  return new Promise(resolve => setTimeout(resolve, ms));\n}\n\nmodule.exports = { retryWithBackoff, sleep };",
+          "highlighted_lines": [1, 13, 17, 25, 33]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "ET",
+          "prefix": "ET-RetryJS",
+          "title": "指数退避重试技术",
+          "description": "实现带指数退避和随机抖动(Jitter)的重试机制(retryWithBackoff)，delay = baseDelay * factor^(attempt-1) + jitter，支持自定义重试条件(retryOn)、最大延迟上限和失败结果聚合",
+          "confidence": 0.93,
+          "alternative_titles": ["指数退避重试", "Exponential Backoff Retry", "Resilient Retry", "重试策略"]
+        }
+      ]
+    },
+    {
+      "id": "ET-JS-008",
+      "description": "Feature Flag System - Runtime Toggles",
+      "code_snippets": [
+        {
+          "file": "src/feature-flags/manager.js",
+          "start_line": 1,
+          "end_line": 65,
+          "content": "class FeatureFlagManager {\n  constructor() {\n    this.flags = new Map();\n    this.listeners = new Map();\n  }\n\n  register(flagName, config = {}) {\n    this.flags.set(flagName, {\n      enabled: config.enabled ?? false,\n      rollout: config.rollout ?? 0,\n      conditions: config.conditions ?? [],\n      metadata: config.metadata ?? {}\n    });\n  }\n\n  isEnabled(flagName, context = {}) {\n    const flag = this.flags.get(flagName);\n    if (!flag) return false;\n\n    if (!flag.enabled) return false;\n\n    // Percentage rollout\n    if (flag.rollout > 0 && flag.rollout < 100) {\n      const hash = this._hash(context.userId ?? '');\n      if (hash % 100 >= flag.rollout) return false;\n    }\n\n    // Custom conditions\n    for (const condition of flag.conditions) {\n      if (!condition.evaluate(context)) return false;\n    }\n\n    return true;\n  }\n\n  setEnabled(flagName, enabled) {\n    const flag = this.flags.get(flagName);\n    if (flag) {\n      flag.enabled = enabled;\n      this._notify(flagName);\n    }\n  }\n\n  _hash(str) {\n    let hash = 0;\n    for (let i = 0; i < str.length; i++) {\n      hash = ((hash << 5) - hash) + str.charCodeAt(i);\n      hash |= 0;\n    }\n    return Math.abs(hash);\n  }\n\n  _notify(flagName) {\n    this.listeners.get(flagName)?.forEach(cb => cb(this.flags.get(flagName)));\n  }\n\n  onChange(flagName, callback) {\n    if (!this.listeners.has(flagName)) this.listeners.set(flagName, new Set());\n    this.listeners.get(flagName).add(callback);\n    return () => this.listeners.get(flagName)?.delete(callback);\n  }\n}\n\nmodule.exports = FeatureFlagManager;",
+          "highlighted_lines": [1, 7, 17, 28, 42]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "ET",
+          "prefix": "ET-FeatureFlagJS",
+          "title": "特性标志系统",
+          "description": "实现功能开关(FeatureFlagManager)运行时控制系统，支持全局启用/禁用、百分比灰度发布(rollout)、基于上下文的自定义条件评估，以及变更监听(onChange)实现动态刷新",
+          "confidence": 0.92,
+          "alternative_titles": ["特性标志", "Feature Flag", "Runtime Toggle", "灰度发布"]
+        }
+      ]
+    }
+  ]
+}

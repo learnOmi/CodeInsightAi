@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-ad-vue",
+  "category": "AD",
+  "language": "vue",
+  "description": "Architecture decisions implemented in Vue.js",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AD-VUE-001",
+      "description": "Nuxt SSR Architecture",
+      "code_snippets": [{
+        "file": "pages/index.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"home-page\">\n    <NuxtSeo title=\"Home\" description=\"Welcome to our application\" />\n    <HeroSection :banner=\"heroBanner\" />\n    <ProductGrid :products=\"products\" />\n    <NewsletterSignup />\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { useAsyncData, useRuntimeConfig } from 'nuxt/app'\nimport { useSeoMeta } from '@vueuse/head'\n\nconst config = useRuntimeConfig()\n\nconst { data: products, pending, error } = useAsyncData('products', async () => {\n  const res = await $fetch('/api/products', {\n    baseURL: config.public.apiBaseUrl\n  })\n  return res.data\n}, {\n  server: true,\n  lazy: false\n})\n\nconst { data: heroBanner } = useAsyncData('hero-banner', async () => {\n  return await $fetch('/api/banners/hero')\n}, {\n  server: true,\n  default: () => ({ title: 'Welcome', image: '/default-hero.jpg' })\n})\n\nuseSeoMeta({\n  title: 'E-commerce Home',\n  ogTitle: 'E-commerce Home',\n  description: 'Discover our latest products',\n  ogImage: '/og-image.jpg',\n  twitterCard: 'summary_large_image'\n})\n\nif (error.value) {\n  console.error('Failed to load products:', error.value)\n}\n</script>\n\n<style scoped>\n.home-page {\n  max-width: 1200px;\n  margin: 0 auto;\n}\n</style>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-NuxtSSRVUE",
+        "title": "Nuxt SSR架构",
+        "description": "实现Nuxt 3的服务端渲染（SSR）架构。页面组件使用<script setup>语法，通过useAsyncData在服务端预取产品数据和横幅数据，server: true确保服务端执行。useRuntimeConfig访问运行时配置（如API Base URL）。useSeoMeta设置SEO元数据（title、og:image、twitter card）。NuxtSeo组件渲染SSR友好的head标签。pending和error状态处理加载和错误情况。默认值fallback确保服务端失败时仍有内容。这种架构提供首屏SEO友好、快速初始加载的优势，同时保留客户端导航的SPA体验。",
+        "confidence": 0.95,
+        "alternative_titles": ["Nuxt SSR", "Server-Side Rendering", "Hydration"]
+      }]
+    },
+    {
+      "id": "AD-VUE-002",
+      "description": "Pinia State Management architecture",
+      "code_snippets": [{
+        "file": "stores/cart.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { defineStore } from 'pinia'\nimport { ref, computed } from 'vue'\n\nexport interface CartItem {\n  id: string\n  name: string\n  price: number\n  quantity: number\n  image: string\n}\n\nexport const useCartStore = defineStore('cart', () => {\n  const items = ref<CartItem[]>([])\n  const couponCode = ref<string>('')\n  const isLoading = ref(false)\n\n  const itemCount = computed(() =>\n    items.value.reduce((sum, item) => sum + item.quantity, 0)\n  )\n\n  const subtotal = computed(() =>\n    items.value.reduce((sum, item) => sum + item.price * item.quantity, 0)\n  )\n\n  const discount = computed(() => {\n    if (couponCode.value === 'SAVE10') return subtotal.value * 0.1\n    if (couponCode.value === 'SAVE20') return subtotal.value * 0.2\n    return 0\n  })\n\n  const total = computed(() => Math.max(0, subtotal.value - discount.value))\n\n  function addItem(product: Omit<CartItem, 'quantity'>) {\n    const existing = items.value.find(i => i.id === product.id)\n    if (existing) {\n      existing.quantity++\n    } else {\n      items.value.push({ ...product, quantity: 1 })\n    }\n  }\n\n  function removeItem(id: string) {\n    items.value = items.value.filter(i => i.id !== id)\n  }\n\n  function updateQuantity(id: string, quantity: number) {\n    const item = items.value.find(i => i.id === id)\n    if (item) item.quantity = Math.max(1, quantity)\n  }\n\n  function applyCoupon(code: string) {\n    couponCode.value = code.toUpperCase()\n  }\n\n  function clearCart() {\n    items.value = []\n    couponCode.value = ''\n  }\n\n  return {\n    items, itemCount, subtotal, discount, total, isLoading,\n    addItem, removeItem, updateQuantity, applyCoupon, clearCart\n  }\n})",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-PiniaVUE",
+        "title": "Pinia状态管理架构",
+        "description": "使用Pinia Store实现购物车状态管理。defineStore定义响应式store，items、couponCode、isLoading使用ref管理状态。computed派生出itemCount、subtotal、discount和total等衍生值。addItem检查重复商品并合并数量，removeItem过滤删除，updateQuantity限制最小数量。applyCoupon解析优惠码并计算折扣比例。clearCart重置所有状态。Pinia的组合式API风格（setup store）比Vuex更简洁，支持TypeScript推断和DevTools调试。状态在组件间共享且响应式同步。",
+        "confidence": 0.94,
+        "alternative_titles": ["Pinia Store", "Global State", "Vuex Alternative"]
+      }]
+    },
+    {
+      "id": "AD-VUE-003",
+      "description": "Vue Router Navigation Guards",
+      "code_snippets": [{
+        "file": "router/guards.ts",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'\nimport { useAuthStore } from '@/stores/auth'\n\nconst routes: RouteRecordRaw[] = [\n  {\n    path: '/login',\n    name: 'Login',\n    component: () => import('@/views/Login.vue'),\n    meta: { requiresAuth: false }\n  },\n  {\n    path: '/',\n    component: () => import('@/layouts/MainLayout.vue'),\n    children: [\n      { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/Dashboard.vue'), meta: { requiresAuth: true } },\n      { path: 'profile', name: 'Profile', component: () => import('@/views/Profile.vue'), meta: { requiresAuth: true, roles: ['user', 'admin'] } },\n      { path: 'admin', name: 'Admin', component: () => import('@/views/Admin.vue'), meta: { requiresAuth: true, roles: ['admin'] } }\n    ]\n  }\n]\n\nconst router = createRouter({\n  history: createWebHistory(),\n  routes\n})\n\nrouter.beforeEach(async (to, from, next) => {\n  const authStore = useAuthStore()\n  const requiresAuth = to.matched.some(record => record.meta.requiresAuth)\n\n  if (requiresAuth && !authStore.isAuthenticated) {\n    next({ name: 'Login', query: { redirect: to.fullPath } })\n    return\n  }\n\n  if (!requiresAuth && authStore.isAuthenticated && to.name === 'Login') {\n    next({ name: 'Dashboard' })\n    return\n  }\n\n  if (to.meta.roles && !authStore.hasRole(to.meta.roles as string[])) {\n    next({ name: 'Forbidden' })\n    return\n  }\n\n  next()\n})\n\nexport default router",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-RouterVUE",
+        "title": "路由守卫架构",
+        "description": "实现Vue Router导航守卫进行路由权限控制。路由配置使用懒加载（动态import）减少初始包体积。RouteRecordRaw定义路由层级结构，meta字段标记requiresAuth和roles权限要求。beforeEach全局前置守卫在每次导航前执行：检查目标路由是否需要认证，未登录用户重定向到Login并保存原始路径；已登录用户访问Login时重定向到Dashboard；检查角色权限，无权限时重定向到Forbidden页面。next()放行或重定向。这种模式集中管理认证和授权逻辑，保护受保护的路由。",
+        "confidence": 0.95,
+        "alternative_titles": ["Navigation Guards", "Route Protection", "Auth Guard"]
+      }]
+    },
+    {
+      "id": "AD-VUE-004",
+      "description": "Composition API Architecture",
+      "code_snippets": [{
+        "file": "views/ProductList.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"product-list\">\n    <SearchBar v-model=\"searchQuery\" @search=\"handleSearch\" />\n    <FilterPanel v-model:category=\"selectedCategory\" v-model:minPrice=\"minPrice\" v-model:maxPrice=\"maxPrice\" />\n    \n    <div class=\"product-grid\">\n      <ProductCard v-for=\"product in filteredProducts\" :key=\"product.id\" :product=\"product\" />\n    </div>\n\n    <Pagination v-model:page=\"currentPage\" :total=\"totalProducts\" :per-page=\"perPage\" @change=\"loadPage\" />\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { ref, computed, watch, onMounted } from 'vue'\nimport { useProductStore } from '@/stores/products'\nimport SearchBar from '@/components/SearchBar.vue'\nimport FilterPanel from '@/components/FilterPanel.vue'\nimport ProductCard from '@/components/ProductCard.vue'\nimport Pagination from '@/components/Pagination.vue'\n\nconst productStore = useProductStore()\nconst searchQuery = ref('')\nconst selectedCategory = ref('all')\nconst minPrice = ref(0)\nconst maxPrice = ref(1000)\nconst currentPage = ref(1)\nconst perPage = ref(20)\n\nconst filteredProducts = computed(() => {\n  const products = productStore.products\n  return products.filter(p => {\n    const matchesSearch = !searchQuery.value || p.name.toLowerCase().includes(searchQuery.value.toLowerCase())\n    const matchesCategory = selectedCategory.value === 'all' || p.category === selectedCategory.value\n    const matchesPrice = p.price >= minPrice.value && p.price <= maxPrice.value\n    return matchesSearch && matchesCategory && matchesPrice\n  })\n})\n\nconst totalProducts = computed(() => filteredProducts.value.length)\n\nasync function loadPage(page: number) {\n  currentPage.value = page\n  await productStore.fetchProducts({\n    page, limit: perPage.value,\n    search: searchQuery.value,\n    category: selectedCategory.value,\n    minPrice: minPrice.value,\n    maxPrice: maxPrice.value\n  })\n}\n\nonMounted(() => loadPage(1))\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-CAPVue",
+        "title": "组合式API架构",
+        "description": "采用Vue 3组合式API（Composition API）组织大型页面逻辑。ProductList页面将搜索、筛选、分页等关注点分别用ref声明为独立的响应式状态。computed派生filteredProducts，链式应用搜索词、分类和价格范围三个过滤条件。loadPage异步加载分页数据，onMounted初始化第一页。子组件通过v-model双向绑定共享状态。这种架构相比Options API更好地组织了相关逻辑，提高了代码的可读性和可测试性。store负责数据获取，视图组件专注于展示和交互。",
+        "confidence": 0.94,
+        "alternative_titles": ["Composition API", "Vue 3 Architecture", "Reactive UI"]
+      }]
+    },
+    {
+      "id": "AD-VUE-005",
+      "description": "Module-based Component Organization",
+      "code_snippets": [{
+        "file": "components/dashboard/DashboardLayout.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"dashboard\">\n    <aside class=\"sidebar\">\n      <nav class=\"nav-menu\">\n        <router-link v-for=\"item in menuItems\" :key=\"item.path\" :to=\"item.path\"\n          :class=\"{ active: $route.path === item.path }\">\n          <component :is=\"item.icon\" />\n          {{ item.label }}\n        </router-link>\n      </nav>\n    </aside>\n    \n    <main class=\"main-content\">\n      <header class=\"top-bar\">\n        <Breadcrumb :items=\"breadcrumbItems\" />\n        <UserMenu />\n      </header>\n      \n      <section class=\"widgets-grid\">\n        <StatWidget v-for=\"widget in statWidgets\" :key=\"widget.key\" :widget=\"widget\" />\n      </section>\n      \n      <section class=\"charts-section\">\n        <ChartCard v-for=\"chart in chartWidgets\" :key=\"chart.key\" :chart=\"chart\" />\n      </section>\n      \n      <section class=\"tables-section\">\n        <DataTable :columns=\"tableColumns\" :data=\"recentOrders\" title=\"Recent Orders\" />\n      </section>\n    </main>\n  </div>\n</template>\n\n<script setup lang=\"ts\">\nimport { computed, ref } from 'vue'\nimport { useDashboardStore } from '@/stores/dashboard'\nimport Breadcrumb from '@/components/shared/Breadcrumb.vue'\nimport UserMenu from '@/components/shared/UserMenu.vue'\nimport StatWidget from './widgets/StatWidget.vue'\nimport ChartCard from './widgets/ChartCard.vue'\nimport DataTable from '@/components/shared/DataTable.vue'\n\nconst dashboardStore = useDashboardStore()\nconst menuItems = ref([\n  { path: '/dashboard', label: 'Overview', icon: 'HomeIcon' },\n  { path: '/dashboard/orders', label: 'Orders', icon: 'ShoppingCartIcon' },\n  { path: '/dashboard/users', label: 'Users', icon: 'UsersIcon' }\n])\n\nconst statWidgets = computed(() => dashboardStore.stats)\nconst chartWidgets = computed(() => dashboardStore.charts)\nconst recentOrders = computed(() => dashboardStore.recentOrders.slice(0, 10))\nconst tableColumns = computed(() => [\n  { key: 'id', label: 'Order ID' },\n  { key: 'customer', label: 'Customer' },\n  { key: 'total', label: 'Total' },\n  { key: 'status', label: 'Status' }\n])\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-ModuleVUE",
+        "title": "模块化组件组织",
+        "description": "采用模块化的组件组织方式构建Dashboard页面。DashboardLayout作为容器组件，将页面拆分为Sidebar、TopBar、WidgetsGrid、ChartsSection和TablesSection等独立区域。每个区域使用专门的子组件（StatWidget、ChartCard、DataTable）。menuItems、statWidgets、chartWidgets、recentOrders等通过computed从dashboardStore派生。shared目录存放通用组件（Breadcrumb、UserMenu、DataTable），widgets目录存放仪表板专用组件。这种组织方式按功能和领域划分组件，便于团队协作和独立维护。",
+        "confidence": 0.93,
+        "alternative_titles": ["Module-based Components", "Component Organization", "Dashboard Layout"]
+      }]
+    },
+    {
+      "id": "AD-VUE-006",
+      "description": "Server-Side Rendering with hydration",
+      "code_snippets": [{
+        "file": "middleware/auth.ts",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "export default defineNuxtRouteMiddleware(async (to) => {\n  const token = useCookie('auth-token')\n  const user = useState('user', () => null)\n\n  if (!token.value && to.meta.requiresAuth) {\n    return navigateTo('/login')\n  }\n\n  if (token.value && !user.value) {\n    try {\n      const { data } = await useFetch('/api/auth/me', {\n        headers: { Authorization: `Bearer ${token.value}` }\n      })\n      if (data.value) {\n        user.value = data.value\n      } else {\n        token.value = null\n        return navigateTo('/login')\n      }\n    } catch (error) {\n      token.value = null\n      return navigateTo('/login')\n    }\n  }\n})\n\n// App.vue\n<script setup>\nimport { useHead, useSeoMeta } from '@vueuse/head'\n\nuseHead({\n  titleTemplate: '%s - My App',\n  htmlAttrs: { lang: 'en' },\n  link: [\n    { rel: 'preload', href: '/fonts/main.woff2', as: 'font', crossorigin: '' }\n  ]\n})\n\nuseSeoMeta({\n  ogSiteName: 'My App',\n  twitterSite: '@myapp',\n  robots: 'index, follow'\n})\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-SSRVUE",
+        "title": "服务端渲染架构",
+        "description": "实现Nuxt 3的服务端渲染和hydration架构。defineNuxtRouteMiddleware在服务端和客户端都执行的导航守卫，检查auth-token cookie和user状态。未登录但需要认证时重定向到Login。有token时通过useFetch获取用户信息，失败则清除token并重定向。useCookie和useState在服务端初始化并在客户端hydration时同步。useHead和useSeoMeta设置SSR友好的HTML head标签，包括title模板、预加载字体、Open Graph和Twitter Card元数据。这种架构确保首屏HTML完整，客户端hydration后变为交互式SPA。",
+        "confidence": 0.95,
+        "alternative_titles": ["SSR", "Hydration", "Server-Side Rendering"]
+      }]
+    },
+    {
+      "id": "AD-VUE-007",
+      "description": "Progressive Enhancement architecture",
+      "code_snippets": [{
+        "file": "components/SearchInput.vue",
+        "start_line": 1,
+        "end_line": 50,
+        "content": "<template>\n  <form class=\"search-form\" @submit.prevent=\"handleSubmit\" action=\"/search\" method=\"GET\">\n    <label for=\"search-input\" class=\"sr-only\">Search</label>\n    <input\n      id=\"search-input\"\n      v-model=\"query\"\n      type=\"search\"\n      name=\"q\"\n      placeholder=\"Search products...\"\n      autocomplete=\"off\"\n      class=\"search-input\"\n      @input=\"handleInput\"\n      @keydown.enter.prevent=\"performSearch\"\n    />\n    <button type=\"submit\" class=\"search-button\">\n      <svg aria-hidden=\"true\"><use href=\"#icon-search\" /></svg>\n      <span class=\"sr-only\">Search</span>\n    </button>\n    \n    <div v-if=\"suggestions.length > 0\" class=\"suggestions\" role=\"listbox\">\n      <button v-for=\"suggestion in suggestions\" :key=\"suggestion.id\"\n        type=\"button\" class=\"suggestion-item\" role=\"option\"\n        @mousedown.prevent=\"selectSuggestion(suggestion)\">\n        {{ suggestion.name }}\n      </button>\n    </div>\n  </form>\n</template>\n\n<script setup>\nimport { ref, debounce } from 'vue'\n\nconst props = defineProps({\n  endpoint: { type: String, default: '/api/search/suggest' }\n})\n\nconst emit = defineEmits(['search', 'select'])\nconst query = ref('')\nconst suggestions = ref([])\n\nasync function performSearch() {\n  if (query.value.trim()) {\n    emit('search', query.value)\n  }\n}\n\nfunction handleSubmit() {\n  if (query.value.trim()) {\n    // Progressive enhancement: form submits normally if JS fails\n    return\n  }\n}\n\nasync function selectSuggestion(suggestion) {\n  emit('select', suggestion)\n  query.value = suggestion.name\n}\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-ProgressiveVUE",
+        "title": "渐进增强架构",
+        "description": "实现渐进增强（Progressive Enhancement）的搜索组件。表单使用原生action和method属性，即使JavaScript失效也能正常提交到服务端。input绑定v-model增强交互体验，@submit.prevent阻止默认行为仅在有查询词时拦截。suggestions下拉列表使用role=listbox和role=option提供ARIA无障碍语义。@mousedown.prevent防止input失去焦点。sr-only类隐藏视觉文字但屏幕阅读器可访问。这种设计确保基础功能在无JS环境下可用，有JS时提供增强的实时建议体验。",
+        "confidence": 0.94,
+        "alternative_titles": ["Progressive Enhancement", "Graceful Degradation", "Accessible Form"]
+      }]
+    },
+    {
+      "id": "AD-VUE-008",
+      "description": "Micro-Frontend Integration",
+      "code_snippets": [{
+        "file": "apps/shell/AppHost.vue",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "<template>\n  <div class=\"app-shell\">\n    <header class=\"app-header\">\n      <Logo />\n      <nav>\n        <router-link v-for=\"route in routes\" :key=\"route.path\" :to=\"route.path\">\n          {{ route.label }}\n        </router-link>\n      </nav>\n    </header>\n    \n    <main class=\"app-main\">\n      <router-view v-slot=\"{ Component }\">\n        <Suspense :timeout=\"5000\" @timeout=\"handleTimeout\">\n          <template #default>\n            <component :is=\"Component\" />\n          </template>\n          <template #fallback>\n            <LoadingSkeleton />\n          </template>\n          <template #error=\"{ error }\">\n            <ErrorBoundary :error=\"error\" @retry=\"retryRoute\" />\n          </template>\n        </Suspense>\n      </router-view>\n    </main>\n\n    <Teleport to=\"body\">\n      <NotificationContainer />\n    </Teleport>\n  </div>\n</template>\n\n<script setup>\nimport { ref, provide } from 'vue'\n\nconst routes = [\n  { path: '/', label: 'Home', component: () => import('@/modules/home/HomePage.vue') },\n  { path: '/products', label: 'Products', component: () => import('@/modules/products/ProductShell.vue') },\n  { path: '/checkout', label: 'Checkout', component: () => import('@/modules/checkout/CheckoutShell.vue') }\n]\n\nconst isLoading = ref(false)\n\nfunction handleTimeout() {\n  console.warn('Module loading timed out')\n}\n\nfunction retryRoute() {\n  window.location.reload()\n}\n\nprovide('appConfig', {\n  apiBaseUrl: import.meta.env.VITE_API_URL,\n  featureFlags: import.meta.env.VITE_FEATURE_FLAGS\n})\n</script>",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "AD",
+        "prefix": "AD-MicroFEVue",
+        "title": "微前端集成架构",
+        "description": "实现微前端架构的宿主应用。AppShell作为主框架，包含Header导航和RouterView内容区。routes数组定义各模块的路由和动态导入组件（Home、Products、Checkout）。Suspense包裹router-view提供加载状态（LoadingSkeleton）、超时处理和错误边界（ErrorBoundary）。Teleport将NotificationContainer传送到body。provide传递全局配置（API地址、特性标志）。每个模块可以是独立开发部署的微前端应用，通过路由和组件级联集成。Suspense的timeout属性处理远程模块加载过慢的情况。",
+        "confidence": 0.95,
+        "alternative_titles": ["Micro-Frontends", "Module Federation", "Host Application"]
+      }]
+    }
+  ]
+}

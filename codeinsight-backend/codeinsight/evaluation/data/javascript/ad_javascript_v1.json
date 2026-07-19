@@ -1,0 +1,193 @@
+{
+  "repo_id": "benchmark-ad-javascript",
+  "category": "AD",
+  "language": "javascript",
+  "description": "JavaScript architecture decision detection evaluation dataset",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AD-JS-001",
+      "description": "Middleware Pipeline Architecture - Express/Koa Style",
+      "code_snippets": [
+        {
+          "file": "src/app/server.js",
+          "start_line": 1,
+          "end_line": 65,
+          "content": "const { Router } = require('./router');\nconst { errorCatcher } = require('./middleware/error');\n\nasync function createApp(config) {\n  const router = new Router();\n  const middlewareStack = [];\n\n  // Core middleware (order matters)\n  middlewareStack.push(parseBody);\n  middlewareStack.push(authenticate);\n  middlewareStack.push(rateLimiter(config.rateLimit));\n  middlewareStack.push(compressResponse);\n\n  // Route handlers\n  router.get('/api/users', listUsers);\n  router.post('/api/users', createUser);\n  router.get('/api/products', listProducts);\n  router.put('/api/products/:id', updateProduct);\n\n  async function dispatch(req, res) {\n    let index = 0;\n    async function next(err) {\n      if (err) return onError(err, req, res);\n      const mw = middlewareStack[index++];\n      if (!mw) return router.handle(req, res);\n      return mw(req, res, next);\n    }\n    await next();\n  }\n\n  async function onError(err, req, res) {\n    const status = err.status || 500;\n    res.status(status).json({ error: err.message });\n  }\n\n  return {\n    use(mw) { middlewareStack.push(mw); },\n    handle: dispatch,\n    listen(port) { /* start HTTP server */ }\n  };\n}\n\nmodule.exports = { createApp };",
+          "highlighted_lines": [8, 15, 22, 28, 43]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-MiddlewareJS",
+          "title": "中间件管道架构",
+          "description": "采用中间件管道架构，将横切关注点(解析、认证、限流、压缩)作为可组合的中间件层，路由处理与中间件执行分离，通过 dispatch 统一调度请求生命周期",
+          "confidence": 0.94,
+          "alternative_titles": ["Middleware Pipeline", "中间件管道", "Handler Chain"]
+        }
+      ]
+    },
+    {
+      "id": "AD-JS-002",
+      "description": "Event Sourcing Architecture - CQRS Variant",
+      "code_snippets": [
+        {
+          "file": "src/eventsourcing/order-store.js",
+          "start_line": 1,
+          "end_line": 70,
+          "content": "class EventStore {\n  constructor() {\n    this.streams = new Map();\n    this.subscribers = new Map();\n    this.version = 0;\n  }\n\n  appendStream(streamId, events) {\n    if (!this.streams.has(streamId)) {\n      this.streams.set(streamId, []);\n    }\n    const stream = this.streams.get(streamId);\n    const expectedVersion = stream.length;\n    events.forEach((event, i) => {\n      event.id = ++this.version;\n      event.streamVersion = expectedVersion + i;\n      stream.push(event);\n    });\n    this._notifySubscribers(streamId, events);\n  }\n\n  loadStream(streamId) {\n    return this.streams.get(streamId) ?? [];\n  }\n\n  subscribe(streamId, callback) {\n    if (!this.subscribers.has(streamId)) {\n      this.subscribers.set(streamId, new Set());\n    }\n    this.subscribers.get(streamId).add(callback);\n  }\n\n  _notifySubscribers(streamId, events) {\n    const subs = this.subscribers.get(streamId);\n    subs?.forEach(cb => cb(events));\n  }\n}\n\nclass AggregateRoot {\n  constructor(id) {\n    this.id = id;\n    this.events = [];\n  }\n\n  apply(event) {\n    this.events.push(event);\n    this._applyEvent(event);\n  }\n\n  commit() {\n    const committed = [...this.events];\n    this.events = [];\n    return committed;\n  }\n}",
+          "highlighted_lines": [7, 12, 28, 35, 52]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-EventSourcingJS",
+          "title": "事件溯源架构",
+          "description": "采用事件溯源(Event Sourcing)架构，EventStore 以追加方式持久化所有状态变更事件，AggregateRoot 通过应用事件来重建状态，支持事件订阅和流式加载",
+          "confidence": 0.93,
+          "alternative_titles": ["事件溯源", "Event Sourcing", "CQRS", "命令查询职责分离"]
+        }
+      ]
+    },
+    {
+      "id": "AD-JS-003",
+      "description": "Repository Pattern - Data Access Abstraction",
+      "code_snippets": [
+        {
+          "file": "src/repositories/user-repository.js",
+          "start_line": 1,
+          "end_line": 55,
+          "content": "class UserRepository {\n  constructor(dbClient) {\n    this.db = dbClient;\n    this.collection = 'users';\n  }\n\n  async findById(id) {\n    return this.db.findOne(this.collection, { _id: id });\n  }\n\n  async findByEmail(email) {\n    return this.db.findOne(this.collection, { email });\n  }\n\n  async findAll(filters = {}, options = {}) {\n    const query = this._buildQuery(filters);\n    const page = options.page ?? 1;\n    const limit = options.limit ?? 20;\n    const skip = (page - 1) * limit;\n    const [results, total] = await Promise.all([\n      this.db.find(this.collection, query).skip(skip).limit(limit),\n      this.db.count(this.collection, query)\n    ]);\n    return { results, pagination: { page, limit, total } };\n  }\n\n  async save(user) {\n    if (user._id) {\n      return this.db.updateOne(this.collection, { _id: user._id }, user);\n    }\n    const result = await this.db.insertOne(this.collection, user);\n    return { ...user, _id: result.insertedId };\n  }\n\n  async delete(id) {\n    return this.db.deleteOne(this.collection, { _id: id });\n  }\n\n  _buildQuery(filters) {\n    const query = {};\n    if (filters.name) query.name = { $regex: filters.name, $options: 'i' };\n    if (filters.role) query.role = filters.role;\n    if (filters.createdAtFrom) query.createdAt = { $gte: filters.createdAtFrom };\n    return query;\n  }\n}\n\nmodule.exports = UserRepository;",
+          "highlighted_lines": [1, 8, 15, 30, 42]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-RepositoryJS",
+          "title": "仓储模式",
+          "description": "通过 UserRepository 抽象数据访问层，封装底层数据库操作(findOne/find/count/insertOne/updateOne)，业务代码不直接依赖数据库驱动，支持查询条件和分页的统一构建",
+          "confidence": 0.92,
+          "alternative_titles": ["Repository Pattern", "仓储模式", "Data Access Object"]
+        }
+      ]
+    },
+    {
+      "id": "AD-JS-004",
+      "description": "Dependency Injection Container",
+      "code_snippets": [
+        {
+          "file": "src/di/container.js",
+          "start_line": 1,
+          "end_line": 60,
+          "content": "class Container {\n  constructor() {\n    this.registrations = new Map();\n    this.instances = new Map();\n  }\n\n  register(serviceKey, factory, scope = 'singleton') {\n    this.registrations.set(serviceKey, { factory, scope });\n    return this;\n  }\n\n  resolve(serviceKey) {\n    if (this.instances.has(serviceKey)) {\n      return this.instances.get(serviceKey);\n    }\n    const reg = this.registrations.get(serviceKey);\n    if (!reg) throw new Error(`No registration for ${serviceKey}`);\n\n    const dependencies = this._resolveDependencies(reg.factory);\n    const instance = reg.factory(...dependencies);\n\n    if (reg.scope === 'singleton') {\n      this.instances.set(serviceKey, instance);\n    }\n    return instance;\n  }\n\n  _resolveDependencies(factory) {\n    const paramNames = this._getParamNames(factory);\n    return paramNames.map(name => this.resolve(name));\n  }\n\n  _getParamNames(factory) {\n    const fnStr = factory.toString();\n    const match = fnStr.match(/\\(([^)]*)\\)/);\n    if (!match) return [];\n    return match[1].split(',').map(s => s.trim()).filter(Boolean);\n  }\n\n  createChild() {\n    const child = new Container();\n    child.registrations = new Map(this.registrations);\n    return child;\n  }\n}\n\nmodule.exports = Container;",
+          "highlighted_lines": [3, 7, 13, 20, 33]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-DIContainerJS",
+          "title": "依赖注入容器",
+          "description": "实现轻量级 DI 容器(Container)，支持服务注册(register)、自动依赖解析(resolve)、单例/瞬态作用域(scope)，通过反射函数参数名推断依赖关系，支持创建子容器隔离配置",
+          "confidence": 0.91,
+          "alternative_titles": ["DI Container", "依赖注入", "Inversify-style Container"]
+        }
+      ]
+    },
+    {
+      "id": "AD-JS-005",
+      "description": "Microservices Communication - Message Bus",
+      "code_snippets": [
+        {
+          "file": "src/messaging/message-bus.js",
+          "start_line": 1,
+          "end_line": 65,
+          "content": "class MessageBus {\n  constructor() {\n    this.handlers = new Map();\n    this.queue = [];\n    this.processing = false;\n  }\n\n  subscribe(topic, handler) {\n    if (!this.handlers.has(topic)) {\n      this.handlers.set(topic, []);\n    }\n    this.handlers.get(topic).push(handler);\n  }\n\n  publish(topic, payload, options = {}) {\n    const message = {\n      topic,\n      payload,\n      timestamp: Date.now(),\n      messageId: crypto.randomUUID(),\n      retryCount: 0,\n      ttl: options.ttl ?? 60000\n    };\n\n    const syncHandlers = this.handlers.get(topic);\n    if (syncHandlers) {\n      syncHandlers.forEach(h => h(message));\n    }\n\n    if (options.persist) {\n      this.queue.push(message);\n      this._drainQueue();\n    }\n  }\n\n  async _drainQueue() {\n    if (this.processing) return;\n    this.processing = true;\n    while (this.queue.length > 0) {\n      const msg = this.queue.shift();\n      try {\n        await this._deliver(msg);\n      } catch (err) {\n        if (msg.retryCount < 3) {\n          msg.retryCount++;\n          this.queue.unshift(msg);\n        }\n      }\n    }\n    this.processing = false;\n  }\n}\n\nmodule.exports = MessageBus;",
+          "highlighted_lines": [3, 7, 17, 25, 37]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-MessageBusJS",
+          "title": "微服务消息总线",
+          "description": "采用消息总线(MessageBus)实现微服务间异步通信，支持同步发布(subscribe/publish)和持久化队列两种模式，内置重试机制(最多3次)和消息TTL过期策略",
+          "confidence": 0.93,
+          "alternative_titles": ["消息总线", "Message Bus", "Event Bus Architecture"]
+        }
+      ]
+    },
+    {
+      "id": "AD-JS-006",
+      "description": "Plugin Architecture - Extensible System",
+      "code_snippets": [
+        {
+          "file": "src/plugins/engine.js",
+          "start_line": 1,
+          "end_line": 58,
+          "content": "class PluginEngine {\n  constructor(app) {\n    this.app = app;\n    this.plugins = new Map();\n    this.hooks = {\n      beforeRequest: [],\n      afterResponse: [],\n      onError: [],\n      onShutdown: []\n    };\n  }\n\n  register(name, plugin) {\n    if (this.plugins.has(name)) {\n      throw new Error(`Plugin ${name} already registered`);\n    }\n    this.plugins.set(name, plugin);\n    if (plugin.hooks) {\n      Object.entries(plugin.hooks).forEach(([hookName, handlers]) => {\n        if (Array.isArray(handlers)) {\n          this.hooks[hookName].push(...handlers);\n        }\n      });\n    }\n    if (plugin.init) plugin.init(this.app);\n  }\n\n  async executeHook(hookName, context) {\n    const handlers = this.hooks[hookName] ?? [];\n    for (const handler of handlers) {\n      await handler(context, () => handlers);\n    }\n    return context;\n  }\n\n  unregister(name) {\n    this.plugins.delete(name);\n  }\n\n  listPlugins() {\n    return Array.from(this.plugins.keys());\n  }\n}\n\nmodule.exports = PluginEngine;",
+          "highlighted_lines": [1, 17, 24, 33, 42]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-PluginJS",
+          "title": "插件架构",
+          "description": "设计可扩展的插件架构(PluginEngine)，通过钩子系统(hooks)定义扩展点(beforeRequest/afterResponse/onError/onShutdown)，插件注册时声明式绑定钩子处理器，支持动态注册与卸载",
+          "confidence": 0.92,
+          "alternative_titles": ["Plugin Architecture", "插件架构", "Hook System"]
+        }
+      ]
+    },
+    {
+      "id": "AD-JS-007",
+      "description": "Circuit Breaker Pattern - Resilience",
+      "code_snippets": [
+        {
+          "file": "src/resilience/circuit-breaker.js",
+          "start_line": 1,
+          "end_line": 70,
+          "content": "class CircuitBreaker {\n  constructor(options = {}) {\n    this.failureThreshold = options.failureThreshold ?? 5;\n    this.recoveryTimeout = options.recoveryTimeout ?? 30000;\n    this.monitorWindow = options.monitorWindow ?? 60000;\n    this.state = 'closed';\n    this.failureCount = 0;\n    this.lastFailureTime = null;\n    this.windowStart = Date.now();\n    this.successCount = 0;\n  }\n\n  async execute(fn, ...args) {\n    if (this.state === 'open') {\n      if (Date.now() - this.lastFailureTime >= this.recoveryTimeout) {\n        this._transitionTo('half-open');\n      } else {\n        throw new CircuitOpenError('Circuit is open');\n      }\n    }\n\n    try {\n      const result = await fn(...args);\n      this._onSuccess();\n      return result;\n    } catch (error) {\n      this._onFailure();\n      throw error;\n    }\n  }\n\n  _onSuccess() {\n    if (this.state === 'half-open') {\n      this.successCount++;\n      if (this.successCount >= 3) {\n        this._transitionTo('closed');\n      }\n    } else {\n      this.failureCount = 0;\n    }\n  }\n\n  _onFailure() {\n    this.failureCount++;\n    this.lastFailureTime = Date.now();\n    if (this.failureCount >= this.failureThreshold) {\n      this._transitionTo('open');\n    }\n  }\n\n  _transitionTo(newState) {\n    console.log(`Circuit breaker: ${this.state} -> ${newState}`);\n    this.state = newState;\n    if (newState === 'closed') {\n      this.failureCount = 0;\n      this.successCount = 0;\n      this.windowStart = Date.now();\n    }\n  }\n}\n\nclass CircuitOpenError extends Error {\n  constructor(message) { super(message); this.name = 'CircuitOpenError'; }\n}\n\nmodule.exports = { CircuitBreaker, CircuitOpenError };",
+          "highlighted_lines": [1, 15, 20, 35, 44]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-CircuitBreakerJS",
+          "title": "熔断器模式",
+          "description": "实现熔断器(CircuitBreaker)保障系统韧性，三种状态(closed/open/half-open)管理外部调用健康度，failureThreshold 触发熔断，recoveryTimeout 后进入半开状态试探恢复，成功3次后闭合",
+          "confidence": 0.94,
+          "alternative_titles": ["熔断器", "Circuit Breaker", "Resilience Pattern", "容错模式"]
+        }
+      ]
+    },
+    {
+      "id": "AD-JS-008",
+      "description": "Multi-Tier Caching Layer",
+      "code_snippets": [
+        {
+          "file": "src/cache/cache-layer.js",
+          "start_line": 1,
+          "end_line": 72,
+          "content": "class CacheLayer {\n  constructor(options = {}) {\n    this.ttl = options.ttl ?? 3600;\n    this.maxSize = options.maxSize ?? 1000;\n    this.l1 = new Map(); // in-memory\n    this.l2 = options.l2Store; // Redis/external\n    this.misses = 0;\n  }\n\n  async get(key) {\n    // L1: Check in-memory cache first\n    if (this.l1.has(key)) {\n      const entry = this.l1.get(key);\n      if (entry.expiresAt > Date.now()) {\n        this.l1.set(key, { ...entry, expiresAt: Date.now() + this.ttl * 1000 });\n        return entry.value;\n      }\n      this.l1.delete(key);\n    }\n\n    // L2: Fall through to external store\n    try {\n      const value = await this.l2.get(key);\n      if (value !== undefined && value !== null) {\n        this._setL1(key, value);\n        return JSON.parse(value);\n      }\n    } catch (err) {\n      console.warn('L2 cache miss:', err.message);\n    }\n\n    this.misses++;\n    return null;\n  }\n\n  async set(key, value, ttl) {\n    this._setL1(key, value);\n    try {\n      await this.l2.set(key, JSON.stringify(value), ttl ?? this.ttl);\n    } catch (err) {\n      console.warn('L2 cache set failed:', err.message);\n    }\n  }\n\n  _setL1(key, value) {\n    if (this.l1.size >= this.maxSize) {\n      const oldest = this.l1.keys().next().value;\n      this.l1.delete(oldest);\n    }\n    this.l1.set(key, { value, expiresAt: Date.now() + this.ttl * 1000 });\n  }\n}\n\nmodule.exports = CacheLayer;",
+          "highlighted_lines": [2, 10, 22, 38, 52]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-CacheLayerJS",
+          "title": "多级缓存架构",
+          "description": "采用多级缓存(Multi-Tier Cache)架构，L1为内存Map提供极速读取，L2为Redis等外部存储提供持久化，get/set 操作按层级逐级降级，L1满时淘汰最旧条目",
+          "confidence": 0.93,
+          "alternative_titles": ["多级缓存", "Multi-Tier Cache", "Cache Layer Architecture", "分层缓存"]
+        }
+      ]
+    }
+  ]
+}

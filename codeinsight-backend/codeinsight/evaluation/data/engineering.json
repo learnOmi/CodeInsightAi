@@ -1,5 +1,6 @@
 {
   "repo_id": "benchmark-et",
+  "language": "python",
   "category": "ET",
   "description": "工程技巧识别评估数据集",
   "prompt_version": "1.0.0",

@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-dp-java",
+  "category": "DP",
+  "language": "java",
+  "description": "Design patterns implemented in Java",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DP-JAVA-001",
+      "description": "Builder Pattern for complex object construction",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patterns/RestaurantMeal.java",
+        "start_line": 1,
+        "end_line": 60,
+        "content": "package com.example.patterns;\n\npublic class RestaurantMeal {\n    private String item;\n    private String drink;\n    private String appetizer;\n    private String dessert;\n    private boolean isVeg;\n    private int portionSize;\n    private double totalPrice;\n\n    private RestaurantMeal(Builder builder) {\n        this.item = builder.item;\n        this.drink = builder.drink;\n        this.appetizer = builder.appetizer;\n        this.dessert = builder.dessert;\n        this.isVeg = builder.isVeg;\n        this.portionSize = builder.portionSize;\n        this.totalPrice = builder.totalPrice;\n    }\n\n    public static class Builder {\n        private String item;\n        private String drink;\n        private String appetizer;\n        private String dessert;\n        private boolean isVeg = false;\n        private int portionSize = 1;\n        private double totalPrice = 0.0;\n\n        public Builder addItem(String item) {\n            this.item = item;\n            return this;\n        }\n\n        public Builder addDrink(String drink) {\n            this.drink = drink;\n            return this;\n        }\n\n        public Builder addAppetizer(String appetizer) {\n            this.appetizer = appetizer;\n            return this;\n        }\n\n        public Builder addDessert(String dessert) {\n            this.dessert = dessert;\n            return this;\n        }\n\n        public Builder makeVeg(boolean isVeg) {\n            this.isVeg = isVeg;\n            return this;\n        }\n\n        public Builder setPortion(int portionSize) {\n            this.portionSize = portionSize;\n            return this;\n        }\n\n        public Builder calculatePrice() {\n            double price = 0;\n            if (item != null) price += getItemPrice(item);\n            if (drink != null) price += getDrinkPrice(drink);\n            if (appetizer != null) price += getAppetizerPrice(appetizer);\n            if (dessert != null) price += getDessertPrice(dessert);\n            this.totalPrice = price * portionSize;\n            return this;\n        }\n\n        public RestaurantMeal build() {\n            if (item == null) {\n                throw new IllegalArgumentException(\"Item is required\");\n            }\n            calculatePrice();\n            return new RestaurantMeal(this);\n        }\n\n        private double getItemPrice(String item) { /* ... */ return 10.0; }\n        private double getDrinkPrice(String drink) { /* ... */ return 3.0; }\n        private double getAppetizerPrice(String app) { /* ... */ return 5.0; }\n        private double getDessertPrice(String dessert) { /* ... */ return 4.0; }\n    }\n}\n\n// Usage:\n// RestaurantMeal meal = new RestaurantMeal.Builder()\n//     .addItem(\"Burger\")\n//     .addDrink(\"Coke\")\n//     .addAppetizer(\"Soup\")\n//     .makeVeg(false)\n//     .setPortion(2)\n//     .build();",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50, 60]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-BuilderJava",
+        "title": "建造者模式",
+        "description": "实现Builder建造者模式用于构建复杂的RestaurantMeal对象。内部静态Builder类提供链式调用方法，如addItem、addDrink、addAppetizer、addDessert等，每个方法返回Builder实例以支持流畅的API。Builder在build方法中验证必需参数并自动计算价格，最终创建不可变的RestaurantMeal对象。这种模式将复杂对象的构建过程与表示分离，使同一个构建过程可以创建不同的表示，提高了代码的可读性和可维护性。",
+        "confidence": 0.95,
+        "alternative_titles": ["Builder Pattern", "Fluent Interface", "Chain of Methods"]
+      }]
+    },
+    {
+      "id": "DP-JAVA-002",
+      "description": "Strategy Pattern with Functional Interfaces",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patterns/PricingStrategy.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.patterns;\n\nimport java.util.function.BiFunction;\n\n@FunctionalInterface\npublic interface PricingStrategy {\n    double calculate(double basePrice, CustomerContext context);\n}\n\nclass CustomerContext {\n    private final String customerId;\n    private final int purchaseCount;\n    private final MembershipLevel membership;\n    private final boolean isFirstPurchase;\n\n    public enum MembershipLevel {\n        BASIC, PREMIUM, VIP\n    }\n\n    public CustomerContext(String customerId, int purchaseCount,\n                          MembershipLevel membership, boolean isFirstPurchase) {\n        this.customerId = customerId;\n        this.purchaseCount = purchaseCount;\n        this.membership = membership;\n        this.isFirstPurchase = isFirstPurchase;\n    }\n\n    // getters...\n}\n\npublic class PricingEngine {\n    private final PricingStrategy defaultStrategy;\n\n    public PricingEngine(PricingStrategy defaultStrategy) {\n        this.defaultStrategy = defaultStrategy;\n    }\n\n    public double calculateFinalPrice(double basePrice, CustomerContext context) {\n        return defaultStrategy.calculate(basePrice, context);\n    }\n\n    // Built-in strategies as lambdas\n    public static PricingStrategy volumeDiscount = (price, ctx) -> {\n        if (ctx.getPurchaseCount() >= 10) return price * 0.8;\n        if (ctx.getPurchaseCount() >= 5) return price * 0.9;\n        return price;\n    };\n\n    public static PricingStrategy vipDiscount = (price, ctx) -> {\n        if (ctx.getMembership() == CustomerContext.MembershipLevel.VIP) return price * 0.7;\n        if (ctx.getMembership() == CustomerContext.MembershipLevel.PREMIUM) return price * 0.85;\n        return price;\n    };\n\n    public static PricingStrategy newCustomerDiscount = (price, ctx) -> {\n        return ctx.isFirstPurchase() ? price * 0.9 : price;\n    };\n\n    public static PricingStrategy combine(PricingStrategy... strategies) {\n        return (price, context) -> {\n            double result = price;\n            for (PricingStrategy strategy : strategies) {\n                result = strategy.calculate(result, context);\n            }\n            return Math.max(result, 0);\n        };\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-StrategyJava",
+        "title": "函数式接口策略模式",
+        "description": "使用Java函数式接口（@FunctionalInterface）实现策略模式。PricingStrategy接口定义为只有一个方法的函数式接口，可以直接用Lambda表达式实现不同定价策略。PricingEngine接受一个PricingStrategy作为默认策略，通过calculateFinalPrice方法应用策略。内置的volumeDiscount、vipDiscount、newCustomerDiscount都是Lambda表达式，combine方法接受多个策略并将它们组合起来按顺序应用。这种设计充分利用了Java 8+的函数式编程特性，使策略的实现更加简洁灵活。",
+        "confidence": 0.94,
+        "alternative_titles": ["Strategy Pattern", "Functional Strategy", "Lambda Strategy"]
+      }]
+    },
+    {
+      "id": "DP-JAVA-003",
+      "description": "Observer Pattern using java.util.Observer and Observable",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patterns/StockMarket.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.patterns;\n\nimport java.util.Observable;\nimport java.util.Observer;\n\npublic class StockMarket extends Observable {\n    private String stockSymbol;\n    private double currentPrice;\n\n    public StockMarket(String stockSymbol) {\n        this.stockSymbol = stockSymbol;\n    }\n\n    public void setPrice(double newPrice) {\n        if (this.currentPrice != newPrice) {\n            this.currentPrice = newPrice;\n            setChanged();\n            notifyObservers(newPrice);\n        }\n    }\n\n    public double getCurrentPrice() {\n        return currentPrice;\n    }\n\n    public String getStockSymbol() {\n        return stockSymbol;\n    }\n}\n\npublic class StockPriceAlert implements Observer {\n    private final String investorName;\n    private final double thresholdPrice;\n    private final AlertType alertType;\n\n    public enum AlertType {\n        ABOVE, BELOW, EXACTLY\n    }\n\n    public StockPriceAlert(String investorName, double thresholdPrice, AlertType alertType) {\n        this.investorName = investorName;\n        this.thresholdPrice = thresholdPrice;\n        this.alertType = alertType;\n    }\n\n    @Override\n    public void update(Observable o, Object arg) {\n        double price = (double) arg;\n        boolean shouldAlert = false;\n\n        switch (alertType) {\n            case ABOVE:\n                shouldAlert = price > thresholdPrice;\n                break;\n            case BELOW:\n                shouldAlert = price < thresholdPrice;\n                break;\n            case EXACTLY:\n                shouldAlert = Math.abs(price - thresholdPrice) < 0.01;\n                break;\n        }\n\n        if (shouldAlert) {\n            System.out.printf(\"%s: %s is now $%.2f (threshold: $%.2f, type: %s)%n\",\n                    investorName, ((StockMarket) o).getStockSymbol(), price,\n                    thresholdPrice, alertType);\n        }\n    }\n}\n\n// Usage:\n// StockMarket market = new StockMarket(\"AAPL\");\n// market.addObserver(new StockPriceAlert(\"Alice\", 150.0, StockPriceAlert.AlertType.ABOVE));\n// market.addObserver(new StockPriceAlert(\"Bob\", 140.0, StockPriceAlert.AlertType.BELOW));\n// market.setPrice(155.0);",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-ObserverJava",
+        "title": "Java观察者模式",
+        "description": "使用java.util包中的Observable和Observer类实现观察者模式。StockMarket继承Observable类作为被观察对象，当股价变化时调用setChanged()和notifyObservers()通知所有注册的观察者。StockPriceAlert实现Observer接口，在update方法中根据预设的阈值和告警类型判断是否需要发送通知。支持ABOVE、BELOW、EXACTLY三种告警类型。多个投资者可以为同一只股票注册不同的告警条件。这种模式实现了主题与观察者之间的松耦合，观察者可以动态注册和取消订阅。",
+        "confidence": 0.93,
+        "alternative_titles": ["Observer Pattern", "Publish-Subscribe", "Event Notification"]
+      }]
+    },
+    {
+      "id": "DP-JAVA-004",
+      "description": "Factory Pattern with Spring Beans",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patterns/payment/PaymentFactory.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.patterns.payment;\n\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.stereotype.Component;\n\nimport javax.annotation.PostConstruct;\nimport java.util.Map;\nimport java.util.concurrent.ConcurrentHashMap;\n\n@Component\npublic class PaymentFactory {\n\n    private final Map<String, PaymentProcessor> processorMap = new ConcurrentHashMap<>();\n\n    @Autowired\n    private Map<String, PaymentProcessor> processors;\n\n    @PostConstruct\n    public void init() {\n        processors.forEach(processorMap::put);\n    }\n\n    public PaymentProcessor getProcessor(String paymentType) {\n        PaymentProcessor processor = processorMap.get(paymentType);\n        if (processor == null) {\n            throw new IllegalArgumentException(\"Unsupported payment type: \" + paymentType);\n        }\n        return processor;\n    }\n\n    public boolean supportsPaymentType(String paymentType) {\n        return processorMap.containsKey(paymentType);\n    }\n}\n\npublic interface PaymentProcessor {\n    PaymentResult processPayment(PaymentRequest request);\n    String getPaymentType();\n}\n\n@Component\npublic class CreditCardProcessor implements PaymentProcessor {\n    @Override\n    public PaymentResult processPayment(PaymentRequest request) {\n        // Process credit card payment\n        return new PaymentResult(true, \"CC-\" + request.getTransactionId());\n    }\n\n    @Override\n    public String getPaymentType() {\n        return \"CREDIT_CARD\";\n    }\n}\n\n@Component\npublic class PayPalProcessor implements PaymentProcessor {\n    @Override\n    public PaymentResult processPayment(PaymentRequest request) {\n        // Process PayPal payment\n        return new PaymentResult(true, \"PP-\" + request.getTransactionId());\n    }\n\n    @Override\n    public String getPaymentType() {\n        return \"PAYPAL\";\n    }\n}\n\n@Component\npublic class BankTransferProcessor implements PaymentProcessor {\n    @Override\n    public PaymentResult processPayment(PaymentRequest request) {\n        // Process bank transfer\n        return new PaymentResult(true, \"BT-\" + request.getTransactionId());\n    }\n\n    @Override\n    public String getPaymentType() {\n        return \"BANK_TRANSFER\";\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-SpringFactoryJava",
+        "title": "Spring依赖注入工厂模式",
+        "description": "利用Spring框架的依赖注入机制实现工厂模式。PaymentFactory是一个Spring组件，通过@Autowired注入所有实现PaymentProcessor接口的Bean，并在@PostConstruct初始化时将它们注册到ConcurrentHashMap中。getProcessor方法根据支付类型字符串获取对应的处理器实例。CreditCardProcessor、PayPalProcessor和BankTransferProcessor各自实现PaymentProcessor接口并通过@Component注解被Spring容器管理。新增支付方式只需添加新的实现类，无需修改工厂代码，符合开闭原则。",
+        "confidence": 0.94,
+        "alternative_titles": ["Spring Factory", "Dependency Injection Factory", "Bean Factory Pattern"]
+      }]
+    },
+    {
+      "id": "DP-JAVA-005",
+      "description": "Template Method Pattern for data export workflows",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patterns/export/DataExporter.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.patterns.export;\n\nimport java.io.IOException;\nimport java.util.List;\n\npublic abstract class DataExporter<T> {\n\n    protected abstract List<T> fetchData();\n    protected abstract String formatRecord(T record);\n    protected abstract void initializeOutput() throws IOException;\n    protected abstract void finalizeOutput() throws IOException;\n\n    public void export(String outputPath) throws IOException {\n        System.out.println(\"Starting data export to: \" + outputPath);\n        \n        initializeOutput();\n        \n        try {\n            List<T> data = fetchData();\n            System.out.println(\"Fetched \" + data.size() + \" records\");\n            \n            for (T record : data) {\n                String formatted = formatRecord(record);\n                writeRecord(formatted);\n            }\n            \n            finalizeOutput();\n            System.out.println(\"Export completed successfully\");\n        } catch (Exception e) {\n            System.err.println(\"Export failed: \" + e.getMessage());\n            throw e;\n        }\n    }\n\n    protected abstract void writeRecord(String record) throws IOException;\n\n    protected void logProgress(int current, int total) {\n        double percentage = (double) current / total * 100;\n        System.out.printf(\"Progress: %.1f%% (%d/%d)%n\", percentage, current, total);\n    }\n}\n\npublic class CSVExporter extends DataExporter<Customer> {\n    private java.io.Writer writer;\n\n    @Override\n    protected List<Customer> fetchData() {\n        return customerRepository.findAll();\n    }\n\n    @Override\n    protected String formatRecord(Customer customer) {\n        return String.join(\",\", customer.getId(), customer.getName(), customer.getEmail());\n    }\n\n    @Override\n    protected void initializeOutput() throws IOException {\n        writer = new java.io.BufferedWriter(new java.io.FileWriter(outputPath));\n        writer.write(\"id,name,email\");\n        writer.newLine();\n    }\n\n    @Override\n    protected void finalizeOutput() throws IOException {\n        writer.flush();\n        writer.close();\n    }\n\n    @Override\n    protected void writeRecord(String record) throws IOException {\n        writer.write(record);\n        writer.newLine();\n    }\n}\n\npublic class JSONExporter extends DataExporter<Customer> {\n    private java.io.Writer writer;\n\n    @Override\n    protected List<Customer> fetchData() {\n        return customerRepository.findAll();\n    }\n\n    @Override\n    protected String formatRecord(Customer customer) {\n        return \"{\\\"id\\\":\\\"\" + customer.getId() + \"\\\",\\\"name\\\":\\\"\" + customer.getName() + \"\\\"}\";\n    }\n\n    @Override\n    protected void initializeOutput() throws IOException {\n        writer = new java.io.BufferedWriter(new java.io.FileWriter(outputPath));\n        writer.write(\"[\");\n    }\n\n    @Override\n    protected void finalizeOutput() throws IOException {\n        writer.write(\"]\");\n        writer.flush();\n        writer.close();\n    }\n\n    @Override\n    protected void writeRecord(String record) throws IOException {\n        writer.write(record);\n        writer.write(\",\");\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-TemplateMethodJava",
+        "title": "模板方法模式",
+        "description": "使用模板方法模式定义数据导出的标准流程。DataExporter抽象类定义了export方法作为算法骨架，包含fetchData、formatRecord、initializeOutput、finalizeOutput和writeRecord五个步骤。其中fetchData、formatRecord、initializeOutput、finalizeOutput和writeRecord都是抽象方法，由子类实现具体逻辑。export方法控制整体流程：初始化输出、获取数据、逐条格式化并写入、最终化输出。CSVExporter和JSONExporter分别实现不同格式的导出逻辑。logProgress是钩子方法，子类可以选择覆盖。这种设计遵循了开闭原则，新增导出格式只需添加新子类。",
+        "confidence": 0.95,
+        "alternative_titles": ["Template Method Pattern", "Export Framework", "Algorithm Skeleton"]
+      }]
+    },
+    {
+      "id": "DP-JAVA-006",
+      "description": "Proxy Pattern with JDK Dynamic Proxy",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patterns/proxy/SecureServiceProxy.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.patterns.proxy;\n\nimport java.lang.reflect.InvocationHandler;\nimport java.lang.reflect.Method;\nimport java.lang.reflect.Proxy;\n\npublic interface UserService {\n    User findById(String id);\n    List<User> findAll();\n    User createUser(User user);\n    void deleteUser(String id);\n}\n\npublic class UserServiceImpl implements UserService {\n    private final UserRepository repository;\n\n    public UserServiceImpl(UserRepository repository) {\n        this.repository = repository;\n    }\n\n    @Override\n    public User findById(String id) {\n        return repository.findById(id).orElse(null);\n    }\n\n    @Override\n    public List<User> findAll() {\n        return repository.findAll();\n    }\n\n    @Override\n    public User createUser(User user) {\n        return repository.save(user);\n    }\n\n    @Override\n    public void deleteUser(String id) {\n        repository.delete(id);\n    }\n}\n\npublic class AuditProxyHandler implements InvocationHandler {\n    private final Object target;\n    private final AuditLogger auditLogger;\n\n    public AuditProxyHandler(Object target, AuditLogger auditLogger) {\n        this.target = target;\n        this.auditLogger = auditLogger;\n    }\n\n    @Override\n    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {\n        String methodName = method.getName();\n        long startTime = System.currentTimeMillis();\n\n        auditLogger.log(\"START\", \"UserService.\" + methodName, args);\n\n        try {\n            Object result = method.invoke(target, args);\n            long duration = System.currentTimeMillis() - startTime;\n            \n            auditLogger.log(\"SUCCESS\", \"UserService.\" + methodName, \n                new Object[]{duration + \"ms\"});\n            return result;\n        } catch (Exception e) {\n            auditLogger.log(\"ERROR\", \"UserService.\" + methodName, e.getMessage());\n            throw e;\n        }\n    }\n}\n\npublic class SecureUserServiceProxy {\n    public static UserService createProxy(UserService userService) {\n        return (UserService) Proxy.newProxyInstance(\n            UserService.class.getClassLoader(),\n            new Class<?>[]{UserService.class},\n            new AuditProxyHandler(userService, new AuditLogger())\n        );\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-ProxyJava",
+        "title": "JDK动态代理模式",
+        "description": "使用JDK动态代理实现横切关注点的代理模式。UserService接口定义了用户服务的操作契约，UserServiceImpl是真实业务实现。AuditProxyHandler实现InvocationHandler接口，在invoke方法中拦截所有方法调用，记录审计日志（开始、成功、错误），并测量执行时间。SecureUserServiceProxy通过Proxy.newProxyInstance创建代理对象，将真实的UserService包装在审计代理后面。客户端代码使用接口类型的引用调用方法，实际执行的是代理逻辑。这种模式实现了关注点分离，无需修改原有业务代码即可添加审计功能。",
+        "confidence": 0.93,
+        "alternative_titles": ["Proxy Pattern", "Dynamic Proxy", "JDK Proxy"]
+      }]
+    },
+    {
+      "id": "DP-JAVA-007",
+      "description": "Chain of Responsibility Pattern for request validation",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patterns/validation/RequestValidatorChain.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.patterns.validation;\n\nimport java.util.ArrayList;\nimport java.util.List;\n\npublic interface Validator {\n    boolean validate(RequestContext context);\n    String getName();\n    void setNext(Validator next);\n}\n\npublic abstract class AbstractValidator implements Validator {\n    protected Validator next;\n\n    @Override\n    public void setNext(Validator next) {\n        this.next = next;\n    }\n\n    @Override\n    public boolean validate(RequestContext context) {\n        if (!isValid(context)) {\n            context.addError(getName(), getErrorMessage());\n            return false;\n        }\n        if (next != null) {\n            return next.validate(context);\n        }\n        return true;\n    }\n\n    protected abstract boolean isValid(RequestContext context);\n    protected abstract String getErrorMessage();\n}\n\npublic class EmailValidator extends AbstractValidator {\n    @Override\n    protected boolean isValid(RequestContext context) {\n        String email = context.getEmail();\n        return email != null && email.matches(\"^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$\");\n    }\n\n    @Override\n    protected String getErrorMessage() {\n        return \"Invalid email format\";\n    }\n\n    @Override\n    public String getName() {\n        return \"EmailValidator\";\n    }\n}\n\npublic class PasswordValidator extends AbstractValidator {\n    @Override\n    protected boolean isValid(RequestContext context) {\n        String password = context.getPassword();\n        return password != null && password.length() >= 8\n            && password.matches(\".*[A-Z].*\")\n            && password.matches(\".*[0-9].*\");\n    }\n\n    @Override\n    protected String getErrorMessage() {\n        return \"Password must be at least 8 characters with uppercase and digit\";\n    }\n\n    @Override\n    public String getName() {\n        return \"PasswordValidator\";\n    }\n}\n\npublic class AgeValidator extends AbstractValidator {\n    @Override\n    protected boolean isValid(RequestContext context) {\n        return context.getAge() != null && context.getAge() >= 18;\n    }\n\n    @Override\n    protected String getErrorMessage() {\n        return \"Must be at least 18 years old\";\n    }\n\n    @Override\n    public String getName() {\n        return \"AgeValidator\";\n    }\n}\n\npublic class ValidationChain {\n    private final List<Validator> validators = new ArrayList<>();\n\n    public ValidationChain addValidator(Validator validator) {\n        validators.add(validator);\n        return this;\n    }\n\n    public ValidationResult validate(RequestContext context) {\n        ValidationResult result = new ValidationResult();\n        for (Validator validator : validators) {\n            if (!validator.validate(context)) {\n                result.addErrors(context.getErrors());\n            }\n        }\n        result.setSuccess(context.getErrors().isEmpty());\n        return result;\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-ChainJava",
+        "title": "责任链模式",
+        "description": "实现责任链模式用于请求验证流程。Validator接口定义验证契约，AbstractValidator提供通用的链式处理逻辑：先执行自身验证，失败则添加错误并返回false，成功则传递给下一个验证器。EmailValidator验证邮箱格式，PasswordValidator验证密码强度，AgeValidator验证年龄限制。ValidationChain维护验证器列表并按顺序执行验证。每个验证器独立关注单一验证规则，通过setNext方法串联成链。这种模式使验证逻辑解耦，可以动态添加、移除或重新排列验证器。",
+        "confidence": 0.94,
+        "alternative_titles": ["Chain of Responsibility", "Validation Chain", "Pipeline Pattern"]
+      }]
+    },
+    {
+      "id": "DP-JAVA-008",
+      "description": "Adapter Pattern for legacy system integration",
+      "code_snippets": [{
+        "file": "src/main/java/com/example/patterns/adapter/LegacySystemAdapter.java",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package com.example.patterns.adapter;\n\npublic interface PaymentGateway {\n    PaymentResponse charge(PaymentRequest request);\n    PaymentResponse refund(String transactionId, double amount);\n    TransactionStatus getStatus(String transactionId);\n}\n\n// Legacy system with incompatible API\npublic class LegacyPaymentSystem {\n    public String submitOrder(String itemName, int quantity, double unitPrice, String cardNumber) {\n        // Legacy system returns order ID like \"ORD-12345\"\n        return \"ORD-\" + System.currentTimeMillis();\n    }\n\n    public String cancelOrder(String orderId) {\n        return \"CANCELLED\";\n    }\n\n    public String getOrderStatus(String orderId) {\n        return \"PROCESSED\";\n    }\n}\n\npublic class LegacyPaymentAdapter implements PaymentGateway {\n    private final LegacyPaymentSystem legacySystem;\n\n    public LegacyPaymentAdapter(LegacyPaymentSystem legacySystem) {\n        this.legacySystem = legacySystem;\n    }\n\n    @Override\n    public PaymentResponse charge(PaymentRequest request) {\n        String legacyOrderId = legacySystem.submitOrder(\n            request.getItemName(),\n            request.getQuantity(),\n            request.getAmount(),\n            request.getCardNumber()\n        );\n\n        return new PaymentResponse(\n            true,\n            legacyOrderId,\n            request.getAmount(),\n            \"CHARGED\"\n        );\n    }\n\n    @Override\n    public PaymentResponse refund(String transactionId, double amount) {\n        String status = legacySystem.cancelOrder(transactionId);\n        return new PaymentResponse(\n            \"CANCELLED\".equals(status),\n            transactionId,\n            amount,\n            status\n        );\n    }\n\n    @Override\n    public TransactionStatus getStatus(String transactionId) {\n        String legacyStatus = legacySystem.getOrderStatus(transactionId);\n        return mapLegacyStatus(legacyStatus);\n    }\n\n    private TransactionStatus mapLegacyStatus(String legacyStatus) {\n        switch (legacyStatus) {\n            case \"PROCESSED\": return TransactionStatus.COMPLETED;\n            case \"CANCELLED\": return TransactionStatus.CANCELLED;\n            case \"PENDING\": return TransactionStatus.PENDING;\n            default: return TransactionStatus.UNKNOWN;\n        }\n    }\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "DP",
+        "prefix": "DP-AdapterJava",
+        "title": "适配器模式",
+        "description": "实现适配器模式用于集成不兼容的遗留系统。PaymentGateway是现代统一支付接口，LegacyPaymentSystem是遗留系统，两者API不兼容。LegacyPaymentAdapter作为适配器实现PaymentGateway接口，将现代调用转换为遗留系统的调用格式。charge方法将PaymentRequest转换为submitOrder的参数，getStatus方法通过mapLegacyStatus将遗留状态码映射为标准TransactionStatus枚举。refund方法将cancelOrder的结果转换为PaymentResponse。这种模式允许现有代码继续使用统一的PaymentGateway接口，而无需修改遗留系统代码。",
+        "confidence": 0.94,
+        "alternative_titles": ["Adapter Pattern", "Wrapper Pattern", "Interface Conversion"]
+      }]
+    }
+  ]
+}

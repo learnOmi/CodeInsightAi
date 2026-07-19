@@ -1,5 +1,6 @@
 {
   "repo_id": "benchmark-ad",
+  "language": "python",
   "category": "AD",
   "description": "架构决策识别评估数据集",
   "prompt_version": "1.0.0",

@@ -1,0 +1,161 @@
+{
+  "repo_id": "benchmark-et-go",
+  "category": "ET",
+  "language": "go",
+  "description": "Engineering techniques implemented in Go",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "ET-GO-001",
+      "description": "Graceful shutdown implementation",
+      "code_snippets": [{
+        "file": "src/server/graceful.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package server\n\nimport (\n\t\"context\"\n\t\"log\"\n\t\"net/http\"\n\t\"os\"\n\t\"os/signal\"\n\t\"syscall\"\n\t\"time\"\n)\n\ntype GracefulServer struct {\n\thttpServer  *http.Server\n\tctx         context.Context\n\tcancel      context.CancelFunc\n}\n\nfunc NewGracefulServer(addr string, handler http.Handler) *GracefulServer {\n\tctx, cancel := context.WithCancel(context.Background())\n\treturn &GracefulServer{\n\t\thttpServer: &http.Server{\n\t\t\tAddr:         addr,\n\t\t\tHandler:      handler,\n\t\t\tReadTimeout:  15 * time.Second,\n\t\t\tWriteTimeout: 15 * time.Second,\n\t\t},\n\t\tctx:    ctx,\n\t\tcancel: cancel,\n\t}\n}\n\nfunc (s *GracefulServer) Start() error {\n\tgo func() {\n\t\tsigChan := make(chan os.Signal, 1)\n\t\tsignal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)\n\t\t<-sigChan\n\n\t\tlog.Println(\"Shutting down server...\")\n\t\ts.cancel()\n\t}()\n\n\tlog.Printf(\"Server starting on %s\", s.httpServer.Addr)\n\tif err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {\n\t\treturn err\n\t}\n\n\treturn nil\n}\n\nfunc (s *GracefulServer) Shutdown(timeout time.Duration) error {\n\tctx, cancel := context.WithTimeout(s.ctx, timeout)\n\tdefer cancel()\n\n\tlog.Println(\"Waiting for connections to finish...\")\n\terr := s.httpServer.Shutdown(ctx)\n\tif err != nil {\n\t\tlog.Printf(\"Server forced to shutdown: %v\", err)\n\t}\n\n\tlog.Println(\"Server stopped\")\n\treturn err\n}\n\nfunc main() {\n\tmux := http.NewServeMux()\n\tmux.HandleFunc(\"/health\", func(w http.ResponseWriter, r *http.Request) {\n\t\tw.WriteHeader(http.StatusOK)\n\t})\n\tmux.HandleFunc(\"/api/data\", func(w http.ResponseWriter, r *http.Request) {\n\t\ttime.Sleep(2 * time.Second)\n\t\tw.Write([]byte(\"data\"))\n\t})\n\n\tserver := NewGracefulServer(\":8080\", mux)\n\tif err := server.Start(); err != nil {\n\t\tlog.Fatalf(\"Server error: %v\", err)\n\t}\n\n\tserver.Shutdown(30 * time.Second)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-GracefulGo",
+        "title": "优雅关闭实现",
+        "description": "实现HTTP服务器的优雅关闭。GracefulServer封装http.Server，Start方法启动goroutine监听SIGINT/SIGTERM信号，收到信号后调用cancel取消context并触发Shutdown。Shutdown使用带超时的context调用http.Server.Shutdown，等待进行中的请求完成后再关闭监听器。如果超时则强制关闭。这种模式确保在部署或重启时不会丢失正在处理的请求，是生产环境服务器的标准做法。",
+        "confidence": 0.95,
+        "alternative_titles": ["Graceful Shutdown", "Clean Server Exit", "Signal Handling"]
+      }]
+    },
+    {
+      "id": "ET-GO-002",
+      "description": "Context propagation pattern",
+      "code_snippets": [{
+        "file": "src/context/propagation.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package context\n\nimport (\n\t\"context\"\n\t\"fmt\"\n\t\"time\"\n)\n\ntype TraceIDKey struct{}\n\ntype RequestTracer struct {\n\ttraceID   string\n\tspanID    string\n\tparentSpan string\n}\n\nfunc WithTraceID(ctx context.Context, traceID string) context.Context {\n\treturn context.WithValue(ctx, TraceIDKey{}, traceID)\n}\n\nfunc GetTraceID(ctx context.Context) string {\n\tif tid, ok := ctx.Value(TraceIDKey{}).(string); ok {\n\t\treturn tid\n\t}\n\treturn \"unknown\"\n}\n\nfunc ChildSpan(ctx context.Context, spanName string) (context.Context, *RequestTracer) {\n\ttraceID := GetTraceID(ctx)\n\tspanID := fmt.Sprintf(\"%x\", time.Now().UnixNano())\n\ttracer := &RequestTracer{\n\t\ttraceID:   traceID,\n\t\tspanID:    spanID,\n\t\tparentSpan: \"\",\n\t}\n\n\treturn context.WithValue(ctx, TraceIDKey{}, traceID), tracer\n}\n\ntype ServiceClient struct {\n\tbaseURL string\n}\n\nfunc (sc *ServiceClient) CallAPI(ctx context.Context, endpoint string) (string, error) {\n\ttraceID := GetTraceID(ctx)\n\tfmt.Printf(\"[TRACE:%s] Calling %s\\n\", traceID, endpoint)\n\n\tresp, err := http.Get(sc.baseURL + endpoint)\n\tif err != nil {\n\t\treturn \"\", err\n\t}\n\tdefer resp.Body.Close()\n\n\treturn resp.Body.\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-ContextPropGo",
+        "title": "上下文传播模式",
+        "description": "实现context上下文传播用于分布式追踪。TraceIDKey是自定义类型作为context键避免冲突。WithTraceID将trace ID存入context，GetTraceID提取。ChildSpan创建子span并继承父trace ID。ServiceClient.CallAPI从context获取trace ID并在日志中输出。所有下游调用必须传递相同的context，确保trace ID在整个调用链中传播。这是微服务链路追踪的基础机制。",
+        "confidence": 0.94,
+        "alternative_titles": ["Context Propagation", "Distributed Tracing", "Trace ID"]
+      }]
+    },
+    {
+      "id": "ET-GO-003",
+      "description": "Health check endpoint",
+      "code_snippets": [{
+        "file": "src/health/checker.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package health\n\nimport (\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"log\"\n\t\"net/http\"\n\t\"time\"\n)\n\ntype CheckResult struct {\n\tName     string `json:\"name\"`\n\tStatus   string `json:\"status\"`\n\tLatency  int64  `json:\"latency_ms\"`\n\tMessage  string `json:\"message,omitempty\"`\n}\n\ntype HealthChecker struct {\n\tchecks map[string]func() CheckResult\n}\n\nfunc NewHealthChecker() *HealthChecker {\n\treturn &HealthChecker{checks: make(map[string]func() CheckResult)}\n}\n\nfunc (hc *HealthChecker) Register(name string, fn func() CheckResult) {\n\thc.checks[name] = fn\n}\n\nfunc (hc *HealthChecker) Handler() http.HandlerFunc {\n\treturn func(w http.ResponseWriter, r *http.Request) {\n\t\tresults := make([]CheckResult, 0)\n\t\tvar hasError bool\n\n\t\tfor name, check := range hc.checks {\n\t\t\tstart := time.Now()\n\t\t\tresult := check()\n\t\t\tresult.Latency = time.Since(start).Milliseconds()\n\n\t\t\tif result.Status == \"error\" {\n\t\t\t\thasError = true\n\t\t\t}\n\n\t\t\tresults = append(results, result)\n\t\t}\n\n\t\toverallStatus := \"healthy\"\n\t\tif hasError {\n\t\t\toverallStatus = \"unhealthy\"\n\t\t}\n\n\t\tw.Header().Set(\"Content-Type\", \"application/json\")\n\t\tif overallStatus == \"unhealthy\" {\n\t\t\tw.WriteHeader(http.StatusServiceUnavailable)\n\t\t}\n\n\t\tjson.NewEncoder(w).Encode(map[string]interface{}{\n\t\t\t\"status\": overallStatus,\n\t\t\t\"checks\": results,\n\t\t\t\"uptime\": time.Since(startTime).String(),\n\t\t})\n\t}\n}\n\nfunc main() {\n\tchecker := NewHealthChecker()\n\tchecker.Register(\"database\", func() CheckResult {\n\t\tstart := time.Now()\n\t\terr := db.Ping()\n\t\tlatency := time.Since(start).Milliseconds()\n\n\t\tif err != nil {\n\t\t\treturn CheckResult{Name: \"database\", Status: \"error\", Latency: latency, Message: err.Error()}\n\t\t}\n\t\treturn CheckResult{Name: \"database\", Status: \"ok\", Latency: latency}\n\t})\n\n\tchecker.Register(\"redis\", func() CheckResult {\n\t\tstart := time.Now()\n\t\terr := redis.Ping()\n\t\tlatency := time.Since(start).Milliseconds()\n\n\t\tif err != nil {\n\t\t\treturn CheckResult{Name: \"redis\", Status: \"error\", Latency: latency, Message: err.Error()}\n\t\t}\n\t\treturn CheckResult{Name: \"redis\", Status: \"ok\", Latency: latency}\n\t})\n\n\thttp.Handle(\"/health\", checker.Handler())\n\tlog.Fatal(http.ListenAndServe(\":8080\", nil))\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-HealthGo",
+        "title": "健康检查端点",
+        "description": "实现HTTP健康检查端点。HealthChecker维护检查函数映射，每个检查返回CheckResult包含名称、状态、延迟和可选消息。Handler方法遍历所有检查，测量执行延迟，汇总结果并输出JSON。任何检查失败则整体状态为unhealthy并返回503。main函数注册数据库和Redis检查，每个检查先Ping再报告结果。Kubernetes和负载均衡器通过访问/health端点判断服务可用性。",
+        "confidence": 0.95,
+        "alternative_titles": ["Health Check", "Service Health", "Liveness Probe"]
+      }]
+    },
+    {
+      "id": "ET-GO-004",
+      "description": "Structured logging with zap",
+      "code_snippets": [{
+        "file": "src/logging/logger.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package logging\n\nimport (\n\t\"go.uber.org/zap\"\n\t\"go.uber.org/zap/zapcore\"\n\t\"os\"\n)\n\ntype Logger struct {\n\tlogger *zap.SugaredLogger\n\tfields []zap.Field\n}\n\nfunc NewLogger(level string) (*Logger, error) {\n\tcfg := zap.NewProductionConfig()\n\tcfg.Level = zap.NewAtomicLevelAt(parseLevel(level))\n\tcfg.EncoderConfig.TimeKey = \"timestamp\"\n\tcfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder\n\n\tlogger, err := cfg.Build()\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn &Logger{logger: logger.Sugar()}, nil\n}\n\nfunc (l *Logger) With(fields ...zap.Field) *Logger {\n\tnewLogger := *l\n\tnewLogger.fields = append(newLogger.fields, fields...)\n\treturn &newLogger\n}\n\nfunc (l *Logger) Info(msg string, args ...interface{}) {\n\tl.logger.With(l.fields...).Infow(msg, args...)\n}\n\nfunc (l *Logger) Error(msg string, args ...interface{}) {\n\tl.logger.With(l.fields...).Errorw(msg, args...)\n}\n\nfunc (l *Logger) Debug(msg string, args ...interface{}) {\n\tl.logger.With(l.fields...).Debugw(msg, args...)\n}\n\nfunc (l *Logger) Warn(msg string, args ...interface{}) {\n\tl.logger.With(l.fields...).Warnw(msg, args...)\n}\n\nfunc parseLevel(level string) zapcore.Level {\n\tswitch level {\n\tcase \"debug\":\n\t\treturn zapcore.DebugLevel\n\tcase \"info\":\n\t\treturn zapcore.InfoLevel\n\tcase \"warn\":\n\t\treturn zapcore.WarnLevel\n\tcase \"error\":\n\t\treturn zapcore.ErrorLevel\n\tdefault:\n\t\treturn zapcore.InfoLevel\n\t}\n}\n\nfunc main() {\n\tlogger, _ := NewLogger(\"info\")\n\n\treqLogger := logger.With(\n\t\tzap.String(\"requestId\", \"abc-123\"),\n\t\tzap.String(\"userId\", \"user-456\"),\n\t)\n\n\treqLogger.Info(\"Processing request\", zap.Int(\"items\", 5))\n\treqLogger.Error(\"Request failed\", zap.Error(err))\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-ZapGo",
+        "title": "zap结构化日志",
+        "description": "使用uber/zap库实现高性能结构化日志。NewLogger创建生产配置，使用ISO8601时间格式。With方法创建带有额外字段的新Logger实例，支持字段链式追加。Info/Error/Debug/Warn方法使用Infow/Errorw等输出JSON格式日志。zap.Field类型提供类型安全的字段（String、Int、Error）。main函数演示创建基础logger并通过With添加requestId和userId字段，后续日志自动携带这些上下文。zap相比标准log性能高一个数量级，适合高吞吐场景。",
+        "confidence": 0.94,
+        "alternative_titles": ["Zap Logging", "Structured Logging", "Performance Logging"]
+      }]
+    },
+    {
+      "id": "ET-GO-005",
+      "description": "Configuration with Viper",
+      "code_snippets": [{
+        "file": "src/config/config.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package config\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n\n\t\"github.com/spf13/viper\"\n)\n\ntype Config struct {\n\tServer   ServerConfig\n\tDatabase DatabaseConfig\n\tRedis    RedisConfig\n\tLogging  LoggingConfig\n}\n\ntype ServerConfig struct {\n\tHost string `mapstructure:\"host\"`\n\tPort int    `mapstructure:\"port\"`\n}\n\ntype DatabaseConfig struct {\n\tDSN        string `mapstructure:\"dsn\"`\n\tMaxOpenConns int   `mapstructure:\"max_open_conns\"`\n\tMaxIdleConns int   `mapstructure:\"max_idle_conns\"`\n}\n\ntype RedisConfig struct {\n\tAddr     string `mapstructure:\"addr\"`\n\tPassword string `mapstructure:\"password\"`\n}\n\ntype LoggingConfig struct {\n\tLevel  string `mapstructure:\"level\"`\n\tFormat string `mapstructure:\"format\"`\n}\n\nfunc LoadConfig(configPath string) (*Config, error) {\n\tviper.SetConfigFile(configPath)\n\tviper.SetConfigType(\"yaml\")\n\n\tviper.AutomaticEnv()\n\tviper.SetEnvPrefix(\"APP\")\n\tviper.SetEnvKeyReplacer(strings.NewReplacer(\".\", \"_\"))\n\n\tviper.SetDefault(\"server.host\", \"localhost\")\n\tviper.SetDefault(\"server.port\", 8080)\n\tviper.SetDefault(\"database.max_open_conns\", 25)\n\tviper.SetDefault(\"database.max_idle_conns\", 5)\n\tviper.SetDefault(\"logging.level\", \"info\")\n\tviper.SetDefault(\"logging.format\", \"json\")\n\n\tif err := viper.ReadInConfig(); err != nil {\n\t\treturn nil, fmt.Errorf(\"failed to read config: %w\", err)\n\t}\n\n\tvar cfg Config\n\tif err := viper.Unmarshal(&cfg); err != nil {\n\t\treturn nil, fmt.Errorf(\"failed to unmarshal config: %w\", err)\n\t}\n\n\treturn &cfg, nil\n}\n\nfunc main() {\n\tcfg, err := LoadConfig(\"config.yaml\")\n\tif err != nil {\n\t\tlog.Fatalf(\"Failed to load config: %v\", err)\n\t}\n\n\tfmt.Printf(\"Server: %s:%d\\n\", cfg.Server.Host, cfg.Server.Port)\n\tfmt.Printf(\"Database DSN: %s\\n\", cfg.Database.DSN)\n\tfmt.Printf(\"Logging Level: %s\\n\", cfg.Logging.Level)\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-ViperGo",
+        "title": "Viper配置管理",
+        "description": "使用Viper库实现灵活的应用配置管理。LoadConfig读取YAML配置文件，AutomaticEnv启用环境变量覆盖，SetEnvPrefix设置前缀（APP_），SetEnvKeyReplacer将点号替换为下划线（如app.server.host -> APP_SERVER_HOST）。SetDefault提供默认值。Unmarshal将配置绑定到结构体，tag指定环境变量名。config.yaml优先，环境变量覆盖。支持热重载和多种配置源（文件、环境变量、flag）。",
+        "confidence": 0.93,
+        "alternative_titles": ["Viper Config", "Environment Configuration", "App Settings"]
+      }]
+    },
+    {
+      "id": "ET-GO-006",
+      "description": "Metrics with Prometheus client",
+      "code_snippets": [{
+        "file": "src/metrics/prometheus.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package metrics\n\nimport (\n\t\"net/http\"\n\t\"time\"\n\n\t\"github.com/prometheus/client_golang/prometheus\"\n\t\"github.com/prometheus/client_golang/prometheus/promauto\"\n\t\"github.com/prometheus/client_golang/prometheus/promhttp\"\n)\n\ntype MetricsCollector struct {\n\trequestsTotal   *prometheus.CounterVec\n\trequestDuration *prometheus.HistogramVec\n\tactiveUsers     prometheus.Gauge\n\tqueueLength     prometheus.Gauge\n}\n\nfunc NewMetricsCollector() *MetricsCollector {\n\treturn &MetricsCollector{\n\t\trequestsTotal: promauto.NewCounterVec(prometheus.CounterOpts{\n\t\t\tName: \"http_requests_total\",\n\t\t\tHelp: \"Total number of HTTP requests\",\n\t\t}, []string{\"method\", \"endpoint\", \"status\"}),\n\n\t\trequestDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{\n\t\t\tName:    \"http_request_duration_seconds\",\n\t\t\tHelp:    \"HTTP request duration in seconds\",\n\t\t\tBuckets: prometheus.DefBuckets,\n\t\t}, []string{\"method\", \"endpoint\"}),\n\n\t\tactiveUsers: promauto.NewGauge(prometheus.GaugeOpts{\n\t\t\tName: \"active_users\",\n\t\t\tHelp: \"Current number of active users\",\n\t\t}),\n\n\t\tqueueLength: promauto.NewGauge(prometheus.GaugeOpts{\n\t\t\tName: \"job_queue_length\",\n\t\t\tHelp: \"Current length of the job queue\",\n\t\t}),\n\t}\n}\n\nfunc (mc *MetricsCollector) Middleware(next http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tstart := time.Now()\n\n\t\tmw := &statusResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}\n\t\tnext.ServeHTTP(mw, r)\n\n\t\tmc.requestsTotal.WithLabelValues(r.Method, r.URL.Path, fmt.Sprintf(\"%d\", mw.statusCode)).Inc()\n\t\tmc.requestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())\n\t})\n}\n\ntype statusResponseWriter struct {\n\thttp.ResponseWriter\n\tstatusCode int\n}\n\nfunc (w *statusResponseWriter) WriteHeader(code int) {\n\tw.statusCode = code\n\tw.ResponseWriter.WriteHeader(code)\n}\n\nfunc SetupPrometheusEndpoint(metrics *MetricsCollector, port int) {\n\thttp.Handle(\"/metrics\", promhttp.Handler())\n\tmetrics.activeUsers.Set(0)\n}\n",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-PrometheusGo",
+        "title": "Prometheus指标采集",
+        "description": "使用Prometheus Go客户端暴露应用指标。MetricsCollector定义四种指标：CounterVec（http_requests_total按method/endpoint/status分桶）、HistogramVec（http_request_duration_seconds按method/endpoint分桶）、Gauge（active_users当前活跃用户数）、Gauge（job_queue_length队列长度）。Middleware中间件拦截HTTP请求，记录请求总数和耗时。statusResponseWriter包装http.ResponseWriter捕获状态码。SetupPrometheusEndpoint注册/prometheus端点供Prometheus抓取。这些指标可接入Prometheus+Grafana实现可视化监控。",
+        "confidence": 0.95,
+        "alternative_titles": ["Prometheus Metrics", "Application Monitoring", "Observability"]
+      }]
+    },
+    {
+      "id": "ET-GO-007",
+      "description": "Retry with exponential backoff",
+      "code_snippets": [{
+        "file": "src/retry/backoff.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package retry\n\nimport (\n\t\"fmt\"\n\t\"math/rand\"\n\t\"time\"\n)\n\ntype BackoffConfig struct {\n\tInitialDelay time.Duration\n\tMaxDelay     time.Duration\n\tMultiplier   float64\n\tMaxRetries   int\n\tJitter       bool\n}\n\nfunc DefaultBackoffConfig() BackoffConfig {\n\treturn BackoffConfig{\n\t\tInitialDelay: 1 * time.Second,\n\t\tMaxDelay:     30 * time.Second,\n\t\tMultiplier:   2.0,\n\t\tMaxRetries:   3,\n\t\tJitter:       true,\n\t}\n}\n\nfunc ExponentialBackoff(config BackoffConfig, operation func() error) error {\n\tvar delay time.Duration\n\n\tfor attempt := 0; attempt <= config.MaxRetries; attempt++ {\n\t\tif attempt > 0 {\n\t\t\tdelay = calculateDelay(config, attempt)\n\t\t\ttime.Sleep(delay)\n\t\t}\n\n\t\terr := operation()\n\t\tif err == nil {\n\t\t\treturn nil\n\t\t}\n\n\t\tif attempt == config.MaxRetries {\n\t\t\treturn fmt.Errorf(\"operation failed after %d retries: %w\", config.MaxRetries, err)\n\t\t}\n\t}\n\n\treturn nil\n}\n\nfunc calculateDelay(config BackoffConfig, attempt int) time.Duration {\n\tdelay := time.Duration(float64(config.InitialDelay.Nanoseconds()) * math.Pow(config.Multiplier, float64(attempt-1)))\n\n\tif delay > config.MaxDelay {\n\t\tdelay = config.MaxDelay\n\t}\n\n\tif config.Jitter {\n\t\trandomFactor := 0.5 + rand.Float64()*0.5\n\t\tdelay = time.Duration(float64(delay.Nanoseconds()) * randomFactor)\n\t}\n\n\treturn delay\n}\n\nfunc main() {\n\tconfig := DefaultBackoffConfig()\n\terr := ExponentialBackoff(config, func() error {\n\t\t// Simulate flaky API call\n\t\tif time.Now().Unix()%2 == 0 {\n\t\t\treturn fmt.Errorf(\"temporary error\")\n\t\t}\n\t\treturn nil\n\t})\n\n\tif err != nil {\n\t\tfmt.Printf(\"Final error: %v\\n\", err)\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-RetryGo",
+        "title": "指数退避重试机制",
+        "description": "实现指数退避重试机制。ExponentialBackoff接受配置和操作函数，循环尝试执行操作。calculateDelay根据尝试次数计算延迟：initialDelay * multiplier^(attempt-1)，上限为maxDelay。jitter选项添加0.5-1.0的随机因子防止重试风暴。DefaultBackoffConfig提供合理的默认值（初始1秒、最大30秒、倍增2倍、最多3次重试）。operation函数返回error，nil表示成功。超过最大重试次数后返回累积错误。",
+        "confidence": 0.94,
+        "alternative_titles": ["Exponential Backoff", "Retry Mechanism", "Resilient Retry"]
+      }]
+    },
+    {
+      "id": "ET-GO-008",
+      "description": "Rate limiting with token bucket",
+      "code_snippets": [{
+        "file": "src/ratelimit/token_bucket.go",
+        "start_line": 1,
+        "end_line": 55,
+        "content": "package ratelimit\n\nimport (\n\t\"sync\"\n\t\"time\"\n)\n\ntype TokenBucket struct {\n\ttokens     float64\n\tmaxTokens  float64\n\trefillRate float64 // tokens per second\n\tlastRefill time.Time\n\tmu         sync.Mutex\n}\n\nfunc NewTokenBucket(maxTokens float64, refillRate float64) *TokenBucket {\n\treturn &TokenBucket{\n\t\ttokens:     maxTokens,\n\t\tmaxTokens:  maxTokens,\n\t\trefillRate: refillRate,\n\t\tlastRefill: time.Now(),\n\t}\n}\n\nfunc (tb *TokenBucket) Allow() bool {\n\ttb.mu.Lock()\n\tdefer tb.mu.Unlock()\n\n\tnow := time.Now()\n\telapsed := now.Sub(tb.lastRefill).Seconds()\n\ttb.tokens += elapsed * tb.refillRate\n\tif tb.tokens > tb.maxTokens {\n\t\ttb.tokens = tb.maxTokens\n\t}\n\ttb.lastRefill = now\n\n\tif tb.tokens >= 1.0 {\n\t\ttb.tokens -= 1.0\n\t\treturn true\n\t}\n\treturn false\n}\n\nfunc (tb *TokenBucket) AllowN(n int) bool {\n\ttb.mu.Lock()\n\tdefer tb.mu.Unlock()\n\n\ttb.refill()\n\n\tif tb.tokens >= float64(n) {\n\t\ttb.tokens -= float64(n)\n\t\treturn true\n\t}\n\treturn false\n}\n\nfunc (tb *TokenBucket) refill() {\n\tnow := time.Now()\n\telapsed := now.Sub(tb.lastRefill).Seconds()\n\ttb.tokens += elapsed * tb.refillRate\n\tif tb.tokens > tb.maxTokens {\n\t\ttb.tokens = tb.maxTokens\n\t}\n\ttb.lastRefill = now\n}\n\nfunc (tb *TokenBucket) AvailableTokens() float64 {\n\ttb.mu.Lock()\n\tdefer tb.mu.Unlock()\n\ttb.refill()\n\treturn tb.tokens\n}\n\nfunc main() {\n\tbucket := NewTokenBucket(10.0, 2.0) // 10 max, refills at 2/sec\n\n\tfor i := 0; i < 12; i++ {\n\t\tif bucket.Allow() {\n\t\t\tfmt.Printf(\"Request %d: allowed\\n\", i+1)\n\t\t} else {\n\t\t\tfmt.Printf(\"Request %d: rate limited\\n\", i+1)\n\t\t}\n\t\ttime.Sleep(100 * time.Millisecond)\n\t}\n}",
+        "highlighted_lines": [1, 5, 10, 20, 30, 40, 50]
+      }],
+      "expected_points": [{
+        "category": "ET",
+        "prefix": "ET-TokenBucketGo",
+        "title": "令牌桶限流算法",
+        "description": "实现令牌桶限流算法。TokenBucket维护当前令牌数、最大令牌数和填充速率。Allow方法每次消耗一个令牌，refill根据经过的时间补充令牌（不超过最大值）。AllowN允许批量消耗多个令牌。refill方法计算自上次 refill 以来的时间并补充对应数量的令牌。mutex保证并发安全。main示例创建容量10、每秒填充2个令牌的桶，连续发12个请求，前10个通过，后续被限流。令牌桶允许突发流量但限制长期速率。",
+        "confidence": 0.95,
+        "alternative_titles": ["Token Bucket", "Rate Limiter", "Traffic Shaping"]
+      }]
+    }
+  ]
+}

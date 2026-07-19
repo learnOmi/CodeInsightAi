@@ -1,0 +1,193 @@
+{
+  "repo_id": "benchmark-dk-javascript",
+  "category": "DK",
+  "language": "javascript",
+  "description": "JavaScript domain knowledge detection evaluation dataset",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DK-JS-001",
+      "description": "Shopping Cart Domain - State Machine",
+      "code_snippets": [
+        {
+          "file": "src/domain/cart/cart-state-machine.js",
+          "start_line": 1,
+          "end_line": 68,
+          "content": "const CartState = {\n  ACTIVE: 'active',\n  CHECKOUT_STARTED: 'checkout_started',\n  CHECKOUT_COMPLETE: 'checkout_complete',\n  CHECKOUT_FAILED: 'checkout_failed',\n  ABANDONED: 'abandoned'\n};\n\nconst CartTransitions = {\n  [CartState.ACTIVE]: {\n    add_item: CartState.ACTIVE,\n    remove_item: CartState.ACTIVE,\n    update_qty: CartState.ACTIVE,\n    start_checkout: CartState.CHECKOUT_STARTED,\n    abandon: CartState.ABANDONED\n  },\n  [CartState.CHECKOUT_STARTED]: {\n    cancel_checkout: CartState.ACTIVE,\n    complete_checkout: CartState.CHECKOUT_COMPLETE,\n    fail_checkout: CartState.CHECKOUT_FAILED,\n    abandon: CartState.ABANDONED\n  },\n  [CartState.CHECKOUT_COMPLETE]: {},\n  [CartState.CHECKOUT_FAILED]: {\n    retry_checkout: CartState.CHECKOUT_STARTED,\n    abandon: CartState.ABANDONED\n  },\n  [CartState.ABANDONED]: {\n    reactivate: CartState.ACTIVE\n  }\n};\n\nclass ShoppingCart {\n  constructor(cartId) {\n    this.id = cartId;\n    this.items = new Map();\n    this.state = CartState.ACTIVE;\n    this.createdAt = new Date();\n    this.updatedAt = this.createdAt;\n  }\n\n  transition(action) {\n    const allowed = CartTransitions[this.state]?.[action];\n    if (!allowed) {\n      throw new Error(`Invalid transition: ${this.state} -> ${action}`);\n    }\n    this.state = allowed;\n    this.updatedAt = new Date();\n  }\n\n  addItem(product, qty = 1) {\n    if (this.state !== CartState.ACTIVE) throw new Error('Cart is not active');\n    const existing = this.items.get(product.id);\n    if (existing) {\n      existing.qty += qty;\n    } else {\n      this.items.set(product.id, { ...product, qty });\n    }\n    this.updatedAt = new Date();\n  }\n}\n\nmodule.exports = { ShoppingCart, CartState, CartTransitions };",
+          "highlighted_lines": [1, 23, 35, 42, 55]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-CartJS",
+          "title": "购物车领域模型",
+          "description": "实现购物车(ShoppingCart)领域状态机，通过 CartTransitions 定义合法的状态转换规则(ACTIVE/CHECKOUT_STARTED/ABANDONED等)，addItem 等业务方法受当前状态约束，确保购物车生命周期的一致性",
+          "confidence": 0.91,
+          "alternative_titles": ["购物车状态机", "Shopping Cart FSM", "电商购物车", "State Machine"]
+        }
+      ]
+    },
+    {
+      "id": "DK-JS-002",
+      "description": "API Gateway Routing - Request Forwarding",
+      "code_snippets": [
+        {
+          "file": "src/gateway/router.js",
+          "start_line": 1,
+          "end_line": 60,
+          "content": "class APIGatewayRouter {\n  constructor() {\n    this.routes = new Map();\n    this.globalMiddleware = [];\n  }\n\n  register(pathPrefix, serviceConfig) {\n    this.routes.set(pathPrefix, {\n      service: serviceConfig.service,\n      host: serviceConfig.host,\n      port: serviceConfig.port,\n      rewrite: serviceConfig.rewrite ?? true,\n      timeout: serviceConfig.timeout ?? 30000,\n      retries: serviceConfig.retries ?? 2\n    });\n  }\n\n  async handleRequest(req) {\n    const matchedRoute = this._matchRoute(req.path);\n    if (!matchedRoute) {\n      return { status: 404, body: { error: 'No route found' } };\n    }\n\n    const upstreamPath = matchedRoute.rewrite\n      ? req.path.replace(matchedRoute.prefix, '/')\n      : req.path;\n\n    const url = `http://${matchedRoute.host}:${matchedRoute.port}${upstreamPath}`;\n\n    try {\n      const response = await this._forwardWithRetry(url, req, matchedRoute);\n      return {\n        status: response.status,\n        headers: response.headers,\n        body: response.body\n      };\n    } catch (error) {\n      return { status: 502, body: { error: 'Upstream service unavailable' } };\n    }\n  }\n\n  _matchRoute(path) {\n    let bestMatch = null;\n    for (const [prefix, config] of this.routes) {\n      if (path.startsWith(prefix)) {\n        if (!bestMatch || prefix.length > bestMatch.prefix.length) {\n          bestMatch = { prefix, ...config };\n        }\n      }\n    }\n    return bestMatch;\n  }\n}\n\nmodule.exports = APIGatewayRouter;",
+          "highlighted_lines": [1, 7, 22, 30, 48]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-GatewayJS",
+          "title": "API网关路由技术",
+          "description": "实现API网关(APIGatewayRouter)请求转发与路由匹配，支持前缀匹配(Prefix Matching)和最长前缀优先策略，路径重写(Rewrite)、超时控制、上游服务重试，以及统一的错误响应处理",
+          "confidence": 0.92,
+          "alternative_titles": ["API网关路由", "API Gateway Routing", "请求转发", "反向代理"]
+        }
+      ]
+    },
+    {
+      "id": "DK-JS-003",
+      "description": "Authentication Flow - OAuth/JWT",
+      "code_snippets": [
+        {
+          "file": "src/auth/auth-flow.js",
+          "start_line": 1,
+          "end_line": 72,
+          "content": "const jwt = require('jsonwebtoken');\nconst crypto = require('crypto');\n\nclass AuthFlow {\n  constructor(config) {\n    this.secret = config.secret;\n    this.issuer = config.issuer;\n    this.tokenExpiry = config.tokenExpiry ?? '1h';\n    this.refreshExpiry = config.refreshExpiry ?? '7d';\n    this.tokenStore = new Map(); // token -> user data\n  }\n\n  async login(email, password) {\n    const user = await this._validateCredentials(email, password);\n    const accessToken = this._generateToken(user, this.tokenExpiry);\n    const refreshToken = this._generateToken(\n      { sub: user.id, type: 'refresh' },\n      this.refreshExpiry\n    );\n    this.tokenStore.set(refreshToken, { userId: user.id, expiresAt: Date.now() + 7 * 86400000 });\n    return { accessToken, refreshToken, expiresIn: 3600 };\n  }\n\n  async refresh(refreshToken) {\n    const stored = this.tokenStore.get(refreshToken);\n    if (!stored || stored.expiresAt < Date.now()) {\n      throw new Error('Invalid or expired refresh token');\n    }\n    const user = await this._getUserById(stored.userId);\n    return this.login(user.email, ''); // re-issue tokens\n  }\n\n  _generateToken(payload, expiry) {\n    return jwt.sign(payload, this.secret, {\n      issuer: this.issuer,\n      expiresIn: expiry,\n      algorithm: 'RS256'\n    });\n  }\n\n  verify(token) {\n    return jwt.verify(token, this.secret, { algorithms: ['RS256'], issuer: this.issuer });\n  }\n\n  logout(refreshToken) {\n    this.tokenStore.delete(refreshToken);\n  }\n}\n\nmodule.exports = AuthFlow;",
+          "highlighted_lines": [4, 11, 22, 35, 50]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-AuthJS",
+          "title": "认证流程",
+          "description": "实现基于JWT的认证流程(AuthFlow)，包含登录(login)签发accessToken和refreshToken双令牌、刷新(refresh)验证refreshToken并重新签发、登出(logout)清理令牌存储，使用RS256非对称签名算法和issuer验证",
+          "confidence": 0.93,
+          "alternative_titles": ["JWT认证", "OAuth2 Flow", "Authentication Flow", "双令牌机制"]
+        }
+      ]
+    },
+    {
+      "id": "DK-JS-004",
+      "description": "Data Migration System - Versioned Transforms",
+      "code_snippets": [
+        {
+          "file": "src/migrations/engine.js",
+          "start_line": 1,
+          "end_line": 65,
+          "content": "class MigrationEngine {\n  constructor(dbClient) {\n    this.db = dbClient;\n    this.migrations = new Map();\n    this.appliedMigrations = new Set();\n  }\n\n  register(version, migration) {\n    this.migrations.set(version, {\n      version,\n      up: migration.up,\n      down: migration.down,\n      description: migration.description\n    });\n  }\n\n  async migrate(targetVersion) {\n    const versions = Array.from(this.migrations.keys()).sort((a, b) => a - b);\n    const toApply = versions.filter(v => v > this._getCurrentVersion());\n\n    if (targetVersion) {\n      const idx = versions.indexOf(targetVersion);\n      if (idx >= 0) {\n        for (let i = 0; i <= idx; i++) {\n          if (versions[i] > this._getCurrentVersion()) {\n            await this._applyMigration(versions[i]);\n          }\n        }\n      }\n    }\n  }\n\n  async _applyMigration(version) {\n    const migration = this.migrations.get(version);\n    if (!migration) throw new Error(`Migration ${version} not found`);\n\n    console.log(`Applying migration ${version}: ${migration.description}`);\n    await migration.up(this.db);\n    await this._recordApplied(version);\n    this.appliedMigrations.add(version);\n    console.log(`Migration ${version} applied successfully`);\n  }\n\n  async _getCurrentVersion() {\n    const result = await this.db.query('SELECT MAX(version) as max_ver FROM schema_migrations');\n    return result?.max_ver ?? 0;\n  }\n\n  async _recordApplied(version) {\n    await this.db.query(\n      'INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)',\n      [version, new Date().toISOString()]\n    );\n  }\n}\n\nmodule.exports = MigrationEngine;",
+          "highlighted_lines": [1, 7, 18, 27, 42]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-MigrationJS",
+          "title": "数据迁移系统",
+          "description": "实现版本化数据迁移系统(MigrationEngine)，通过 up/down 函数定义迁移的前滚/回滚操作，schema_migrations 表记录已执行迁移版本，支持目标版本定向迁移和自动跳过已应用版本",
+          "confidence": 0.92,
+          "alternative_titles": ["数据迁移", "Schema Migration", "版本化迁移", "DB Migration"]
+        }
+      ]
+    },
+    {
+      "id": "DK-JS-005",
+      "description": "Notification Service - Multi-Channel Dispatch",
+      "code_snippets": [
+        {
+          "file": "src/notifications/dispatcher.js",
+          "start_line": 1,
+          "end_line": 62,
+          "content": "class NotificationDispatcher {\n  constructor(channels = {}) {\n    this.channels = channels; // email, sms, push, webhook\n    this.templateStore = new Map();\n    this.deliveryLog = [];\n  }\n\n  registerTemplate(id, template) {\n    this.templateStore.set(id, template);\n  }\n\n  async dispatch(userId, notification) {\n    const template = this.templateStore.get(notification.templateId);\n    if (!template) throw new Error(`Template ${notification.templateId} not found`);\n\n    const userPrefs = await this._getUserPreferences(userId);\n    const channels = userPrefs.channels.filter(c => notification.allowedChannels.includes(c));\n\n    const results = [];\n    for (const channel of channels) {\n      try {\n        const rendered = template.render(notification.variables);\n        const result = await this.channels[channel].send(userId, rendered);\n        results.push({ channel, status: 'sent', messageId: result.messageId });\n        this.deliveryLog.push({ userId, channel, ...result, timestamp: new Date().toISOString() });\n      } catch (error) {\n        results.push({ channel, status: 'failed', error: error.message });\n      }\n    }\n\n    return { userId, channels, results, sentCount: results.filter(r => r.status === 'sent').length };\n  }\n\n  async _getUserPreferences(userId) {\n    return await this.db.query('SELECT channels, preferences FROM user_preferences WHERE user_id = ?', [userId]);\n  }\n}\n\nmodule.exports = NotificationDispatcher;",
+          "highlighted_lines": [1, 10, 18, 27, 42]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-NotificationJS",
+          "title": "通知服务",
+          "description": "实现多通道通知分发(NotificationDispatcher)，根据用户偏好(channels)自动选择邮件/SMS/Push/Webhook投递渠道，模板渲染(variables)与发送解耦，记录投递日志用于追踪和审计",
+          "confidence": 0.91,
+          "alternative_titles": ["通知服务", "Notification Service", "多渠道推送", "Message Dispatch"]
+        }
+      ]
+    },
+    {
+      "id": "DK-JS-006",
+      "description": "Search Index Builder - Incremental Updates",
+      "code_snippets": [
+        {
+          "file": "src/search/index-builder.js",
+          "start_line": 1,
+          "end_line": 65,
+          "content": "class SearchIndexBuilder {\n  constructor(searchEngine) {\n    this.engine = searchEngine;\n    this.index = new Map();\n    this.pendingChanges = [];\n    this.batchSize = 100;\n    this.flushTimer = null;\n  }\n\n  indexDocument(doc) {\n    const entry = {\n      id: doc.id,\n      content: this._tokenize(doc.content),\n      metadata: { title: doc.title, category: doc.category, updatedAt: new Date().toISOString() },\n      score: 1.0\n    };\n    this.index.set(doc.id, entry);\n    this.pendingChanges.push({ type: 'index', doc: entry });\n    this._scheduleFlush();\n  }\n\n  updateDocument(docId, updates) {\n    const existing = this.index.get(docId);\n    if (!existing) {\n      this.indexDocument(updates);\n      return;\n    }\n    Object.assign(existing.metadata, updates);\n    existing.content = this._tokenize(updates.content ?? existing.metadata.title);\n    this.pendingChanges.push({ type: 'update', docId, doc: existing });\n    this._scheduleFlush();\n  }\n\n  deleteDocument(docId) {\n    this.index.delete(docId);\n    this.pendingChanges.push({ type: 'delete', docId });\n    this._scheduleFlush();\n  }\n\n  async flush() {\n    if (this.pendingChanges.length === 0) return;\n\n    const batch = this.pendingChanges.splice(0, this.batchSize);\n    const indexed = batch.filter(c => c.type === 'index').map(c => c.doc);\n    const updated = batch.filter(c => c.type === 'update').map(c => c.doc);\n    const deleted = batch.filter(c => c.type === 'delete').map(c => c.docId);\n\n    await this.engine.bulkUpdate({ indexed, updated, deleted });\n    this._scheduleFlush();\n  }\n\n  _scheduleFlush() {\n    if (this.flushTimer) clearTimeout(this.flushTimer);\n    this.flushTimer = setTimeout(() => this.flush(), 1000);\n  }\n\n  _tokenize(text) {\n    return text.toLowerCase().split(/\\s+/).filter(t => t.length > 0);\n  }\n}\n\nmodule.exports = SearchIndexBuilder;",
+          "highlighted_lines": [1, 10, 23, 35, 44]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-SearchIndexJS",
+          "title": "搜索索引构建",
+          "description": "实现增量搜索索引构建(SearchIndexBuilder)，维护内存索引(Map)和变更队列(pendingChanges)，支持 index/update/delete 操作，批量合并后 flush 到搜索引擎，定时器和阈值双触发刷新机制",
+          "confidence": 0.92,
+          "alternative_titles": ["搜索索引构建", "Incremental Indexing", "Search Index Builder", "增量更新"]
+        }
+      ]
+    },
+    {
+      "id": "DK-JS-007",
+      "description": "Order Fulfillment Pipeline - State Transitions",
+      "code_snippets": [
+        {
+          "file": "src/orders/fulfillment-pipeline.js",
+          "start_line": 1,
+          "end_line": 70,
+          "content": "const OrderStatus = {\n  PENDING: 'pending',\n  CONFIRMED: 'confirmed',\n  PROCESSING: 'processing',\n  SHIPPED: 'shipped',\n  DELIVERED: 'delivered',\n  COMPLETED: 'completed',\n  CANCELLED: 'cancelled'\n};\n\nconst FULFILLMENT_STEPS = [\n  { from: OrderStatus.PENDING, to: OrderStatus.CONFIRMED, action: 'confirm', handler: confirmOrder },\n  { from: OrderStatus.CONFIRMED, to: OrderStatus.PROCESSING, action: 'process', handler: processOrder },\n  { from: OrderStatus.PROCESSING, to: OrderStatus.SHIPPED, action: 'ship', handler: shipOrder },\n  { from: OrderStatus.SHIPPED, to: OrderStatus.DELIVERED, action: 'deliver', handler: deliverOrder },\n  { from: OrderStatus.DELIVERED, to: OrderStatus.COMPLETED, action: 'complete', handler: completeOrder }\n];\n\nclass OrderPipeline {\n  constructor(order) {\n    this.order = order;\n    this.currentStep = 0;\n    this.history = [{ status: order.status, timestamp: new Date() }];\n  }\n\n  canAdvance(action) {\n    const step = FULFILLMENT_STEPS[this.currentStep];\n    return step && step.action === action;\n  }\n\n  async advance(action) {\n    if (!this.canAdvance(action)) {\n      throw new Error(`Cannot perform '${action}' in status ${this.order.status}`);\n    }\n\n    const step = FULFILLMENT_STEPS[this.currentStep];\n    await step.handler(this.order);\n    this.order.status = step.to;\n    this.currentStep++;\n    this.history.push({ status: step.to, action, timestamp: new Date() });\n  }\n\n  cancel() {\n    this.order.status = OrderStatus.CANCELLED;\n    this.history.push({ status: OrderStatus.CANCELLED, action: 'cancel', timestamp: new Date() });\n  }\n\n  getTimeline() { return [...this.history]; }\n}\n\nmodule.exports = { OrderPipeline, OrderStatus, FULFILLMENT_STEPS };",
+          "highlighted_lines": [1, 16, 23, 30, 38]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-OrderFulfillmentJS",
+          "title": "订单履约流水线",
+          "description": "实现订单履约(OrderPipeline)状态流转管线，FULFILLMENT_STEPS 数组定义完整的履约阶段(PENDING->CONFIRMED->PROCESSING->SHIPPED->DELIVERED->COMPLETED)，canAdvance 校验当前步骤合法性，cancel 提供终态退出路径，history 记录完整操作时间线",
+          "confidence": 0.93,
+          "alternative_titles": ["订单履约", "Order Fulfillment Pipeline", "状态流转", "履约流水线"]
+        }
+      ]
+    },
+    {
+      "id": "DK-JS-008",
+      "description": "Analytics Event Pipeline - Event Processing",
+      "code_snippets": [
+        {
+          "file": "src/analytics/event-pipeline.js",
+          "start_line": 1,
+          "end_line": 65,
+          "content": "class AnalyticsEventPipeline {\n  constructor(options = {}) {\n    this.processors = [];\n    this.buffer = [];\n    this.bufferSize = options.bufferSize ?? 100;\n    this.flushInterval = options.flushInterval ?? 5000;\n    this.schemaValidators = new Map();\n    this.metrics = { received: 0, processed: 0, dropped: 0 };\n    this._flushTimer = setInterval(() => this._flushBuffer(), this.flushInterval);\n  }\n\n  registerProcessor(name, processor, schema) {\n    this.processors.push({ name, processor });\n    if (schema) this.schemaValidators.set(name, schema);\n  }\n\n  async processEvent(event) {\n    this.metrics.received++;\n\n    // Validate against registered schemas\n    for (const [name, schema] of this.schemaValidators) {\n      if (!schema.validate(event)) {\n        this.metrics.dropped++;\n        return;\n      }\n    }\n\n    this.buffer.push({ ...event, processedAt: new Date().toISOString() });\n\n    if (this.buffer.length >= this.bufferSize) {\n      await this._flushBuffer();\n    }\n  }\n\n  async _flushBuffer() {\n    if (this.buffer.length === 0) return;\n    const batch = this.buffer.splice(0, this.bufferSize);\n\n    for (const processor of this.processors) {\n      try {\n        await processor.processor(batch);\n        this.metrics.processed += batch.length;\n      } catch (err) {\n        console.error(`Processor ${processor.name} failed:`, err.message);\n        this.metrics.dropped += batch.length;\n      }\n    }\n  }\n\n  shutdown() {\n    clearInterval(this._flushTimer);\n    return this._flushBuffer();\n  }\n}\n\nmodule.exports = AnalyticsEventPipeline;",
+          "highlighted_lines": [1, 8, 15, 23, 35]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-AnalyticsJS",
+          "title": "分析事件流水线",
+          "description": "实现分析事件管道(AnalyticsEventPipeline)，支持多处理器注册(processor chain)、事件校验(schema validation)、批量缓冲(buffer+flushInterval/timer双触发)，统计接收/处理/丢弃指标，shutdown 保证优雅关闭",
+          "confidence": 0.92,
+          "alternative_titles": ["分析事件流水线", "Analytics Pipeline", "事件处理管道", "Event Processing"]
+        }
+      ]
+    }
+  ]
+}
