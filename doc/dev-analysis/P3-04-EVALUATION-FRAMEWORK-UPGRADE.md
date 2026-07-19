@@ -7,7 +7,7 @@
 | **文档编号** | DA-001 |
 | **文档名称** | 评估框架能力提升计划 |
 | **编写日期** | 2026-07-19 |
-| **状态** | 阶段 1-3 已完成，阶段 4 按需推进 |
+| **状态** | 全部 4 阶段已完成 |
 | **关联任务** | P3-04, P3-11 |
 
 ---
@@ -386,14 +386,14 @@ class EvalDataGenerator:
 | 3.3 回归告警 | `evaluation/regression.py` | 0.5d | 对比历史，检测下降 |
 | 3.4 CI 配置 | `.github/workflows/eval.yml` | 0.5d | PR 自动触发评估 |
 
-### 阶段 4：高级匹配 + 扩展（V2, 按需）
+### 阶段 4：高级匹配 + 扩展（V2, 已完成）
 
-| 任务 | 说明 | 依赖 |
-|------|------|------|
-| 4.1 SemanticMatcher | 使用 embedding 语义匹配 | 阶段 1 |
-| 4.2 代码行级匹配 | highlighted_lines IoU 指标 | 阶段 1 |
-| 4.3 跨语言评估 | 统一用例验证多语言分析一致性 | 阶段 2 |
-| 4.4 A/B 测试 | 多 prompt 版本并行对比 | 阶段 3 |
+| 任务 | 说明 | 文件 | 状态 |
+|------|------|------|:----:|
+| 4.1 SemanticMatcher | 使用 embedding 语义匹配 | `evaluation/matcher.py` | ✅ |
+| 4.2 代码行级匹配 | highlighted_lines IoU 指标 | `evaluation/matcher.py` | ✅ |
+| 4.3 跨语言评估 | 统一用例验证多语言分析一致性 | `evaluation/engine.py` | ✅ |
+| 4.4 A/B 测试 | 多 prompt 版本并行对比 | `evaluation/engine.py` | ✅ |
 
 ---
 

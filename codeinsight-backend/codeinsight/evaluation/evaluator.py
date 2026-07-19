@@ -10,6 +10,10 @@ import logging
 import time
 from typing import Any
 
+from codeinsight.evaluation.matcher import (
+    MatcherStrategy,
+    create_default_matcher,
+)
 from codeinsight.evaluation.metrics import (
     CategoryMetrics,
     EvaluationResult,
@@ -32,19 +36,25 @@ class KnowledgePointEvaluator:
     知识点评估器
 
     使用人工标注的标准答案评估知识点提取的质量。
+    支持可插拔的匹配策略。
     """
 
-    def __init__(self):
+    def __init__(self, matcher: MatcherStrategy | None = None):
         """
         初始化评估器
+
+        Args:
+            matcher: 匹配策略，默认使用组合匹配器
         """
         self._metric_calculator = MetricCalculator()
+        self._matcher = matcher or create_default_matcher()
 
     async def evaluate(
         self,
         repo_id: str,
         extracted_points: list[dict[str, Any]],
         expected_points: list[dict[str, Any]],
+        matcher: MatcherStrategy | None = None,
     ) -> EvaluationResult:
         """
         执行评估
@@ -55,6 +65,7 @@ class KnowledgePointEvaluator:
             repo_id: 仓库 ID
             extracted_points: 提取的知识点列表
             expected_points: 期望的知识点列表（人工标注）
+            matcher: 可选，覆盖默认的匹配策略
 
         Returns:
             评估结果
@@ -62,6 +73,7 @@ class KnowledgePointEvaluator:
         start_time = time.time()
         logger.info("开始评估: repo_id=%s", repo_id)
 
+        active_matcher = matcher or self._matcher
         category_metrics = []
         total_tp = 0
         total_fp = 0
@@ -75,7 +87,11 @@ class KnowledgePointEvaluator:
             extracted_by_category = [p for p in extracted_points if p.get("category") == category]
             expected_by_category = [p for p in expected_points if p.get("category") == category]
 
-            tp, fp, fn = self._calculate_confusion_matrix(extracted_by_category, expected_by_category)
+            tp, fp, fn = await self._calculate_confusion_matrix(
+                extracted_by_category,
+                expected_by_category,
+                active_matcher,
+            )
 
             total_tp += tp
             total_fp += fp
@@ -126,29 +142,41 @@ class KnowledgePointEvaluator:
 
         return result
 
-    def _calculate_confusion_matrix(
+    async def _calculate_confusion_matrix(
         self,
         extracted: list[dict[str, Any]],
         expected: list[dict[str, Any]],
+        matcher: MatcherStrategy,
     ) -> tuple[int, int, int]:
         """
         计算混淆矩阵
 
-        通过匹配知识点标题来计算 TP、FP、FN。
+        使用匹配策略计算 TP、FP、FN。
 
         Args:
             extracted: 提取的知识点列表
             expected: 期望的知识点列表
+            matcher: 匹配策略
 
         Returns:
             (TP, FP, FN) 三元组
         """
-        extracted_titles = {p.get("title", "") for p in extracted}
-        expected_titles = {p.get("title", "") for p in expected}
+        tp = 0
+        matched_expected = set()
 
-        tp = len(extracted_titles & expected_titles)
-        fp = len(extracted_titles - expected_titles)
-        fn = len(expected_titles - extracted_titles)
+        for ext in extracted:
+            for idx, exp in enumerate(expected):
+                if idx in matched_expected:
+                    continue
+                result = await matcher.match(ext, exp)
+                if result.is_match:
+                    tp += 1
+                    matched_expected.add(idx)
+                    break
+            # 未匹配的 extracted 计入 FP
+
+        fp = len(extracted) - tp
+        fn = len(expected) - len(matched_expected)
 
         return tp, fp, fn
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -24,6 +25,9 @@ from codeinsight.evaluation.data.registry import (
     register_dataset,
 )
 from codeinsight.evaluation.engine import (
+    ABTestResult,
+    ABTestRunner,
+    CrossLangResult,
     EvalConfig,
     EvalEngine,
     EvalReport,
@@ -32,11 +36,14 @@ from codeinsight.evaluation.engine import (
     Regression,
     Snapshot,
 )
+from codeinsight.evaluation.evaluator import KnowledgePointEvaluator
 from codeinsight.evaluation.matcher import (
     CategoryMatcher,
     CompositeMatcher,
     ExactTitleMatcher,
     FuzzyTitleMatcher,
+    LineMatchMatcher,
+    SemanticMatcher,
     create_default_matcher,
 )
 from codeinsight.evaluation.reporters import ConsoleReporter, JsonReporter
@@ -579,3 +586,305 @@ class TestSnapshot:
         )
         assert s.timestamp == "2026-01-01T00:00:00"
         assert s.metrics["overall_f1"] == 0.95
+
+
+# ============================================================
+# Phase 4: 高级匹配测试
+# ============================================================
+
+
+class TestSemanticMatcher:
+    """语义匹配器测试"""
+
+    @pytest.mark.asyncio
+    async def test_match_with_embed_fn(self):
+        """使用 embed_fn 匹配"""
+        matcher = SemanticMatcher(
+            embed_fn=lambda text: [1.0, 0.0, 0.0],
+            threshold=0.8,
+        )
+        result = await matcher.match(
+            {"title": "工厂方法", "description": "创建型设计模式"},
+            {"title": "工厂方法", "description": "创建型设计模式"},
+        )
+        assert result.is_match
+        assert result.match_type == "semantic"
+        assert result.score >= 0.8
+
+    @pytest.mark.asyncio
+    async def test_no_embed_fn(self):
+        """无 embed_fn 时不匹配"""
+        matcher = SemanticMatcher()
+        result = await matcher.match(
+            {"title": "test"},
+            {"title": "test"},
+        )
+        assert not result.is_match
+        assert result.match_type == "semantic_error"
+
+    @pytest.mark.asyncio
+    async def test_empty_text(self):
+        """空文本不匹配"""
+        matcher = SemanticMatcher(
+            embed_fn=lambda text: [1.0],
+            threshold=0.5,
+        )
+        result = await matcher.match({}, {})
+        assert not result.is_match
+
+
+class TestLineMatchMatcher:
+    """代码行级匹配器测试"""
+
+    @pytest.mark.asyncio
+    async def test_exact_match(self):
+        """完全匹配"""
+        matcher = LineMatchMatcher(iou_threshold=0.5)
+        result = await matcher.match(
+            {"code_lines_match": [10, 11, 12]},
+            {"code_lines_match": [10, 11, 12]},
+        )
+        assert result.is_match
+        assert result.score == 1.0
+        assert result.match_type == "line_match"
+
+    @pytest.mark.asyncio
+    async def test_partial_match(self):
+        """部分匹配"""
+        matcher = LineMatchMatcher(iou_threshold=0.3)
+        result = await matcher.match(
+            {"code_lines_match": [10, 11, 12]},
+            {"code_lines_match": [11, 12, 13]},
+        )
+        # IoU = 2/4 = 0.5
+        assert result.is_match
+        assert result.score == 0.5
+
+    @pytest.mark.asyncio
+    async def test_no_match(self):
+        """不匹配"""
+        matcher = LineMatchMatcher(iou_threshold=0.5)
+        result = await matcher.match(
+            {"code_lines_match": [10, 11]},
+            {"code_lines_match": [20, 21]},
+        )
+        assert not result.is_match
+
+    @pytest.mark.asyncio
+    async def test_both_no_lines(self):
+        """双方都没有行级标注视为中性"""
+        matcher = LineMatchMatcher()
+        result = await matcher.match({}, {})
+        assert result.is_match
+        assert result.match_type == "line_match_none"
+
+    @pytest.mark.asyncio
+    async def test_one_side_no_lines(self):
+        """只有一方有标注"""
+        matcher = LineMatchMatcher()
+        result = await matcher.match(
+            {"code_lines_match": [10]},
+            {},
+        )
+        assert not result.is_match
+
+
+# ============================================================
+# Phase 4: 跨语言评估测试
+# ============================================================
+
+
+class TestCrossLanguage:
+    """跨语言评估测试"""
+
+    @pytest.mark.asyncio
+    async def test_cross_lang_result_dataclass(self):
+        """CrossLangResult 数据类"""
+        result = CrossLangResult(
+            category="DP",
+            by_language={"python": MetricResult(f1=0.9), "java": MetricResult(f1=0.8)},
+            overall=MetricResult(f1=0.85),
+            std_f1=0.05,
+            min_f1=0.8,
+            max_f1=0.9,
+        )
+        assert result.category == "DP"
+        assert result.std_f1 == 0.05
+        assert result.min_f1 == 0.8
+
+    @pytest.mark.asyncio
+    async def test_run_cross_language(self):
+        """运行跨语言评估"""
+        engine = EvalEngine()
+
+        with patch(
+            "codeinsight.evaluation.engine.list_datasets",
+            return_value=[
+                EvalDataset(
+                    dataset_id="dp-python-v1",
+                    language="python",
+                    category="DP",
+                    prompt_version="1.0",
+                    test_cases=[
+                        TestCase(
+                            case_id="DP-PY-001",
+                            description="Factory Method",
+                            language="python",
+                            category="DP",
+                            code_snippets=[],
+                            expected_points=[],
+                        )
+                    ],
+                ),
+                EvalDataset(
+                    dataset_id="dp-java-v1",
+                    language="java",
+                    category="DP",
+                    prompt_version="1.0",
+                    test_cases=[
+                        TestCase(
+                            case_id="DP-JA-001",
+                            description="Factory Method",
+                            language="java",
+                            category="DP",
+                            code_snippets=[],
+                            expected_points=[],
+                        )
+                    ],
+                ),
+            ],
+        ):
+            results = await engine.run_cross_language(categories=["DP"])
+            assert len(results) > 0
+            dp_result = next(r for r in results if r.category == "DP")
+            assert "python" in dp_result.by_language
+            assert "java" in dp_result.by_language
+            assert dp_result.std_f1 >= 0.0
+
+
+# ============================================================
+# Phase 4: A/B 测试
+# ============================================================
+
+
+class TestABTest:
+    """A/B 测试"""
+
+    def test_ab_test_result(self):
+        """ABTestResult 数据类"""
+        control = EvalReport(
+            summary=EvalSummary(overall_f1=0.8, total_test_cases=1, total_extracted=1),
+        )
+        experiment = EvalReport(
+            summary=EvalSummary(overall_f1=0.9, total_test_cases=1, total_extracted=1),
+        )
+        result = ABTestResult(
+            control=control,
+            experiment=experiment,
+            control_label="v1",
+            experiment_label="v2",
+        )
+        assert result.f1_diff == pytest.approx(0.1)
+        assert result.is_improvement
+        assert result.control_label == "v1"
+        assert result.experiment_label == "v2"
+
+    @pytest.mark.asyncio
+    async def test_ab_test_runner(self):
+        """ABTestRunner 运行"""
+        engine = EvalEngine()
+        control_config = EvalConfig(prompt_version="v1")
+        experiment_config = EvalConfig(prompt_version="v2")
+
+        runner = ABTestRunner(
+            engine=engine,
+            control_config=control_config,
+            experiment_config=experiment_config,
+        )
+
+        with patch(
+            "codeinsight.evaluation.engine.list_datasets",
+            return_value=[
+                EvalDataset(
+                    dataset_id="test-v1",
+                    language="python",
+                    category="DP",
+                    prompt_version="1.0",
+                    test_cases=[
+                        TestCase(
+                            case_id="DP-001",
+                            description="test",
+                            language="python",
+                            category="DP",
+                            code_snippets=[],
+                            expected_points=[],
+                        )
+                    ],
+                ),
+            ],
+        ):
+            result = await runner.run(categories=["DP"])
+            assert isinstance(result, ABTestResult)
+            assert result.control.summary.overall_f1 >= 0.0
+            assert result.experiment.summary.overall_f1 >= 0.0
+
+
+# ============================================================
+# Phase 4: 评估器匹配策略测试
+# ============================================================
+
+
+class TestEvaluatorWithMatcher:
+    """评估器使用匹配策略测试"""
+
+    @pytest.mark.asyncio
+    async def test_evaluator_with_custom_matcher(self):
+        """使用自定义匹配策略"""
+        evaluator = KnowledgePointEvaluator(
+            matcher=FuzzyTitleMatcher(threshold=0.6),
+        )
+        result = await evaluator.evaluate(
+            repo_id="test",
+            extracted_points=[
+                {"category": "DP", "title": "Factory Pattern"},
+            ],
+            expected_points=[
+                {"category": "DP", "title": "Factory Method Pattern", "alternative_titles": []},
+            ],
+        )
+        # FuzzyTitleMatcher with threshold 0.6 should match "Factory Pattern" ≈ "Factory Method Pattern"
+        assert result.overall_f1 > 0.0
+
+    @pytest.mark.asyncio
+    async def test_evaluator_exact_matcher(self):
+        """精确匹配器"""
+        evaluator = KnowledgePointEvaluator(
+            matcher=ExactTitleMatcher(),
+        )
+        result = await evaluator.evaluate(
+            repo_id="test",
+            extracted_points=[
+                {"category": "DP", "title": "Factory Method"},
+            ],
+            expected_points=[
+                {"category": "DP", "title": "Factory Method"},
+            ],
+        )
+        assert result.overall_f1 == 1.0
+
+    @pytest.mark.asyncio
+    async def test_evaluator_matcher_no_match(self):
+        """匹配器不匹配"""
+        evaluator = KnowledgePointEvaluator(
+            matcher=ExactTitleMatcher(),
+        )
+        result = await evaluator.evaluate(
+            repo_id="test",
+            extracted_points=[
+                {"category": "DP", "title": "Wrong Title"},
+            ],
+            expected_points=[
+                {"category": "DP", "title": "Expected Title"},
+            ],
+        )
+        assert result.overall_f1 == 0.0

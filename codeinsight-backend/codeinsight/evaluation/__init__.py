@@ -4,14 +4,24 @@
 提供知识点提取质量的评估功能，包括基于人工标注的评估和基于 LLM 的自评估。
 """
 
-from codeinsight.evaluation.engine import EvalConfig, EvalEngine, EvalReport, EvalSummary
+from codeinsight.evaluation.engine import (
+    ABTestResult,
+    ABTestRunner,
+    CrossLangResult,
+    EvalConfig,
+    EvalEngine,
+    EvalReport,
+    EvalSummary,
+)
 from codeinsight.evaluation.evaluator import KnowledgePointEvaluator, SelfEvaluator
 from codeinsight.evaluation.history import SnapshotStore
 from codeinsight.evaluation.matcher import (
     CompositeMatcher,
     ExactTitleMatcher,
     FuzzyTitleMatcher,
+    LineMatchMatcher,
     MatcherStrategy,
+    SemanticMatcher,
     create_default_matcher,
 )
 from codeinsight.evaluation.metrics import (
@@ -37,6 +47,8 @@ __all__ = [
     "MatcherStrategy",
     "ExactTitleMatcher",
     "FuzzyTitleMatcher",
+    "SemanticMatcher",
+    "LineMatchMatcher",
     "CompositeMatcher",
     "create_default_matcher",
     "Reporter",
@@ -44,4 +56,7 @@ __all__ = [
     "JsonReporter",
     "HistoryReporter",
     "SnapshotStore",
+    "CrossLangResult",
+    "ABTestResult",
+    "ABTestRunner",
 ]

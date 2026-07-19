@@ -2,7 +2,7 @@
 评估引擎
 
 协调评估流程：加载数据 → 运行评估 → 计算指标 → 生成报告。
-支持历史对比、回归检测、按语言/分类筛选。
+支持历史对比、回归检测、按语言/分类筛选、跨语言评估、A/B 测试。
 """
 
 from __future__ import annotations
@@ -45,6 +45,7 @@ class EvalConfig:
     data_dir: str | None = None
     prompt_version: str = "unknown"
     verbose: bool = False
+    output: str | None = None
 
 
 @dataclass
@@ -105,6 +106,42 @@ class EvalReport:
     config: EvalConfig | None = None
     history: list[Snapshot] = field(default_factory=list)
     regressions: list[Regression] = field(default_factory=list)
+
+
+@dataclass
+class CrossLangResult:
+    """跨语言评估结果
+
+    对比同一分类在不同语言上的表现一致性。
+    """
+
+    category: str
+    by_language: dict[str, MetricResult]
+    overall: MetricResult
+    std_f1: float  # F1 标准差，越大表示语言间差异越大
+    min_f1: float
+    max_f1: float
+
+
+@dataclass
+class ABTestResult:
+    """A/B 测试结果
+
+    对比两种不同配置（如不同 prompt 版本）的评估结果。
+    """
+
+    control: EvalReport
+    experiment: EvalReport
+    control_label: str = "control"
+    experiment_label: str = "experiment"
+
+    @property
+    def f1_diff(self) -> float:
+        return self.experiment.summary.overall_f1 - self.control.summary.overall_f1
+
+    @property
+    def is_improvement(self) -> bool:
+        return self.f1_diff > 0
 
 
 class EvalEngine:
@@ -333,6 +370,31 @@ class EvalEngine:
             time_seconds=sum(r.execution_time for r in results),
         )
 
+    @staticmethod
+    def _merge_metric_results_from_metrics(metrics: list[MetricResult]) -> MetricResult:
+        """合并多个 MetricResult 为一个
+
+        Args:
+            metrics: MetricResult 列表
+
+        Returns:
+            合并后的 MetricResult
+        """
+        if not metrics:
+            return MetricResult()
+
+        total = len(metrics)
+        return MetricResult(
+            f1=sum(m.f1 for m in metrics) / total,
+            precision=sum(m.precision for m in metrics) / total,
+            recall=sum(m.recall for m in metrics) / total,
+            extracted=sum(m.extracted for m in metrics),
+            expected=sum(m.expected for m in metrics),
+            cases=sum(m.cases for m in metrics),
+            avg_confidence=sum(m.avg_confidence for m in metrics) / total,
+            time_seconds=sum(m.time_seconds for m in metrics),
+        )
+
     def detect_regressions(
         self,
         report: EvalReport,
@@ -370,6 +432,63 @@ class EvalEngine:
 
         return regressions
 
+    async def run_cross_language(
+        self,
+        categories: list[str] | None = None,
+        data_dir: str | None = None,
+    ) -> list[CrossLangResult]:
+        """运行跨语言评估
+
+        对比同一分类在不同语言上的表现一致性。
+        一个健壮的 Agent 应在各语言上表现接近（低 F1 标准差）。
+
+        Args:
+            categories: 筛选分类
+            data_dir: 数据目录
+
+        Returns:
+            跨语言评估结果列表
+        """
+        categories = categories or self.config.categories
+        report = await self.run(
+            languages=None,
+            categories=categories,
+            data_dir=data_dir,
+        )
+
+        results: list[CrossLangResult] = []
+        for cat in report.by_category:
+            lang_metrics: dict[str, MetricResult] = {}
+            for lang, lang_cats in report.by_language_category.items():
+                if cat in lang_cats:
+                    lang_metrics[lang] = lang_cats[cat]
+
+            if not lang_metrics:
+                continue
+
+            f1_values = [m.f1 for m in lang_metrics.values()]
+            avg_f1 = sum(f1_values) / len(f1_values)
+            variance = sum((f - avg_f1) ** 2 for f in f1_values) / len(f1_values)
+            std_f1 = variance**0.5
+
+            # 合并所有语言的指标
+            merged = self._merge_metric_results_from_metrics(
+                list(lang_metrics.values()),
+            )
+
+            results.append(
+                CrossLangResult(
+                    category=cat,
+                    by_language=lang_metrics,
+                    overall=merged,
+                    std_f1=round(std_f1, 4),
+                    min_f1=round(min(f1_values), 4),
+                    max_f1=round(max(f1_values), 4),
+                )
+            )
+
+        return results
+
 
 def create_default_engine(
     agent_fn: Callable | None = None,
@@ -386,3 +505,78 @@ def create_default_engine(
     """
     config = EvalConfig()
     return EvalEngine(config=config, agent_fn=agent_fn, reporters=reporters)
+
+
+class ABTestRunner:
+    """A/B 测试运行器
+
+    对比两种不同配置（如不同 prompt 版本、不同匹配策略）的评估结果。
+    """
+
+    def __init__(
+        self,
+        engine: EvalEngine,
+        control_config: EvalConfig,
+        experiment_config: EvalConfig,
+        control_label: str = "control",
+        experiment_label: str = "experiment",
+    ):
+        """初始化 A/B 测试运行器
+
+        Args:
+            engine: 评估引擎实例
+            control_config: 对照组配置
+            experiment_config: 实验组配置
+            control_label: 对照组标签
+            experiment_label: 实验组标签
+        """
+        self._engine = engine
+        self._control_config = control_config
+        self._experiment_config = experiment_config
+        self._control_label = control_label
+        self._experiment_label = experiment_label
+
+    async def run(
+        self,
+        languages: list[str] | None = None,
+        categories: list[str] | None = None,
+        data_dir: str | None = None,
+    ) -> ABTestResult:
+        """运行 A/B 测试
+
+        Args:
+            languages: 筛选语言
+            categories: 筛选分类
+            data_dir: 数据目录
+
+        Returns:
+            A/B 测试结果
+        """
+        # 保存原始配置
+        original_config = self._engine.config
+
+        # 运行对照组
+        self._engine.config = self._control_config
+        control_report = await self._engine.run(
+            languages=languages,
+            categories=categories,
+            data_dir=data_dir,
+        )
+
+        # 运行实验组
+        self._engine.config = self._experiment_config
+        experiment_report = await self._engine.run(
+            languages=languages,
+            categories=categories,
+            data_dir=data_dir,
+        )
+
+        # 恢复原始配置
+        self._engine.config = original_config
+
+        return ABTestResult(
+            control=control_report,
+            experiment=experiment_report,
+            control_label=self._control_label,
+            experiment_label=self._experiment_label,
+        )
