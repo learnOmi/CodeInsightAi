@@ -10,6 +10,7 @@ from codeinsight.evaluation.metrics import (
     EvaluationResult,
     MetricCalculator,
 )
+from codeinsight.evaluation.runner import EvaluationRunner, load_test_cases
 
 __all__ = [
     "CategoryMetrics",
@@ -17,4 +18,6 @@ __all__ = [
     "MetricCalculator",
     "KnowledgePointEvaluator",
     "SelfEvaluator",
+    "EvaluationRunner",
+    "load_test_cases",
 ]

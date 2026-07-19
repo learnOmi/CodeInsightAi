@@ -369,8 +369,9 @@ class TestFrameworkTagger:
         assert len(composables) >= 1
         assert "vue-composable" in composables[0].tags
         # 边界：composable 不应同时被标记为 vue-component
-        assert "vue-component" not in composables[0].tags, \
+        assert "vue-component" not in composables[0].tags, (
             f"useFetch 不应被标记为 vue-component，实际 tags={composables[0].tags}"
+        )
 
     def test_tag_vue_composable_not_component(self, framework_tagger, vue_component_nodes):
         """边界测试：use[A-Z] 开头的 composable 不应被误标为 vue-component"""
@@ -391,8 +392,9 @@ class TestFrameworkTagger:
         nodes.add(composable)
         framework_tagger.tag_all(nodes)
         assert "vue-composable" in composable.tags
-        assert "vue-component" not in composable.tags, \
+        assert "vue-component" not in composable.tags, (
             f"useUserApi 不应被标记为 vue-component，实际 tags={composable.tags}"
+        )
 
     def test_tag_spring_controller(self, framework_tagger, spring_component_nodes):
         """测试 Spring Controller 标签"""
@@ -442,7 +444,7 @@ class TestFrameworkDetector:
         project_path = tmp_path / "spring-app"
         project_path.mkdir()
         pom_xml = project_path / "pom.xml"
-        pom_xml.write_text('''<project>
+        pom_xml.write_text("""<project>
             <groupId>com.example</groupId>
             <artifactId>spring-app</artifactId>
             <version>1.0.0</version>
@@ -457,7 +459,7 @@ class TestFrameworkDetector:
                     <artifactId>spring-boot-starter-web</artifactId>
                 </dependency>
             </dependencies>
-        </project>''')
+        </project>""")
         return project_path
 
     def test_detect_react(self, framework_detector, react_project):

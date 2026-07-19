@@ -54,6 +54,7 @@ class EvaluationResult:
         category_metrics: 各分类的评估指标列表
         total_extracted: 总提取知识点数量
         total_expected: 总期望知识点数量
+        total_cases: 测试用例数量
         avg_confidence: 平均置信度
         execution_time: 执行时间（秒）
     """
@@ -65,8 +66,9 @@ class EvaluationResult:
     category_metrics: list[CategoryMetrics]
     total_extracted: int
     total_expected: int
-    avg_confidence: float
-    execution_time: float
+    total_cases: int = 0
+    avg_confidence: float = 0.0
+    execution_time: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         """
@@ -83,6 +85,7 @@ class EvaluationResult:
             "category_metrics": [asdict(cm) for cm in self.category_metrics],
             "total_extracted": self.total_extracted,
             "total_expected": self.total_expected,
+            "total_cases": self.total_cases,
             "avg_confidence": self.avg_confidence,
             "execution_time": self.execution_time,
         }

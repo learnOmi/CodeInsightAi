@@ -1,0 +1,118 @@
+{
+  "repo_id": "benchmark-ad",
+  "category": "AD",
+  "description": "架构决策识别评估数据集",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AD-001",
+      "description": "分层架构 - 三层结构",
+      "code_snippets": [
+        {
+          "file": "project/structure.txt",
+          "start_line": 1,
+          "end_line": 15,
+          "content": "# project/\n#   api/\n#     handlers.py\n#     routes.py\n#   service/\n#     order_service.py\n#     user_service.py\n#   dal/\n#     order_repo.py\n#     user_repo.py\n#   models/\n#     order.py\n#     user.py",
+          "highlighted_lines": [2, 6, 10]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-Layered",
+          "title": "分层架构",
+          "description": "项目采用经典的三层架构，api 层处理 HTTP 请求，service 层处理业务逻辑，dal 层处理数据访问，职责清晰",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "AD-002",
+      "description": "依赖注入 - 构造器注入",
+      "code_snippets": [
+        {
+          "file": "di/container.py",
+          "start_line": 1,
+          "end_line": 35,
+          "content": "class ServiceContainer:\n    def __init__(self):\n        self._services = {}\n\n    def register(self, interface, implementation):\n        self._services[interface] = implementation\n\n    def resolve(self, interface):\n        impl = self._services.get(interface)\n        if impl is None:\n            raise ValueError(f\"No implementation for {interface}\")\n        return impl()\n\nclass UserService:\n    def __init__(self, repo: UserRepository):\n        self._repo = repo\n\ncontainer = ServiceContainer()\ncontainer.register(UserRepository, MySQLUserRepository)\nuser_service = UserService(container.resolve(UserRepository))",
+          "highlighted_lines": [4, 7, 15, 18]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-DI",
+          "title": "依赖注入模式",
+          "description": "使用 ServiceContainer 实现依赖注入，通过构造器注入方式解耦依赖关系，提高可测试性",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "id": "AD-003",
+      "description": "MVC 架构 - Web 框架",
+      "code_snippets": [
+        {
+          "file": "web/app.py",
+          "start_line": 1,
+          "end_line": 25,
+          "content": "# app/\n#   controllers/\n#     user_controller.py\n#     order_controller.py\n#   models/\n#     user.py\n#     order.py\n#   views/\n#     user_view.py\n#     order_view.py\n#   templates/\n#     user.html\n#     order.html\n#   routes.py\n\nfrom flask import Flask\napp = Flask(__name__)\n\n@app.route('/users')\ndef list_users():\n    return render_template('user.html', users=User.query.all())",
+          "highlighted_lines": [2, 6, 10, 14, 18]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-MVC",
+          "title": "MVC 架构模式",
+          "description": "Web 应用采用 MVC 架构，controllers 处理请求，models 管理数据，views 和 templates 负责展示",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "AD-004",
+      "description": "事件驱动架构 - 消息队列",
+      "code_snippets": [
+        {
+          "file": "events/message_bus.py",
+          "start_line": 1,
+          "end_line": 40,
+          "content": "class MessageBus:\n    def __init__(self):\n        self._handlers: dict[str, list[Handler]] = {}\n\n    def register_handler(self, event_type: str, handler: Handler):\n        self._handlers.setdefault(event_type, []).append(handler)\n\n    def send(self, event: Event):\n        for handler in self._handlers.get(event.type, []):\n            handler.handle(event)\n\nclass OrderPlacedEvent(Event):\n    def __init__(self, order_id: str):\n        self.type = \"order.placed\"\n        self.data = {\"order_id\": order_id}\n\nclass EmailHandler(Handler):\n    def handle(self, event: Event):\n        print(f\"Sending email for {event.data['order_id']}\")\n\nbus = MessageBus()\nbus.register_handler(\"order.placed\", EmailHandler())\nbus.send(OrderPlacedEvent(\"12345\"))",
+          "highlighted_lines": [4, 7, 10, 18, 24]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-EventDriven",
+          "title": "事件驱动架构",
+          "description": "通过 MessageBus 实现事件驱动架构，事件发布者与处理器完全解耦，支持异步处理",
+          "confidence": 0.9
+        }
+      ]
+    },
+    {
+      "id": "AD-005",
+      "description": "CQRS - 读写分离",
+      "code_snippets": [
+        {
+          "file": "cqrs/commands.py",
+          "start_line": 1,
+          "end_line": 35,
+          "content": "# 命令模型（写）\nclass CreateOrderCommand:\n    def __init__(self, user_id: str, items: list):\n        self.user_id = user_id\n        self.items = items\n\nclass OrderCommandHandler:\n    def handle(self, command: CreateOrderCommand):\n        order = Order.create(command.user_id, command.items)\n        db_write.session.add(order)\n        db_write.session.commit()\n\n# 查询模型（读）\nclass OrderQuery:\n    def get_orders_by_user(self, user_id: str):\n        return db_read.query(Order).filter(Order.user_id == user_id).all()\n\ncommand_handler = OrderCommandHandler()\nquery_handler = OrderQuery()",
+          "highlighted_lines": [10, 18, 21]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AD",
+          "prefix": "AD-CQRS",
+          "title": "CQRS 读写分离",
+          "description": "将命令（写操作）和查询（读操作）分离到不同的模型，使用不同的数据库连接优化读写性能",
+          "confidence": 0.85
+        }
+      ]
+    }
+  ]
+}

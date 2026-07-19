@@ -1,0 +1,118 @@
+{
+  "repo_id": "benchmark-dk",
+  "category": "DK",
+  "description": "领域知识识别评估数据集",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DK-001",
+      "description": "订单领域模型 - 电商核心",
+      "code_snippets": [
+        {
+          "file": "domain/order.py",
+          "start_line": 1,
+          "end_line": 40,
+          "content": "from dataclasses import dataclass\nfrom enum import Enum\n\nclass OrderStatus(Enum):\n    PENDING = \"pending\"\n    PAID = \"paid\"\n    SHIPPED = \"shipped\"\n    DELIVERED = \"delivered\"\n    CANCELLED = \"cancelled\"\n\n@dataclass\nclass Order:\n    id: str\n    user_id: str\n    items: list[OrderItem]\n    total_amount: float\n    status: OrderStatus\n    shipping_address: Address\n    created_at: datetime\n\n    def can_cancel(self) -> bool:\n        return self.status in [OrderStatus.PENDING, OrderStatus.PAID]\n\n    def calculate_total(self) -> float:\n        return sum(item.price * item.quantity for item in self.items)",
+          "highlighted_lines": [4, 8, 12, 18, 23, 24]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-OrderDomain",
+          "title": "订单领域模型",
+          "description": "电商领域核心的订单模型，包含订单状态机（待支付→已支付→已发货→已签收→已取消）、金额计算、取消校验等业务逻辑",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "DK-002",
+      "description": "支付路由策略 - 金融领域",
+      "code_snippets": [
+        {
+          "file": "payment/routing.py",
+          "start_line": 1,
+          "end_line": 45,
+          "content": "class PaymentRouter:\n    def __init__(self):\n        self._rules: list[RoutingRule] = []\n\n    def add_rule(self, rule: RoutingRule):\n        self._rules.append(rule)\n\n    def route(self, payment: Payment) -> PaymentChannel:\n        for rule in sorted(self._rules, key=lambda r: r.priority):\n            if rule.matches(payment):\n                return rule.channel\n        return DefaultChannel()\n\nclass RoutingRule:\n    def __init__(self, condition, channel, priority=0):\n        self.condition = condition\n        self.channel = channel\n        self.priority = priority\n\n    def matches(self, payment: Payment) -> bool:\n        return self.condition(payment)\n\nrouter = PaymentRouter()\nrouter.add_rule(RoutingRule(lambda p: p.amount < 100, Alipay(), 1))\nrouter.add_rule(RoutingRule(lambda p: p.amount >= 100, WechatPay(), 2))",
+          "highlighted_lines": [4, 7, 10, 14, 22, 26]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-PaymentRouting",
+          "title": "支付路由策略",
+          "description": "支付领域的路由策略，根据金额等条件动态选择支付渠道，支持优先级排序和规则扩展",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "DK-003",
+      "description": "库存管理 - 电商领域",
+      "code_snippets": [
+        {
+          "file": "domain/inventory.py",
+          "start_line": 1,
+          "end_line": 40,
+          "content": "class InventoryService:\n    def __init__(self):\n        self._locks: dict[str, bool] = {}\n\n    def reserve(self, sku: str, quantity: int) -> bool:\n        \"\"\"预扣库存\"\"\"\n        available = self.get_available(sku)\n        if available < quantity:\n            return False\n        self._locks[sku] = self._locks.get(sku, 0) + quantity\n        return True\n\n    def confirm(self, sku: str, quantity: int):\n        \"\"\"确认扣减\"\"\"\n        self._locks[sku] -= quantity\n\n    def release(self, sku: str, quantity: int):\n        \"\"\"释放预扣\"\"\"\n        if sku in self._locks:\n            self._locks[sku] -= quantity\n\n    def get_available(self, sku: str) -> int:\n        total = self._get_stock(sku)\n        locked = self._locks.get(sku, 0)\n        return total - locked",
+          "highlighted_lines": [5, 6, 10, 14, 18, 24]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-Inventory",
+          "title": "库存管理（预扣+确认）",
+          "description": "电商领域库存管理，采用预扣-确认-释放的三阶段策略，防止超卖，保证库存一致性",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "DK-004",
+      "description": "风控评分系统 - 金融领域",
+      "code_snippets": [
+        {
+          "file": "risk/scoring.py",
+          "start_line": 1,
+          "end_line": 45,
+          "content": "class RiskScorer:\n    def __init__(self):\n        self._rules: list[RiskRule] = []\n\n    def add_rule(self, rule: RiskRule):\n        self._rules.append(rule)\n\n    def score(self, transaction: Transaction) -> int:\n        total_score = 0\n        for rule in self._rules:\n            if rule.matches(transaction):\n                total_score += rule.score\n                if total_score >= rule.threshold:\n                    break\n        return total_score\n\nclass RiskRule:\n    def __init__(self, name, condition, score, threshold=100):\n        self.name = name\n        self.condition = condition\n        self.score = score\n        self.threshold = threshold\n\n    def matches(self, transaction: Transaction) -> bool:\n        return self.condition(transaction)\n\n# 高风险规则\nscorer = RiskScorer()\nscorer.add_rule(RiskRule(\"high_amount\", lambda t: t.amount > 10000, 50))\nscorer.add_rule(RiskRule(\"new_user\", lambda t: t.user_age_days < 7, 30))\nscorer.add_rule(RiskRule(\"foreign_ip\", lambda t: t.ip_country != t.user_country, 40))",
+          "highlighted_lines": [4, 7, 10, 14, 18, 24, 29]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-RiskScoring",
+          "title": "风控评分系统",
+          "description": "金融风控领域的评分卡系统，通过规则引擎累加评分，支持阈值断路和规则优先级管理",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "DK-005",
+      "description": "推荐排序 - 内容推荐",
+      "code_snippets": [
+        {
+          "file": "recommend/ranker.py",
+          "start_line": 1,
+          "end_line": 40,
+          "content": "class RecommendationRanker:\n    def __init__(self):\n        self._features: list[RankingFeature] = []\n\n    def add_feature(self, feature: RankingFeature):\n        self._features.append(feature)\n\n    def rank(self, items: list[Item], user: User) -> list[Item]:\n        scored = []\n        for item in items:\n            score = 0.0\n            for feature in self._features:\n                score += feature.compute(item, user) * feature.weight\n            scored.append((score, item))\n\n        scored.sort(key=lambda x: x[0], reverse=True)\n        return [item for _, item in scored]\n\nclass RankingFeature:\n    def __init__(self, name: str, weight: float):\n        self.name = name\n        self.weight = weight\n\n    def compute(self, item: Item, user: User) -> float:\n        raise NotImplementedError",
+          "highlighted_lines": [4, 10, 12, 13, 15, 20]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DK",
+          "prefix": "DK-RecommendationRanking",
+          "title": "推荐排序算法",
+          "description": "内容推荐领域的排序系统，通过多特征加权打分对推荐结果排序，支持灵活的特征组合和权重配置",
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}

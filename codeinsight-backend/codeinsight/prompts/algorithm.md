@@ -91,6 +91,73 @@ def partition(arr, low, high):
 }
 ```
 
+### 示例 2：LRU 缓存
+
+```python
+# 输入
+from collections import OrderedDict
+
+class LRUCache:
+    def __init__(self, capacity: int):
+        self.capacity = capacity
+        self.cache = OrderedDict()
+
+    def get(self, key: str):
+        if key not in self.cache:
+            return -1
+        self.cache.move_to_end(key)
+        return self.cache[key]
+
+    def put(self, key: str, value):
+        if key in self.cache:
+            self.cache.move_to_end(key)
+        self.cache[key] = value
+        if len(self.cache) > self.capacity:
+            self.cache.popitem(last=False)
+
+# 输出
+{
+  "category": "AL",
+  "prefix": "AL-LRUCache",
+  "title": "LRU 缓存淘汰算法",
+  "description": "实现了 LRU 缓存淘汰策略，使用 OrderedDict 维护访问顺序，get 和 put 操作均为 O(1) 时间复杂度",
+  "confidence": 0.95,
+  "code_snippets": [{"file": "cache/lru.py", "start_line": 1, "end_line": 20, "content": "...", "highlighted_lines": [5, 6, 11, 17]}],
+  "tags": ["caching", "data-structure", "O(1)"]
+}
+```
+
+### 示例 3：二分查找
+
+```python
+# 输入
+def binary_search(arr, target):
+    left, right = 0, len(arr) - 1
+
+    while left <= right:
+        mid = left + (right - left) // 2
+
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+
+    return -1
+
+# 输出
+{
+  "category": "AL",
+  "prefix": "AL-BinarySearch",
+  "title": "二分查找算法",
+  "description": "实现了二分查找算法，时间复杂度 O(log n)，使用 left + (right-left)//2 防止整数溢出",
+  "confidence": 0.95,
+  "code_snippets": [{"file": "search/binary_search.py", "start_line": 1, "end_line": 15, "content": "...", "highlighted_lines": [2, 5, 7]}],
+  "tags": ["searching", "divide-and-conquer", "O(log n)"]
+}
+```
+
 ---
 
 ## 约束

@@ -1,0 +1,118 @@
+{
+  "repo_id": "benchmark-dp",
+  "category": "DP",
+  "description": "设计模式检测评估数据集",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "DP-001",
+      "description": "工厂方法模式 - 数据库连接工厂",
+      "code_snippets": [
+        {
+          "file": "db/connection.py",
+          "start_line": 1,
+          "end_line": 45,
+          "content": "class DatabaseConnection:\n    def connect(self):\n        raise NotImplementedError\n\nclass MySQLConnection(DatabaseConnection):\n    def connect(self):\n        return \"MySQL connected\"\n\nclass PostgreSQLConnection(DatabaseConnection):\n    def connect(self):\n        return \"PostgreSQL connected\"\n\nclass ConnectionFactory:\n    @staticmethod\n    def create(db_type: str) -> DatabaseConnection:\n        if db_type == \"mysql\":\n            return MySQLConnection()\n        elif db_type == \"postgresql\":\n            return PostgreSQLConnection()\n        raise ValueError(f\"Unknown db type: {db_type}\")",
+          "highlighted_lines": [13, 17, 21]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-Factory",
+          "title": "工厂方法模式",
+          "description": "使用工厂方法模式创建不同类型的数据库连接，通过 ConnectionFactory 统一管理连接对象的创建逻辑",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "DP-002",
+      "description": "观察者模式 - 事件系统",
+      "code_snippets": [
+        {
+          "file": "events/event_bus.py",
+          "start_line": 1,
+          "end_line": 50,
+          "content": "class EventListener:\n    def on_event(self, event_type: str, data: dict):\n        pass\n\nclass EventBus:\n    def __init__(self):\n        self._listeners: dict[str, list[EventListener]] = {}\n\n    def subscribe(self, event_type: str, listener: EventListener):\n        if event_type not in self._listeners:\n            self._listeners[event_type] = []\n        self._listeners[event_type].append(listener)\n\n    def unsubscribe(self, event_type: str, listener: EventListener):\n        self._listeners[event_type].remove(listener)\n\n    def publish(self, event_type: str, data: dict):\n        for listener in self._listeners.get(event_type, []):\n            listener.on_event(event_type, data)",
+          "highlighted_lines": [7, 11, 19]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-Observer",
+          "title": "观察者模式",
+          "description": "通过 EventBus 实现观察者模式，支持事件的订阅、取消订阅和发布，解耦事件发送者和接收者",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "DP-003",
+      "description": "策略模式 - 支付策略",
+      "code_snippets": [
+        {
+          "file": "payment/strategies.py",
+          "start_line": 1,
+          "end_line": 40,
+          "content": "class PaymentStrategy:\n    def pay(self, amount: float) -> str:\n        raise NotImplementedError\n\nclass AlipayStrategy(PaymentStrategy):\n    def pay(self, amount: float) -> str:\n        return f\"Alipay: {amount}\"\n\nclass WechatStrategy(PaymentStrategy):\n    def pay(self, amount: float) -> str:\n        return f\"Wechat: {amount}\"\n\nclass PaymentContext:\n    def __init__(self, strategy: PaymentStrategy):\n        self._strategy = strategy\n\n    def execute_payment(self, amount: float) -> str:\n        return self._strategy.pay(amount)",
+          "highlighted_lines": [3, 7, 14, 19]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-Strategy",
+          "title": "策略模式",
+          "description": "使用策略模式封装不同的支付方式，通过 PaymentContext 动态切换支付策略，符合开闭原则",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "DP-004",
+      "description": "单例模式 - 配置管理器",
+      "code_snippets": [
+        {
+          "file": "config/manager.py",
+          "start_line": 1,
+          "end_line": 30,
+          "content": "class ConfigManager:\n    _instance = None\n\n    def __new__(cls):\n        if cls._instance is None:\n            cls._instance = super().__new__(cls)\n            cls._instance._config = {}\n        return cls._instance\n\n    def get(self, key: str, default=None):\n        return self._config.get(key, default)\n\n    def set(self, key: str, value):\n        self._config[key] = value\n\n# Usage\nconfig1 = ConfigManager()\nconfig2 = ConfigManager()\nassert config1 is config2",
+          "highlighted_lines": [3, 5, 7]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-Singleton",
+          "title": "单例模式",
+          "description": "ConfigManager 使用单例模式确保全局只有一个配置实例，通过 __new__ 控制实例化过程",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "DP-005",
+      "description": "装饰器模式 - 日志中间件",
+      "code_snippets": [
+        {
+          "file": "middleware/logging.py",
+          "start_line": 1,
+          "end_line": 35,
+          "content": "from functools import wraps\nimport logging\n\ndef log_execution(func):\n    @wraps(func)\n    def wrapper(*args, **kwargs):\n        logging.info(f\"Calling {func.__name__}\")\n        result = func(*args, **kwargs)\n        logging.info(f\"Called {func.__name__}\")\n        return result\n    return wrapper\n\n@log_execution\ndef process_order(order_id: str):\n    return f\"Order {order_id} processed\"\n\nclass LoggingMixin:\n    def log_method(self, method):\n        @wraps(method)\n        def wrapper(*args, **kwargs):\n            self.logger.info(f\"{method.__name__} called\")\n            return method(*args, **kwargs)\n        return wrapper",
+          "highlighted_lines": [5, 7, 14, 19]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "DP",
+          "prefix": "DP-Decorator",
+          "title": "装饰器模式",
+          "description": "使用装饰器模式实现函数级别的日志记录，通过包装函数透明地添加横切关注点",
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}

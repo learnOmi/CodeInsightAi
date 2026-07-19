@@ -1,0 +1,118 @@
+{
+  "repo_id": "benchmark-al",
+  "category": "AL",
+  "description": "算法实现识别评估数据集",
+  "prompt_version": "1.0.0",
+  "test_cases": [
+    {
+      "id": "AL-001",
+      "description": "快速排序算法",
+      "code_snippets": [
+        {
+          "file": "sort/quicksort.py",
+          "start_line": 1,
+          "end_line": 25,
+          "content": "def quicksort(arr, low=0, high=None):\n    if high is None:\n        high = len(arr) - 1\n    if low < high:\n        pivot_index = partition(arr, low, high)\n        quicksort(arr, low, pivot_index - 1)\n        quicksort(arr, pivot_index + 1, high)\n    return arr\n\ndef partition(arr, low, high):\n    pivot = arr[high]\n    i = low - 1\n    for j in range(low, high):\n        if arr[j] <= pivot:\n            i += 1\n            arr[i], arr[j] = arr[j], arr[i]\n    arr[i + 1], arr[high] = arr[high], arr[i + 1]\n    return i + 1",
+          "highlighted_lines": [5, 6, 7, 12, 15]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-QuickSort",
+          "title": "快速排序算法",
+          "description": "实现了快速排序算法，平均时间复杂度 O(n log n)，采用原地分区操作，空间复杂度 O(log n)",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "AL-002",
+      "description": "Dijkstra 最短路径",
+      "code_snippets": [
+        {
+          "file": "graph/shortest_path.py",
+          "start_line": 1,
+          "end_line": 35,
+          "content": "import heapq\n\ndef dijkstra(graph, start):\n    distances = {node: float('inf') for node in graph}\n    distances[start] = 0\n    pq = [(0, start)]\n\n    while pq:\n        current_dist, current = heapq.heappop(pq)\n        if current_dist > distances[current]:\n            continue\n\n        for neighbor, weight in graph[current].items():\n            distance = current_dist + weight\n            if distance < distances[neighbor]:\n                distances[neighbor] = distance\n                heapq.heappush(pq, (distance, neighbor))\n\n    return distances",
+          "highlighted_lines": [4, 5, 7, 10, 15]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-Dijkstra",
+          "title": "Dijkstra 最短路径算法",
+          "description": "实现了 Dijkstra 最短路径算法，使用优先队列（堆）优化，时间复杂度 O((V+E)log V)",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "AL-003",
+      "description": "LRU 缓存",
+      "code_snippets": [
+        {
+          "file": "cache/lru.py",
+          "start_line": 1,
+          "end_line": 40,
+          "content": "from collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity: int):\n        self.capacity = capacity\n        self.cache = OrderedDict()\n\n    def get(self, key: str):\n        if key not in self.cache:\n            return -1\n        self.cache.move_to_end(key)\n        return self.cache[key]\n\n    def put(self, key: str, value):\n        if key in self.cache:\n            self.cache.move_to_end(key)\n        self.cache[key] = value\n        if len(self.cache) > self.capacity:\n            self.cache.popitem(last=False)",
+          "highlighted_lines": [5, 6, 11, 17, 20]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-LRUCache",
+          "title": "LRU 缓存淘汰算法",
+          "description": "实现了 LRU 缓存淘汰算法，使用 OrderedDict 维护访问顺序，get 和 put 操作时间复杂度均为 O(1)",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "AL-004",
+      "description": "二分查找算法",
+      "code_snippets": [
+        {
+          "file": "search/binary_search.py",
+          "start_line": 1,
+          "end_line": 20,
+          "content": "def binary_search(arr, target):\n    left, right = 0, len(arr) - 1\n\n    while left <= right:\n        mid = left + (right - left) // 2\n\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n\n    return -1",
+          "highlighted_lines": [2, 5, 7, 9, 12]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-BinarySearch",
+          "title": "二分查找算法",
+          "description": "实现了二分查找算法，时间复杂度 O(log n)，空间复杂度 O(1)，使用 left + (right-left)//2 防止整数溢出",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "id": "AL-005",
+      "description": "生产者-消费者模式",
+      "code_snippets": [
+        {
+          "file": "concurrent/pc.py",
+          "start_line": 1,
+          "end_line": 40,
+          "content": "import asyncio\n\nclass ProducerConsumer:\n    def __init__(self, max_size=10):\n        self.queue = asyncio.Queue(max_size)\n\n    async def producer(self, items):\n        for item in items:\n            await self.queue.put(item)\n            print(f\"Produced: {item}\")\n\n    async def consumer(self):\n        while True:\n            item = await self.queue.get()\n            print(f\"Consumed: {item}\")\n            self.queue.task_done()\n\n    async def run(self, items):\n        producer_task = asyncio.create_task(self.producer(items))\n        consumer_task = asyncio.create_task(self.consumer())\n        await asyncio.gather(producer_task, consumer_task)",
+          "highlighted_lines": [5, 9, 10, 14, 15, 19]
+        }
+      ],
+      "expected_points": [
+        {
+          "category": "AL",
+          "prefix": "AL-ProducerConsumer",
+          "title": "生产者-消费者模式",
+          "description": "使用 asyncio.Queue 实现生产者-消费者并发模式，解耦数据生产和消费，支持异步并行处理",
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}

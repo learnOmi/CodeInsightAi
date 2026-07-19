@@ -118,6 +118,7 @@ class TestLLMClientInit:
             return mock
 
         with patch("litellm.acompletion", slow_acompletion):
+
             async def run():
                 tasks = [client.chat([{"role": "user", "content": "hi"}]) for _ in range(4)]
                 start = time.monotonic()

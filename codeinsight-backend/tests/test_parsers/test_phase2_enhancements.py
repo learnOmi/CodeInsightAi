@@ -73,12 +73,15 @@ class TestBaseUtilities:
     def test_is_function_node_true_cases(self, ts_parser):
         """测试 _is_function_node 对函数类型返回 True"""
         # 用真实的 tree-sitter 节点来验证，解析一个包含各种函数类型的文件
-        ts_file = _create_temp_file("test_fn.ts", """
+        ts_file = _create_temp_file(
+            "test_fn.ts",
+            """
 function foo() {}
 const bar = function() {};
 const baz = () => {};
 class C { method() {} }
-""")
+""",
+        )
         result = ts_parser.parse_file(ts_file)
         assert len(result) > 0
 
@@ -695,6 +698,7 @@ class TestASTNodeNewFields:
 def _create_temp_file(name: str, content: str) -> Path:
     """创建临时文件用于测试"""
     import tempfile
+
     tmp_dir = Path(tempfile.gettempdir()) / "phase2_tests"
     tmp_dir.mkdir(exist_ok=True)
     file_path = tmp_dir / name

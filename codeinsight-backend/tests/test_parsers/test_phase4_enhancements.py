@@ -93,16 +93,12 @@ class TestRouteExtractor:
 
     def test_infer_method_from_request_mapping(self, route_extractor):
         """测试从 @RequestMapping 参数推断 HTTP 方法"""
-        method = route_extractor._infer_method_from_args([
-            {"method": "RequestMethod.POST"}
-        ])
+        method = route_extractor._infer_method_from_args([{"method": "RequestMethod.POST"}])
         assert method == "POST"
 
     def test_infer_method_from_flask_methods(self, route_extractor):
         """测试从 Flask methods 参数推断 HTTP 方法"""
-        method = route_extractor._infer_method_from_args([
-            {"methods": ["POST"]}
-        ])
+        method = route_extractor._infer_method_from_args([{"methods": ["POST"]}])
         assert method == "POST"
 
     def test_infer_method_default_get(self, route_extractor):
@@ -338,9 +334,7 @@ class TestSpringRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_spring_route(
-            node, "@GetMapping", ["/api/users/{id}"]
-        )
+        route = route_extractor._extract_spring_route(node, "@GetMapping", ["/api/users/{id}"])
 
         assert route is not None
         assert route.http_method == "GET"
@@ -359,9 +353,7 @@ class TestSpringRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_spring_route(
-            node, "@PostMapping", ["/api/users"]
-        )
+        route = route_extractor._extract_spring_route(node, "@PostMapping", ["/api/users"])
 
         assert route is not None
         assert route.http_method == "POST"
@@ -378,9 +370,7 @@ class TestSpringRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_spring_route(
-            node, "@DeleteMapping", ["/api/users/{id}"]
-        )
+        route = route_extractor._extract_spring_route(node, "@DeleteMapping", ["/api/users/{id}"])
 
         assert route is not None
         assert route.http_method == "DELETE"
@@ -396,9 +386,7 @@ class TestSpringRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_spring_route(
-            node, "@Service", []
-        )
+        route = route_extractor._extract_spring_route(node, "@Service", [])
 
         assert route is None
 
@@ -414,8 +402,7 @@ class TestSpringRouteExtraction:
 
         node = MockNode()
         route = route_extractor._extract_spring_route(
-            node, "@RequestMapping",
-            ["/api/endpoint", {"method": "RequestMethod.PUT"}]
+            node, "@RequestMapping", ["/api/endpoint", {"method": "RequestMethod.PUT"}]
         )
 
         assert route is not None
@@ -442,9 +429,7 @@ class TestPythonRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_python_route(
-            node, "@app.get", ["/api/users"]
-        )
+        route = route_extractor._extract_python_route(node, "@app.get", ["/api/users"])
 
         assert route is not None
         assert route.http_method == "GET"
@@ -462,9 +447,7 @@ class TestPythonRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_python_route(
-            node, "@router.post", ["/api/items"]
-        )
+        route = route_extractor._extract_python_route(node, "@router.post", ["/api/items"])
 
         assert route is not None
         assert route.http_method == "POST"
@@ -481,9 +464,7 @@ class TestPythonRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_python_route(
-            node, "@app.route", ["/", {"methods": ["GET"]}]
-        )
+        route = route_extractor._extract_python_route(node, "@app.route", ["/", {"methods": ["GET"]}])
 
         assert route is not None
         assert route.http_method == "GET"
@@ -501,9 +482,7 @@ class TestPythonRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_python_route(
-            node, "@app.route", ["/users/<int:user_id>"]
-        )
+        route = route_extractor._extract_python_route(node, "@app.route", ["/users/<int:user_id>"])
 
         assert route is not None
         assert route.path_pattern == "/users/{user_id}"
@@ -519,8 +498,6 @@ class TestPythonRouteExtraction:
                 self.qualified_name = ""
 
         node = MockNode()
-        route = route_extractor._extract_python_route(
-            node, "@lru_cache", ["128"]
-        )
+        route = route_extractor._extract_python_route(node, "@lru_cache", ["128"])
 
         assert route is None

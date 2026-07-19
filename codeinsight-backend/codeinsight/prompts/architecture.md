@@ -81,6 +81,71 @@
 }
 ```
 
+### 示例 2：事件驱动架构
+
+```python
+# 输入
+class EventBus:
+    def __init__(self):
+        self._handlers = {}
+
+    def register(self, event_type, handler):
+        self._handlers.setdefault(event_type, []).append(handler)
+
+    def publish(self, event_type, data):
+        for handler in self._handlers.get(event_type, []):
+            handler.handle(data)
+
+class OrderCreatedHandler:
+    def handle(self, data):
+        email_service.send_confirmation(data)
+
+# 输出
+{
+  "category": "AD",
+  "prefix": "AD-EventDriven",
+  "title": "事件驱动架构",
+  "description": "系统采用事件驱动架构，通过 EventBus 解耦事件发布者和处理器，支持异步消息处理和高扩展性",
+  "confidence": 0.95,
+  "code_snippets": [{"file": "events/event_bus.py", "start_line": 1, "end_line": 20, "content": "...", "highlighted_lines": [4, 7, 10]}],
+  "tags": ["event-driven", "architecture", "decoupling"]
+}
+```
+
+### 示例 3：依赖注入
+
+```python
+# 输入
+class ServiceContainer:
+    def __init__(self):
+        self._services = {}
+
+    def register(self, interface, implementation):
+        self._services[interface] = implementation
+
+    def resolve(self, interface):
+        impl = self._services.get(interface)
+        if impl is None:
+            raise ValueError(f"No implementation for {interface}")
+        return impl()
+
+class UserService:
+    def __init__(self, repo: UserRepository, cache: CacheService):
+        self._repo = repo
+        self._cache = cache
+
+# 输出
+{
+  "category": "AD",
+  "prefix": "AD-DI",
+  "title": "依赖注入模式",
+  "description": "使用 ServiceContainer 实现依赖注入，通过构造器注入解耦依赖关系，提高可测试性和可维护性",
+  "confidence": 0.9,
+  "code_snippets": [{"file": "di/container.py", "start_line": 1, "end_line": 20, "content": "...", "highlighted_lines": [4, 7, 14]}],
+  "tags": ["dependency-injection", "architecture", "ioc"]
+}
+```
+
 ---
 
 ## 约束
