@@ -77,6 +77,7 @@ class EmbeddingClient:
         将嵌入向量存储到数据库
 
         通过 pgvector 将向量保存到 KnowledgePointModel 的 embedding 列。
+        注意：本方法不提交会话，由调用方管理事务生命周期。
 
         Args:
             session: 异步数据库会话
@@ -90,15 +91,13 @@ class EmbeddingClient:
             # pgvector's Vector type accepts list[float] at runtime despite type annotation mismatch
             model.embedding = vector  # type: ignore[assignment]
             session.add(model)
-            await session.commit()
 
             logger.debug(
-                "嵌入向量已存储: knowledge_point_id=%s, dimension=%d",
+                "嵌入向量已添加至会话: knowledge_point_id=%s, dimension=%d",
                 model.id,
                 len(vector),
             )
         except Exception as exc:
-            await session.rollback()
             error_msg = f"Embedding storage failed: {exc}"
             logger.error(error_msg, exc_info=True)
             raise LLMError(

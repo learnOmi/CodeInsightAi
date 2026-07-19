@@ -114,8 +114,8 @@ class Settings(BaseSettings):
     # 数据入库批量大小
     ingest_batch_size: int = 500
 
-    # 向量嵌入维度（默认 768 对应流行的 Sentence-Transformer 模型；若使用 OpenAI text-embedding-3-small 需改 1536）
-    embedding_dimension: int = 768
+    # 向量嵌入维度（当前使用 text-embedding-3-small，输出 1536 维）
+    embedding_dimension: int = 1536
 
     model_config = {
         "env_file": ".env",

@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -425,6 +426,82 @@ class TestEmbeddingClient:
         client = EmbeddingClient()
         with pytest.raises(LLMError, match="Empty embedding"):
             await client.embed_single("hello")
+
+    @patch("codeinsight.llm.client.litellm.aembedding")
+    async def test_store(self, mock_aembedding):
+        """存储嵌入向量"""
+        from codeinsight.embedding.client import EmbeddingClient
+
+        mock_response = MagicMock()
+        mock_response.data = [{"embedding": [0.1, 0.2, 0.3]}]
+        mock_aembedding.return_value = mock_response
+
+        mock_session = MagicMock()
+        mock_model = MagicMock()
+        mock_model.id = "test-id"
+
+        client = EmbeddingClient()
+        await client.store(mock_session, mock_model, [0.1, 0.2, 0.3])
+        assert mock_model.embedding == [0.1, 0.2, 0.3]
+        mock_session.add.assert_called_once_with(mock_model)
+        mock_session.commit.assert_not_called()
+
+    @patch("codeinsight.llm.client.litellm.aembedding")
+    async def test_store_rollback_on_failure(self, mock_aembedding):
+        """存储异常时抛出 LLMError（事务由调用方管理）"""
+        from codeinsight.embedding.client import EmbeddingClient
+
+        mock_session = MagicMock()
+        mock_model = MagicMock()
+
+        # 让 session.add 抛出异常
+        mock_session.add.side_effect = ValueError("DB constraint violation")
+
+        client = EmbeddingClient()
+        with pytest.raises(LLMError, match="Embedding storage failed"):
+            await client.store(mock_session, mock_model, [0.1, 0.2, 0.3])
+        # 不再调用 rollback，因为 commit 由调用方管理
+        mock_session.rollback.assert_not_called()
+
+
+# ────────── KnowledgePointDAO with embedding ──────────
+
+
+class TestKnowledgePointDAOWithEmbedding:
+    """知识点 DAO 嵌入向量存储测试"""
+
+    @pytest.mark.asyncio
+    async def test_create_with_embedding(self):
+        """创建含嵌入向量的知识点"""
+        from codeinsight.models.knowledge_point import KnowledgePointModel
+        from codeinsight.repositories.knowledge_point import KnowledgePointDAO
+
+        mock_session = AsyncMock()
+        mock_session.flush = AsyncMock()
+        mock_session.refresh = AsyncMock()
+
+        dao = KnowledgePointDAO()
+        data = {
+            "id": uuid.uuid4(),
+            "version": "v1",
+            "repository_id": uuid.uuid4(),
+            "category": "DP",
+            "category_name": "设计模式",
+            "title": "Factory Pattern",
+            "description": "A design pattern",
+            "confidence": 0.95,
+            "tags": ["factory"],
+            "code_snippets": [],
+            "call_chain": [],
+            "expansion": {},
+            "knowledge_metadata": {},
+            "embedding": [0.1, 0.2, 0.3],
+        }
+        kp = await dao.create(mock_session, data)
+        assert isinstance(kp, KnowledgePointModel)
+        assert kp.embedding == [0.1, 0.2, 0.3]
+        mock_session.add.assert_called_once()
+        mock_session.flush.assert_called_once()
 
 
 # ────────── 辅助：conftest 级别 fixture ──────────

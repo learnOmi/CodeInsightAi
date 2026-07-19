@@ -40,6 +40,7 @@ from codeinsight.analyzers import (
 from codeinsight.constants.redis_keys import repo_active_task_key, task_cancel_key
 from codeinsight.db.redis_client import get_redis_client
 from codeinsight.db.session import async_session_factory
+from codeinsight.embedding.client import EmbeddingClient
 from codeinsight.exceptions import CancelledError
 from codeinsight.llm.client import LLMClient
 from codeinsight.models import FileModel
@@ -1452,9 +1453,14 @@ class AnalysisOrchestrator:
 
                 # 保存知识点到数据库
                 kp_dao = KnowledgePointDAO()
+                embedding_client = EmbeddingClient(llm_client=llm_client)
                 knowledge_points_count = 0
                 for kp in final_state["knowledge_points"]:
                     try:
+                        # 生成嵌入向量
+                        embed_text = f"{kp['title']}\n{kp['description']}"
+                        embedding = await embedding_client.embed_single(embed_text)
+
                         kp_data = {
                             "id": uuid.uuid4(),
                             "version": self.version_tag,
@@ -1469,6 +1475,7 @@ class AnalysisOrchestrator:
                             "call_chain": kp.get("call_chain", []),
                             "expansion": kp.get("expansion", {}),
                             "knowledge_metadata": kp.get("metadata", {}),
+                            "embedding": embedding,
                         }
                         await kp_dao.create(shared_db, kp_data)
                         knowledge_points_count += 1
