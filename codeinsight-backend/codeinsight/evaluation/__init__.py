@@ -4,6 +4,7 @@
 提供知识点提取质量的评估功能，包括基于人工标注的评估和基于 LLM 的自评估。
 """
 
+from codeinsight.evaluation.agent_bridge import AgentBridge, EvalAgentConfig
 from codeinsight.evaluation.engine import (
     ABTestResult,
     ABTestRunner,
@@ -29,10 +30,13 @@ from codeinsight.evaluation.metrics import (
     EvaluationResult,
     MetricCalculator,
 )
+from codeinsight.evaluation.prompt_registry import PromptEntry, PromptRegistry
 from codeinsight.evaluation.reporters import ConsoleReporter, HistoryReporter, JsonReporter, Reporter
 from codeinsight.evaluation.runner import EvaluationRunner, load_test_cases
 
 __all__ = [
+    "AgentBridge",
+    "EvalAgentConfig",
     "CategoryMetrics",
     "EvaluationResult",
     "MetricCalculator",
@@ -59,4 +63,6 @@ __all__ = [
     "CrossLangResult",
     "ABTestResult",
     "ABTestRunner",
+    "PromptRegistry",
+    "PromptEntry",
 ]

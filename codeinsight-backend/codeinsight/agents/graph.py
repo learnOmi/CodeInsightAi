@@ -36,6 +36,15 @@ ANALYSIS_NODES = [
     ("domain_knowledge", "领域知识分析"),
 ]
 
+# 评估分类代码 → 图节点名称映射
+CATEGORY_TO_NODE: dict[str, str] = {
+    "DP": "design_pattern",
+    "AD": "architecture",
+    "AL": "algorithm",
+    "ET": "engineering",
+    "DK": "domain_knowledge",
+}
+
 
 def _route_to_agents(state: AnalysisState) -> list[Send]:
     """扇形分发到所有分析 Agent（并行执行）
@@ -43,12 +52,19 @@ def _route_to_agents(state: AnalysisState) -> list[Send]:
     使用 LangGraph Send API 将当前状态复制并发送到每个分析节点，
     所有节点并行执行，结果通过 StateGraph 的 reducer 自动合并。
 
+    如果 state 中指定了 category，只路由到对应的分析节点（评估场景优化）。
+
     Args:
         state: 当前分析状态
 
     Returns:
         Send 对象列表，每个对象包含目标节点名和状态拷贝
     """
+    category = state.get("current_category", "")
+    if category and category in CATEGORY_TO_NODE:
+        node_name = CATEGORY_TO_NODE[category]
+        return [Send(node_name, state)]
+
     agent_names = ["design_pattern", "architecture", "algorithm", "engineering", "domain_knowledge"]
     return [Send(name, state) for name in agent_names]
 
@@ -202,6 +218,7 @@ class AnalysisGraph:
         repo_id: str,
         ast_data: list[dict[str, Any]],
         code_snippets: list[dict[str, Any]],
+        category: str = "",
     ) -> AnalysisState:
         """
         创建初始分析状态
@@ -210,6 +227,7 @@ class AnalysisGraph:
             repo_id: 仓库唯一标识符
             ast_data: AST 节点数据列表
             code_snippets: 代码片段数据列表
+            category: 评估分类代码（可选），指定后只路由到对应分析节点
 
         Returns:
             初始分析状态
@@ -219,7 +237,7 @@ class AnalysisGraph:
             "ast_data": ast_data,
             "code_snippets": code_snippets,
             "knowledge_points": [],
-            "current_category": "",
+            "current_category": category,
             "progress": 0.0,
             "error": None,
             "messages": [],

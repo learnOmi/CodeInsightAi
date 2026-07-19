@@ -40,7 +40,7 @@ _backend_root = _project_root / "codeinsight-backend"
 if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
-from codeinsight.evaluation.engine import EvalConfig, EvalEngine, EvalReport  # noqa: E402
+from codeinsight.evaluation.engine import EvalConfig, EvalEngine, EvalReport, Regression  # noqa: E402
 from codeinsight.evaluation.history import SnapshotStore  # noqa: E402
 from codeinsight.evaluation.reporters.console_reporter import ConsoleReporter  # noqa: E402
 from codeinsight.evaluation.reporters.history_reporter import HistoryReporter  # noqa: E402
@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -120,7 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="回归检测阈值：F1 下降超过此值视为回归（默认: 0.05）",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         default=False,
         help="启用详细输出",
@@ -131,6 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def parse_csv(value: str | None) -> list[str] | None:
     """将逗号分隔字符串解析为列表，None 返回 None。"""
@@ -200,13 +203,13 @@ def print_summary(report: EvalReport) -> None:
                 f"(下降 {r.drop:.4f})"
             )
         print("")
-
     print("=" * 60)
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 async def main(args: argparse.Namespace) -> int:
     """评估主流程，返回退出码。"""
@@ -243,10 +246,19 @@ async def main(args: argparse.Namespace) -> int:
         await history_reporter.report(report)
 
         # 加载已保存的快照并检测回归
-        regressions = snapshot_store.detect_regressions(
+        raw_regressions = snapshot_store.detect_regressions(
             threshold_f1_drop=args.threshold_f1_drop,
         )
-        report.regressions = regressions
+        report.regressions = [
+            Regression(
+                dimension=r["dimension"],
+                previous_f1=r["previous_f1"],
+                current_f1=r["current_f1"],
+                drop=r["drop"],
+                severity=r["severity"],
+            )
+            for r in raw_regressions
+        ]
 
     # 打印摘要
     print_summary(report)
