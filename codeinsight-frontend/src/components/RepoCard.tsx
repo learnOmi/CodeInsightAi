@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSubmitAnalysis,
   useCancelTask,
   useDeleteRepository,
-  useTaskStatus,
 } from "@/hooks/use-repositories";
+import { useSSE } from "@/hooks/use-sse";
 import { APIError } from "@/api/base";
 import { cn } from "@/utils";
 import { getAnalysisStatusConfig } from "@codeinsight/shared";
@@ -48,10 +48,18 @@ export function RepoCard({ repository }: RepoCardProps) {
   const isAnalyzing = repository.status === "analyzing";
   const taskId = currentTaskId;
 
-  const { data: taskData } = useTaskStatus(
+  // SSE 实时进度（替代轮询）
+  const { data: sseData, error: sseError, isComplete } = useSSE(
     isAnalyzing ? taskId : "",
-    isAnalyzing
-  ) as { data: components["schemas"]["AnalysisTask"] | undefined };
+    isAnalyzing,
+  );
+
+  // SSE 连接完成/失败时刷新仓库数据
+  useEffect(() => {
+    if (isComplete) {
+      queryClient.invalidateQueries({ queryKey: ["repositories"] });
+    }
+  }, [isComplete, queryClient]);
 
   const handleSubmitAnalysis = async () => {
     setSubmitError("");
@@ -80,9 +88,9 @@ export function RepoCard({ repository }: RepoCardProps) {
 
   const handleCancelTask = async () => {
     setCancelError("");
-    if (taskData?.taskId) {
+    if (taskId) {
       try {
-        await cancelTask.mutateAsync(taskData.taskId);
+        await cancelTask.mutateAsync(taskId);
         queryClient.invalidateQueries({ queryKey: ["repositories"] });
       } catch (err) {
         if (err instanceof APIError) {
@@ -109,7 +117,7 @@ export function RepoCard({ repository }: RepoCardProps) {
   };
 
   const statusConfig = getAnalysisStatusConfig(repository.status);
-  const progress = taskData?.progress || { percent: 0, filesProcessed: 0, filesTotal: 0, currentStep: "pending" as TaskStatus, knowledgePointsFound: 0 };
+  const progress = sseData?.progress || { percent: 0, filesProcessed: 0, filesTotal: 0, currentStep: "pending" as TaskStatus, knowledgePointsFound: 0 };
   const currentStep = progress.currentStep ? taskStepLabels[progress.currentStep] : "";
 
   return (
@@ -169,6 +177,9 @@ export function RepoCard({ repository }: RepoCardProps) {
 
         {submitError && (
             <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{submitError}</div>
+          )}
+          {sseError && (
+            <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{sseError}</div>
           )}
           {cancelError && (
             <div className="bg-status-error/10 text-status-error rounded-md px-3 py-2 text-xs mb-3">{cancelError}</div>

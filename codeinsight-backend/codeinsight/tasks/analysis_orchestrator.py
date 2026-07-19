@@ -104,8 +104,17 @@ class ProgressManager:
         """更新进度"""
         if self.task_instance is None:
             return
+        # 将 TaskStatus 映射为标准 Celery state，确保 SSE 端点能正确识别终态
+        # meta 中的 current_step 保留原始 status.value 用于前端展示
+        celery_state = status.value
+        if status == TaskStatus.COMPLETED:
+            celery_state = "SUCCESS"
+        elif status == TaskStatus.FAILED:
+            celery_state = "FAILURE"
+        elif status == TaskStatus.CANCELLED:
+            celery_state = "REVOKED"
         self.task_instance.update_state(
-            state=status.value,
+            state=celery_state,
             meta={
                 "current_step": status.value,
                 "percent": percent,
@@ -1152,6 +1161,9 @@ class AnalysisOrchestrator:
         """标记任务完成"""
         completed_at = datetime.now(UTC)
 
+        self.progress_manager.update(
+            TaskStatus.COMPLETED, 100.0, self.total_files, self.total_files, knowledge_points_count
+        )
         await self._update_analysis_version(
             db,
             TaskStatus.COMPLETED,
@@ -1167,6 +1179,7 @@ class AnalysisOrchestrator:
 
     async def fail(self, db: AsyncSession | None, error_message: str) -> None:
         """标记任务失败"""
+        self.progress_manager.update(TaskStatus.FAILED, 100.0, self.total_files, self.total_files, 0)
         if self.version_id is not None:
             await self._update_analysis_version(
                 db,
@@ -1450,7 +1463,31 @@ class AnalysisOrchestrator:
                     ast_data=ast_data,
                     code_snippets=code_snippets,
                 )
-                final_state = await agent_graph.run(initial_state)
+
+                # AI 阶段子进度：定期推送进度给 Celery
+                if self.task_id:
+
+                    async def _ai_progress_pusher():
+                        for pct in range(62, 80, 2):
+                            self.progress_manager.update(
+                                TaskStatus.ANALYZING_MODULES, float(pct), self.total_files, self.total_files, 0
+                            )
+                            await asyncio.sleep(2)
+                            if getattr(_ai_progress_pusher, "_done", False):
+                                break
+
+                    pusher_task = asyncio.create_task(_ai_progress_pusher())
+                else:
+                    pusher_task = None
+
+                try:
+                    final_state = await agent_graph.run(initial_state)
+                finally:
+                    if pusher_task:
+                        _ai_progress_pusher._done = True  # type: ignore[attr-defined]
+                        pusher_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await pusher_task
 
                 # 保存知识点到数据库
                 kp_dao = KnowledgePointDAO()

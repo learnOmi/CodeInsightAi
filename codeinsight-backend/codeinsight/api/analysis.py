@@ -1,11 +1,13 @@
 """
 分析任务路由
 
-提供分析任务的提交、查询、取消接口。
+提供分析任务的提交、查询、取消接口，以及实时进度推送（SSE）。
 
 依赖 Celery 异步执行，任务状态通过 Redis result_backend 存储。
 """
 
+import asyncio
+import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -15,6 +17,7 @@ from uuid import UUID
 import redis
 from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.auth import get_api_key_dependency
@@ -453,3 +456,79 @@ async def cancel_task(task_id: str):
     else:
         logger.warning("任务取消请求失败: task_id=%s", task_id)
         return {"message": f"Task {task_id} could not be cancelled (may have already finished)"}
+
+
+@router.get("/tasks/{task_id}/stream")
+async def stream_task_progress(task_id: str):
+    """
+    实时推送任务进度（SSE）
+
+    通过 Server-Sent Events 推送任务进度更新，前端可使用 EventSource 消费。
+    推送事件类型：
+    - progress: 进度更新，data 包含 current_step、percent 等字段
+    - complete: 任务完成，data 包含 task_id、status
+    - error: 任务失败，data 包含 task_id、status、error
+
+    Args:
+        task_id: Celery 任务 ID
+
+    Returns:
+        StreamingResponse (text/event-stream)
+    """
+    result: AsyncResult = AsyncResult(task_id, app=celery_app)
+
+    async def event_generator():
+        last_percent = -1.0
+        last_step = ""
+        while True:
+            try:
+                state = result.state
+            except Exception:
+                yield f"event: error\ndata: {json.dumps({'task_id': task_id, 'status': 'unknown', 'error': 'task not found'})}\n\n"
+                break
+
+            if state == "PENDING":
+                if last_percent != 0.0:
+                    last_percent = 0.0
+                    yield f"event: progress\ndata: {json.dumps({'current_step': 'PENDING', 'percent': 0.0, 'files_processed': 0, 'files_total': 0, 'knowledge_points_found': 0})}\n\n"
+                await asyncio.sleep(1)
+                continue
+
+            meta = result.info or {}
+            if not isinstance(meta, dict):
+                meta = {}
+
+            if state == "FAILURE":
+                yield f"event: error\ndata: {json.dumps({'task_id': task_id, 'status': 'FAILED', 'error': str(meta.get('exc_type', 'Unknown')) if isinstance(meta, dict) else str(meta)})}\n\n"
+                break
+
+            if state == "SUCCESS":
+                yield f"event: complete\ndata: {json.dumps({'task_id': task_id, 'status': 'COMPLETED'})}\n\n"
+                break
+
+            # STARTED / RETRY / progress
+            current_step = meta.get("current_step", "SCANNING")
+            percent = meta.get("percent", 0.0)
+            files_processed = meta.get("files_processed", 0)
+            files_total = meta.get("files_total", 0)
+            knowledge_points_found = meta.get("knowledge_points_found", 0)
+
+            if percent != last_percent or current_step != last_step:
+                last_percent = percent
+                last_step = current_step
+                yield f"event: progress\ndata: {json.dumps({'current_step': current_step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found})}\n\n"
+
+            if percent >= 100.0:
+                break
+
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
