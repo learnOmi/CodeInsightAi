@@ -45,14 +45,19 @@ def _keep_last(previous: Any, new: Any) -> Any:
     return new
 
 
+def _merge_progress(previous: float, new: float) -> float:
+    """合并并行分支的 progress（取最大值）"""
+    return max(previous, new)
+
+
 def _merge_messages(previous: list[dict[str, Any]], new: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """合并消息列表（按 role+content 去重）"""
     if not previous:
         return new
-    existing = {(m.get("role", ""), m.get("content", "")) for m in previous}
+    existing = {(m.get("role", ""), m.get("content", "") or "") for m in previous}
     merged = list(previous)
     for m in new:
-        key = (m.get("role", ""), m.get("content", ""))
+        key = (m.get("role", ""), m.get("content", "") or "")
         if key not in existing:
             existing.add(key)
             merged.append(m)
@@ -82,6 +87,6 @@ class AnalysisState(TypedDict):
     code_snippets: Annotated[list[dict[str, Any]], _keep_first]
     knowledge_points: Annotated[list[dict[str, Any]], _accumulate_knowledge_points]
     current_category: Annotated[str, _keep_last]
-    progress: Annotated[float, _keep_last]
+    progress: Annotated[float, _merge_progress]
     error: Annotated[str | None, _keep_first]
     messages: Annotated[list[dict[str, Any]], _merge_messages]

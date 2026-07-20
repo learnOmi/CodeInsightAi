@@ -425,41 +425,37 @@ class IncrementalAnalyzer:
         node_ids: set[UUID],
     ) -> tuple[set[str], set[str]]:
         """
-        按需查询与指定节点相关的调用边，返回 (caller_paths, callee_paths)
+        批量查询与指定节点相关的调用边，返回 (caller_paths, callee_paths)
 
-        通过 JOIN AstNodeModel 获取相关节点的 file_path，
-        而非全量加载节点再在内存中查找。
+        P-2 优化：将 N*2 次查询合并为 2 次批量查询（一次查 callee 方向，一次查 caller 方向），
+        通过 JOIN AstNodeModel 直接获取 file_path，避免 N+1 查询问题。
         """
         from codeinsight.models import AstNodeModel, CallEdgeModel
 
         if not node_ids:
             return set(), set()
 
-        caller_paths: set[str] = set()
-        callee_paths: set[str] = set()
-
-        for node_id in node_ids:
-            # 查询以该节点为 caller 的边，通过 JOIN 获取 callee 的 file_path
-            callee_result = await session.execute(
-                select(AstNodeModel.file_path)
-                .join(CallEdgeModel, CallEdgeModel.callee_node_id == AstNodeModel.id)
-                .where(
-                    CallEdgeModel.repository_id == repo_uuid,
-                    CallEdgeModel.caller_node_id == node_id,
-                )
+        # P-2: 批量查询 callee 方向（当前节点调用其他节点）
+        callee_result = await session.execute(
+            select(AstNodeModel.file_path)
+            .join(CallEdgeModel, CallEdgeModel.callee_node_id == AstNodeModel.id)
+            .where(
+                CallEdgeModel.repository_id == repo_uuid,
+                CallEdgeModel.caller_node_id.in_(node_ids),
             )
-            callee_paths.update(r for r in callee_result.scalars().all() if r)
+        )
+        callee_paths: set[str] = {r for r in callee_result.scalars().all() if r}
 
-            # 查询以该节点为 callee 的边，通过 JOIN 获取 caller 的 file_path
-            caller_result = await session.execute(
-                select(AstNodeModel.file_path)
-                .join(CallEdgeModel, CallEdgeModel.caller_node_id == AstNodeModel.id)
-                .where(
-                    CallEdgeModel.repository_id == repo_uuid,
-                    CallEdgeModel.callee_node_id == node_id,
-                )
+        # P-2: 批量查询 caller 方向（其他节点调用当前节点）
+        caller_result = await session.execute(
+            select(AstNodeModel.file_path)
+            .join(CallEdgeModel, CallEdgeModel.caller_node_id == AstNodeModel.id)
+            .where(
+                CallEdgeModel.repository_id == repo_uuid,
+                CallEdgeModel.callee_node_id.in_(node_ids),
             )
-            caller_paths.update(r for r in caller_result.scalars().all() if r)
+        )
+        caller_paths: set[str] = {r for r in caller_result.scalars().all() if r}
 
         return caller_paths, callee_paths
 

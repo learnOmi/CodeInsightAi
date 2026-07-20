@@ -437,25 +437,21 @@ async def cancel_task(task_id: str):
     if state in ("SUCCESS", "FAILURE"):
         return {"message": f"Task {task_id} already {state.lower()}"}
 
-    # 撤销任务（terminate=True 杀死正在执行的工作进程）
-    revoked = celery_app.control.revoke(task_id, terminate=True)
+    # O-B5: celery_app.control.revoke() 返回 None（fire-and-forget），始终视为成功
+    celery_app.control.revoke(task_id, terminate=True)
 
-    if revoked:
-        logger.info("任务已取消: task_id=%s", task_id)
-        # 清理 Redis 中的活跃任务标记和取消标志
-        try:
-            client = get_redis_client()
-            repo_id_raw = client.get(task_repo_key(task_id))
-            if repo_id_raw:
-                repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else str(repo_id_raw)
-                client.delete(repo_active_task_key(repo_id_str))
-            client.set(task_cancel_key(task_id), "1", ex=settings.redis_cancel_flag_ttl)
-        except redis.RedisError as exc:
-            logger.warning("Redis 清理失败: %s", exc)
-        return {"message": f"Task {task_id} cancellation requested"}
-    else:
-        logger.warning("任务取消请求失败: task_id=%s", task_id)
-        return {"message": f"Task {task_id} could not be cancelled (may have already finished)"}
+    logger.info("任务取消请求已发送: task_id=%s", task_id)
+    # 清理 Redis 中的活跃任务标记和取消标志
+    try:
+        client = get_redis_client()
+        repo_id_raw = client.get(task_repo_key(task_id))
+        if repo_id_raw:
+            repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else str(repo_id_raw)
+            client.delete(repo_active_task_key(repo_id_str))
+        client.set(task_cancel_key(task_id), "1", ex=settings.redis_cancel_flag_ttl)
+    except redis.RedisError as exc:
+        logger.warning("Redis 清理失败: %s", exc)
+    return {"message": f"Task {task_id} cancellation requested"}
 
 
 @router.get("/tasks/{task_id}/stream")

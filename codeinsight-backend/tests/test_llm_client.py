@@ -340,7 +340,10 @@ class TestLLMClientEmbed:
     async def test_embed(self, mock_aembedding, llm_client):
         """批量嵌入"""
         mock_response = MagicMock()
-        mock_response.data = [{"embedding": [0.1, 0.2, 0.3]}]
+        # 修复：litellm aembedding 返回 ModelResponse，data 是 EmbeddingResponse 对象（有 .embedding 属性）
+        mock_embedding = MagicMock()
+        mock_embedding.embedding = [0.1, 0.2, 0.3]
+        mock_response.data = [mock_embedding]
         mock_aembedding.return_value = mock_response
 
         result = await llm_client.embed(["hello"])
@@ -449,7 +452,9 @@ class TestEmbeddingClient:
         from codeinsight.embedding.client import EmbeddingClient
 
         mock_response = MagicMock()
-        mock_response.data = [{"embedding": [0.1, 0.2, 0.3]}]
+        mock_embedding = MagicMock()
+        mock_embedding.embedding = [0.1, 0.2, 0.3]
+        mock_response.data = [mock_embedding]
         mock_aembedding.return_value = mock_response
 
         client = EmbeddingClient()
@@ -462,7 +467,9 @@ class TestEmbeddingClient:
         from codeinsight.embedding.client import EmbeddingClient
 
         mock_response = MagicMock()
-        mock_response.data = [{"embedding": [0.1, 0.2, 0.3]}]
+        mock_embedding = MagicMock()
+        mock_embedding.embedding = [0.1, 0.2, 0.3]
+        mock_response.data = [mock_embedding]
         mock_aembedding.return_value = mock_response
 
         client = EmbeddingClient()

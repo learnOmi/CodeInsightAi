@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, cast
 
@@ -84,6 +85,17 @@ def _route_to_expansion(state: AnalysisState) -> str:
     if state.get("knowledge_points"):
         return "expansion"
     return END
+
+
+ANALYSIS_TIMEOUT = 300.0  # 分析图超时时间（秒）
+
+
+async def _run_with_timeout(graph, state, timeout=ANALYSIS_TIMEOUT):
+    """带超时的分析图执行"""
+    return await asyncio.wait_for(graph.ainvoke(state), timeout=timeout)
+
+
+ANALYSIS_TIMEOUT = 300.0  # 分析图执行超时时间（秒）
 
 
 class AnalysisGraph:
@@ -174,7 +186,14 @@ class AnalysisGraph:
         logger.info("开始执行并行分析图: repo_id=%s", initial_state["repo_id"])
 
         try:
-            final_state = cast(AnalysisState, await self._graph.ainvoke(initial_state))
+            # A-D1: 添加超时保护，避免 LLM 卡住时无限期阻塞
+            final_state = cast(
+                AnalysisState,
+                await asyncio.wait_for(
+                    self._graph.ainvoke(initial_state),
+                    timeout=ANALYSIS_TIMEOUT,
+                ),
+            )
 
             logger.info(
                 "并行分析图执行完成: repo_id=%s, knowledge_points=%d, progress=%.2f",
@@ -185,6 +204,9 @@ class AnalysisGraph:
 
             return final_state
 
+        except TimeoutError:
+            logger.error("分析图执行超时: repo_id=%s, timeout=%.0fs", initial_state["repo_id"], ANALYSIS_TIMEOUT)
+            raise
         except Exception as exc:
             error_msg = f"并行分析图执行失败: {exc}"
             logger.error(error_msg, exc_info=True)

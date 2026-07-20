@@ -448,6 +448,9 @@ class ExpansionNode:
     async def execute(self, state: AnalysisState) -> AnalysisState:
         """为所有知识点生成拓展内容
 
+        A-P1: 使用 asyncio.gather 并发处理，而非串行 for 循环
+        配合 MAX_CONCURRENCY 信号量限制并发度，避免 LLM 过载
+
         Args:
             state: 当前分析状态（已合并的知识点）
 
@@ -461,17 +464,23 @@ class ExpansionNode:
 
         logger.info("开始生成拓展内容: %d 个知识点", len(kps))
 
-        for kp in kps:
-            try:
-                expansion = await self._generate_expansion(kp)
-                if expansion:
-                    kp["expansion"] = expansion
-            except Exception as exc:
-                logger.warning(
-                    "知识点拓展内容生成失败: %s, title=%s",
-                    exc,
-                    kp.get("title", ""),
-                )
+        sem = self._semaphore
+
+        async def _process_expansion(kp: dict) -> None:
+            async with sem:
+                try:
+                    expansion = await self._generate_expansion(kp)
+                    if expansion:
+                        kp["expansion"] = expansion
+                except Exception as exc:
+                    logger.warning(
+                        "知识点拓展内容生成失败: %s, title=%s",
+                        exc,
+                        kp.get("title", ""),
+                    )
+
+        # 并发处理所有知识点，受 MAX_CONCURRENCY 限制
+        await asyncio.gather(*[_process_expansion(kp) for kp in kps])
 
         state["progress"] = 1.0
         logger.info("拓展内容生成完成")

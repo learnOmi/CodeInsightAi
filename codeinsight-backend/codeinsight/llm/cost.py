@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class CostRecord:
     prompt_tokens: int
     completion_tokens: int
     cost: float
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     task_type: str = ""
 
 
@@ -94,7 +94,7 @@ class CostTracker:
         Returns:
             总成本（USD）
         """
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         return sum(r.cost for r in self._records if r.timestamp >= cutoff)
 
     def get_cost_by_model(self, days: int = 7) -> dict[str, float]:
@@ -107,7 +107,7 @@ class CostTracker:
         Returns:
             {model_name: cost_usd} 字典
         """
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         costs: dict[str, float] = {}
         for r in self._records:
             if r.timestamp >= cutoff:
@@ -124,7 +124,7 @@ class CostTracker:
         Returns:
             {task_type: cost_usd} 字典
         """
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         costs: dict[str, float] = {}
         for r in self._records:
             if r.timestamp >= cutoff and r.task_type:

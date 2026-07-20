@@ -38,6 +38,7 @@ class LLMConfig(BaseModel):
     temperature: float = Field(default_factory=lambda: settings.llm_temperature)
     max_tokens: int = 4096
     embedding_model: str = "text-embedding-3-small"
+    ollama_embedding_model: str = "nomic-embed-text"  # Ollama 本地嵌入模型（text-embedding-3-small 在 Ollama 上不存在）
     num_retries: int = 3
     request_timeout: float = Field(default_factory=lambda: float(settings.llm_timeout))
     embedding_timeout: float = 60.0
@@ -144,7 +145,7 @@ class LLMClient:
         }
 
         if self.config.api_key:
-            kwargs["api_key"] = self.config.api_key
+            kwargs["api_key"] = self.config.api_key  # noqa: S106 - 敏感信息由 litellm 内部脱敏
 
         if self.config.api_base:
             kwargs["api_base"] = self.config.api_base
@@ -178,7 +179,8 @@ class LLMClient:
             True 如果 Ollama 服务可用，否则 False
         """
         if self.config.provider.lower() == "ollama":
-            return True  # 已在用 Ollama，视为可用
+            # 即使 provider 是 ollama，也执行实际健康检查（避免 Ollama 服务已崩溃的情况）
+            pass
 
         try:
             import httpx
@@ -444,7 +446,8 @@ class LLMClient:
         try:
             embedding_model = self.config.embedding_model
             if self.config.provider.lower() == "ollama":
-                embedding_model = f"ollama/{self.config.embedding_model}"
+                # 使用 Ollama 专用嵌入模型（text-embedding-3-small 在 Ollama 上不存在）
+                embedding_model = f"ollama/{self.config.ollama_embedding_model}"
 
             kwargs: dict[str, Any] = {
                 "model": embedding_model,

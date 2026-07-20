@@ -698,9 +698,13 @@ class AnalysisOrchestrator:
                     ast_nodes = parser.parse_file(file_obj.absolute_path)
                     # 在入库前应用框架标签，确保 tags 字段被持久化到数据库
                     self.framework_tagger.tag_all(ast_nodes)
+
+                    # O-B7: 与全量分支保持一致，使用 UUID 映射而非 getattr(node, "parent_id")
+                    # ASTNode 对象没有 parent_id 属性，需要像全量分支一样构建 id(node) → UUID 映射
+                    node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
                     nodes_data = []
                     for node in ast_nodes:
-                        parent_id = getattr(node, "parent_id", None)
+                        parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
                         nodes_data.append(
                             {
                                 "repository_id": self.repo_uuid,
@@ -711,7 +715,7 @@ class AnalysisOrchestrator:
                                 "end_line": node.end_line,
                                 "start_column": node.start_column,
                                 "end_column": node.end_column,
-                                "parent_node_id": parent_id,
+                                "parent_node_id": parent_node_id,
                                 "file_path": node.file_path,
                                 "language": node.language,
                                 # Phase 1 新增：框架感知字段
@@ -864,6 +868,7 @@ class AnalysisOrchestrator:
         except Exception:
             logger.exception("框架检测和路由提取失败")
             await db.rollback()
+            raise
 
     async def _attach_middlewares_to_routes(self, db: AsyncSession, middlewares: list[dict[str, Any]]) -> None:
         """
@@ -1123,8 +1128,18 @@ class AnalysisOrchestrator:
         return self.framework_detector.detect_ast_level(ast_nodes)
 
     async def save_snapshot(self, db: AsyncSession | None = None) -> None:
-        """保存分析快照"""
-        if self.incremental_diff is None and self.mode != AnalysisMode.FULL.value:
+        """保存分析快照
+
+        O-B3: 修复增量降级全量时快照丢失的问题
+        当 compute_incremental_diff 返回 False（降级全量）时，
+        incremental_diff 被设为 None，但 save_snapshot 仍应保存快照
+        """
+        # 降级标记：compute_incremental_diff 返回 False 时仍保存快照
+        if getattr(self, "_fell_back_to_full", False):
+            self.incremental_diff = None  # 确保状态一致
+
+        # 修复：不依赖 incremental_diff 判断，而是检查 scan_result 是否完成
+        if not getattr(self, "scan_result", None):
             return
 
         try:
@@ -1132,7 +1147,6 @@ class AnalysisOrchestrator:
                 files = await self.file_dao.get_by_repository(db, self.repo_uuid)
                 snapshot_manager = SnapshotManager(db)
                 count = await snapshot_manager.save_snapshot(self.repo_uuid, self.version_tag, files)
-                await db.commit()
                 logger.info("快照保存完成: repo=%s, version=%s, files=%d", self.repo_uuid, self.version_tag, count)
                 return
 
@@ -1285,14 +1299,27 @@ class AnalysisOrchestrator:
             )
 
     def run(self) -> dict[str, Any]:
-        """执行完整分析流程（由 Celery Worker 调用）"""
+        """同步入口：执行分析流程并返回结果
+
+        O-B2: 兼容已有事件循环的环境（如 Celery Worker 使用 --pool=threads）
+        通过检测是否已有 running loop 来决定使用 asyncio.run() 还是 loop.run_until_complete()
+        """
         try:
-            return asyncio.run(self._run_async())
+            try:
+                asyncio.get_running_loop()
+                loop = asyncio.get_event_loop()
+                return loop.run_until_complete(self._run_async())
+            except RuntimeError:
+                return asyncio.run(self._run_async())
         except CancelledError:
             self._cleanup_redis_task_key()
             raise
         except Exception as exc:
-            asyncio.run(self.fail(None, str(exc)))
+            try:
+                asyncio.get_running_loop()
+                asyncio.get_event_loop().run_until_complete(self.fail(None, str(exc)))
+            except RuntimeError:
+                asyncio.run(self.fail(None, str(exc)))
             raise
 
     async def _run_async(self) -> dict[str, Any]:
@@ -1397,6 +1424,7 @@ class AnalysisOrchestrator:
                 except Exception:
                     logger.exception("结构分析失败")
                     await shared_db.rollback()
+                    raise
 
             # Step 4.5: 框架检测 + API 路由提取 + 中间件链分析
             if skip_to_step != "frameworks":
@@ -1581,4 +1609,7 @@ class AnalysisOrchestrator:
             "version_id": str(self.version_id),
             "version_tag": self.version_tag,
             "status": TaskStatus.COMPLETED.value,
+            # O-B6: 补充 eager 模式需要的字段
+            "files_processed": self.total_files,
+            "knowledge_points_count": knowledge_points_count,
         }
