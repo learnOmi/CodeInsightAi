@@ -195,7 +195,6 @@ class AnalysisOrchestrator:
         """创建分析版本记录"""
         if db is not None:
             await self._do_analysis_setup_inner(db)
-            await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -257,7 +256,6 @@ class AnalysisOrchestrator:
 
         if db is not None:
             await self.version_dao.update(db, self.version_id, update_data)
-            await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -270,7 +268,6 @@ class AnalysisOrchestrator:
             repo = await self.repository_dao.get_by_id(db, self.repo_uuid)
             if repo is not None:
                 repo.status = status
-                await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -305,7 +302,6 @@ class AnalysisOrchestrator:
                 repo.language_distribution = language_distribution
                 repo.current_version = self.version_tag
                 repo.knowledge_points_count = knowledge_points_count
-                await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -325,7 +321,6 @@ class AnalysisOrchestrator:
             if files_data:
                 repo_files = await self.file_dao.create_many(db, self.repo_uuid, files_data)
                 logger.info("文件存储完成: %d 个文件", len(repo_files))
-            await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -568,7 +563,6 @@ class AnalysisOrchestrator:
                     continue
 
             logger.info("AST 解析完成: %d 个节点", parsed_count)
-            await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -685,7 +679,6 @@ class AnalysisOrchestrator:
                     continue
 
             logger.info("增量 AST 解析完成: %d 个节点", parsed_count)
-            await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -757,7 +750,6 @@ class AnalysisOrchestrator:
                 dep_result = await pipeline.ingest_module_deps(self.repo_uuid, deps)
                 logger.info("模块依赖图构建完成: dependencies=%d", dep_result.inserted_count)
 
-            await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -836,7 +828,6 @@ class AnalysisOrchestrator:
         """
         if db is not None:
             await self._detect_frameworks_and_routes_inner(db)
-            await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -1237,7 +1228,6 @@ class AnalysisOrchestrator:
         """清理失败步骤的残留数据"""
         if db is not None:
             await self._cleanup_failed_step_data_inner(db, failed_status)
-            await db.commit()
             return
 
         async with async_session_factory() as db:
@@ -1449,6 +1439,43 @@ class AnalysisOrchestrator:
                     except Exception:
                         pass
 
+                # P3-12: 增量 AI Agent 模式（仅分析变更文件的知识点）
+                kp_dao = KnowledgePointDAO()
+                preserved_kp_count = 0
+                if not do_full_analysis and self.incremental_diff is not None:
+                    affected_paths: set[str] = {c.path for c in self.incremental_diff.changed_files}
+                    affected_paths.update(self.incremental_diff.propagated_files)
+
+                    # 构建 file_path → file_id 映射，用于过滤 ast_data
+                    file_path_to_id = {f.path: f.id for f in files}
+                    affected_file_ids = {file_path_to_id[p] for p in affected_paths if p in file_path_to_id}
+
+                    # 过滤：只保留变更文件的 AST 数据和代码片段
+                    ast_data = [a for a in ast_data if a["file_id"] in affected_file_ids]
+                    code_snippets = [s for s in code_snippets if s["file_path"] in affected_paths]
+
+                    # 加载上一版本的知识点，按 code_snippets.file_path 拆分
+                    prev_version = await self.version_dao.get_latest_completed(shared_db, self.repo_uuid)
+                    if prev_version is not None and prev_version.version != self.version_tag:
+                        existing_kps = await kp_dao.list(shared_db, self.repo_uuid, version=prev_version.version)
+                        for existing_kp in existing_kps:
+                            kp_file_paths = {s.get("file_path") for s in (existing_kp.code_snippets or [])}
+                            if kp_file_paths & affected_paths:
+                                # 关联变更文件 → 删除，后续由 LLM 重新生成
+                                await kp_dao.delete(shared_db, existing_kp.id)
+                            else:
+                                # 未涉及变更文件 → 保留，更新版本号
+                                await kp_dao.update(shared_db, existing_kp.id, {"version": self.version_tag})
+                                preserved_kp_count += 1
+
+                    logger.info(
+                        "增量 AI Agent: 变更文件=%d, 保留历史知识点=%d, 输入 ast_nodes=%d, snippets=%d",
+                        len(affected_paths),
+                        preserved_kp_count,
+                        len(ast_data),
+                        len(code_snippets),
+                    )
+
                 # 运行 AI 分析
                 logger.info(
                     "开始 AI 分析: repo_id=%s, ast_nodes=%d, files=%d",
@@ -1490,7 +1517,6 @@ class AnalysisOrchestrator:
                             await pusher_task
 
                 # 保存知识点到数据库
-                kp_dao = KnowledgePointDAO()
                 embedding_client = EmbeddingClient(llm_client=llm_client)
                 knowledge_points_count = 0
                 for kp in final_state["knowledge_points"]:

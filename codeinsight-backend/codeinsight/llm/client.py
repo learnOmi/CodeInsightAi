@@ -84,6 +84,7 @@ class LLMClient:
         self.config = config or LLMConfig()
         self._model_name: str = self._resolve_model_name()
         self._semaphore = asyncio.Semaphore(self.config.max_concurrency)
+        self._config_lock = asyncio.Lock()
         logger.info(
             "LLMClient 初始化: provider=%s, model=%s",
             self.config.provider,
@@ -218,7 +219,13 @@ class LLMClient:
                     messages=messages,
                     **api_kwargs,
                 )
-            content = response.choices[0].message.content
+            content = response.choices[0].message.content if response.choices else None
+            if content is None:
+                raise LLMError(
+                    "LLM 返回空响应",
+                    provider=self.config.provider,
+                    model=self._model_name,
+                )
 
             usage = getattr(response, "usage", None)
             prompt_tokens = usage.prompt_tokens if usage else 0
@@ -296,6 +303,8 @@ class LLMClient:
                 )
 
             async for chunk in response:
+                if not chunk.choices:
+                    continue
                 content = chunk.choices[0].delta.content
                 if content:
                     yield content
@@ -332,28 +341,31 @@ class LLMClient:
 
         errors: list[str] = []
         original_provider = self.config.provider
+        original_model = self.config.model
 
-        for _attempt, provider in enumerate([original_provider] + fallback_providers):
-            try:
-                self.config.provider = provider  # type: ignore[assignment]
-                self._model_name = self._resolve_model_name()
-                result = await self.chat(messages)
-                if isinstance(result, dict):
-                    result["provider"] = provider
-                return result  # type: ignore[return-value]
-            except Exception as exc:
-                errors.append(f"{provider}: {exc}")
-                logger.warning("Provider %s 失败，尝试下一个: %s", provider, exc)
+        async with self._config_lock:
+            for _attempt, provider in enumerate([original_provider] + fallback_providers):
+                try:
+                    self.config.provider = provider  # type: ignore[assignment]
+                    self._model_name = self._resolve_model_name()
+                    result = await self.chat(messages)
+                    if isinstance(result, dict):
+                        result["provider"] = provider
+                    return result  # type: ignore[return-value]
+                except Exception as exc:
+                    errors.append(f"{provider}: {exc}")
+                    logger.warning("Provider %s 失败，尝试下一个: %s", provider, exc)
 
-        # 恢复原始配置
-        self.config.provider = original_provider  # type: ignore[assignment]
-        self._model_name = self._resolve_model_name()
+            # 恢复原始配置
+            self.config.provider = original_provider  # type: ignore[assignment]
+            self.config.model = original_model  # type: ignore[assignment]
+            self._model_name = self._resolve_model_name()
 
-        raise LLMError(
-            f"所有 Provider 均失败: {'; '.join(errors)}",
-            provider=",".join([original_provider] + fallback_providers),
-            model=self._model_name,
-        )
+            raise LLMError(
+                f"所有 Provider 均失败: {'; '.join(errors)}",
+                provider=",".join([original_provider] + fallback_providers),
+                model=self._model_name,
+            )
 
     async def chat_for_task(
         self,
@@ -392,28 +404,27 @@ class LLMClient:
 
                 old_provider = self.config.provider
                 old_model = self.config.model
-                try:
-                    self.config.provider = "ollama"  # type: ignore[assignment]
-                    self.config.model = local_model.replace("ollama/", "")
-                    self._model_name = self._resolve_model_name()
+                async with self._config_lock:
+                    try:
+                        self.config.provider = "ollama"  # type: ignore[assignment]
+                        self.config.model = local_model.replace("ollama/", "")
+                        self._model_name = self._resolve_model_name()
 
-                    logger.info("任务 '%s' 路由到本地模型: %s", task_type, self._model_name)
-                    result = await self.chat(messages)
+                        logger.info("任务 '%s' 路由到本地模型: %s", task_type, self._model_name)
+                        result = await self.chat(messages)
 
-                    # 恢复
-                    self.config.provider = old_provider  # type: ignore[assignment]
-                    self.config.model = old_model
-                    self._model_name = self._resolve_model_name()
-
-                    if isinstance(result, dict):
-                        result["provider"] = "ollama"
-                        result["cost"] = self.LOCAL_MODEL_COST  # 本地模型不计费
-                    return result  # type: ignore[return-value]
-                except Exception as exc:
-                    logger.warning("本地模型 %s 失败，回退到云端: %s", local_model, exc)
-                    self.config.provider = old_provider  # type: ignore[assignment]
-                    self.config.model = old_model
-                    self._model_name = self._resolve_model_name()
+                        if isinstance(result, dict):
+                            result["provider"] = "ollama"
+                            result["cost"] = self.LOCAL_MODEL_COST  # 本地模型不计费
+                        return result  # type: ignore[return-value]
+                    except Exception as exc:
+                        logger.warning("本地模型 %s 失败，回退到云端: %s", local_model, exc)
+                        raise
+                    finally:
+                        # 确保实例状态始终恢复
+                        self.config.provider = old_provider  # type: ignore[assignment]
+                        self.config.model = old_model
+                        self._model_name = self._resolve_model_name()
 
         return await self.chat(messages)  # type: ignore[return-value]
 
@@ -453,7 +464,7 @@ class LLMClient:
             async with self._semaphore:
                 response = await litellm.aembedding(**kwargs)
 
-            embeddings: list[list[float]] = [data.get("embedding", []) for data in response.data]
+            embeddings: list[list[float]] = [data.embedding for data in response.data]
 
             logger.debug(
                 "嵌入生成完成: count=%d, model=%s",

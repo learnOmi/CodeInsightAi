@@ -19,6 +19,23 @@ logger = logging.getLogger(__name__)
 class KnowledgePointDAO:
     """知识点数据访问对象"""
 
+    # 允许更新的字段白名单（防止 setattr 覆盖 id/repository_id 等敏感字段）
+    _ALLOWED_UPDATE_FIELDS = frozenset(
+        {
+            "title",
+            "description",
+            "confidence",
+            "tags",
+            "code_snippets",
+            "call_chain",
+            "expansion",
+            "knowledge_metadata",
+            "version",
+            "category",
+            "category_name",
+        }
+    )
+
     async def create(self, db: AsyncSession, data: dict) -> KnowledgePointModel:
         """
         创建知识点
@@ -156,6 +173,9 @@ class KnowledgePointDAO:
             raise ValueError(f"KnowledgePoint {point_id} not found")
 
         for key, value in data.items():
+            if key not in self._ALLOWED_UPDATE_FIELDS:
+                logger.warning("跳过不允许更新的字段: %s", key)
+                continue
             setattr(kp, key, value)
 
         await db.flush()

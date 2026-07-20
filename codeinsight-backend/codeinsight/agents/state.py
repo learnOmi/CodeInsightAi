@@ -83,5 +83,5 @@ class AnalysisState(TypedDict):
     knowledge_points: Annotated[list[dict[str, Any]], _accumulate_knowledge_points]
     current_category: Annotated[str, _keep_last]
     progress: Annotated[float, _keep_last]
-    error: Annotated[str | None, _keep_last]
+    error: Annotated[str | None, _keep_first]
     messages: Annotated[list[dict[str, Any]], _merge_messages]

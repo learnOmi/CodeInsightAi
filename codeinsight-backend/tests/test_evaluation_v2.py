@@ -161,7 +161,7 @@ class TestLoadDataset:
         data_dir = Path(data_pkg.__file__).parent
         # 只加载 JSON 文件（非 registry.py）
         datasets = load_datasets_from_dir(data_dir)
-        json_files = list(data_dir.glob("*.json"))
+        json_files = list(data_dir.rglob("*.json"))
         assert len(datasets) == len(json_files)
 
     def test_load_from_file_with_language(self):

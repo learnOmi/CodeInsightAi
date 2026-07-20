@@ -223,9 +223,9 @@ class SelfEvaluator:
 
         result = EvaluationResult(
             repo_id=repo_id,
-            overall_f1=avg_confidence,
-            overall_precision=avg_confidence,
-            overall_recall=avg_confidence,
+            overall_f1=0.0,
+            overall_precision=0.0,
+            overall_recall=0.0,
             category_metrics=[],
             total_extracted=len(extracted_points),
             total_expected=len(extracted_points),
@@ -233,7 +233,11 @@ class SelfEvaluator:
             execution_time=time.time() - start_time,
         )
 
-        logger.info("自评估完成: repo_id=%s, avg_confidence=%.4f", repo_id, avg_confidence)
+        logger.info(
+            "自评估完成: repo_id=%s, avg_confidence=%.4f (注意: F1/Precision/Recall 不可用，自评估仅提供置信度)",
+            repo_id,
+            avg_confidence,
+        )
 
         return result
 

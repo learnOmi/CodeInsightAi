@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from collections.abc import Callable
@@ -555,16 +556,18 @@ class ABTestRunner:
         # 保存原始配置
         original_config = self._engine.config
 
-        # 运行对照组
-        self._engine.config = self._control_config
+        # 运行对照组（使用深拷贝避免修改共享引擎的配置）
+        control_config = copy.deepcopy(self._control_config)
+        self._engine.config = control_config
         control_report = await self._engine.run(
             languages=languages,
             categories=categories,
             data_dir=data_dir,
         )
 
-        # 运行实验组
-        self._engine.config = self._experiment_config
+        # 运行实验组（使用深拷贝避免修改共享引擎的配置）
+        experiment_config = copy.deepcopy(self._experiment_config)
+        self._engine.config = experiment_config
         experiment_report = await self._engine.run(
             languages=languages,
             categories=categories,

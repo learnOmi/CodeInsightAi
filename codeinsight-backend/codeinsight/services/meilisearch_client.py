@@ -8,6 +8,7 @@ Meilisearch 全文搜索客户端
 from __future__ import annotations
 
 import logging
+import threading
 from uuid import UUID
 
 import meilisearch
@@ -31,10 +32,15 @@ class MeiliSearchClient:
 
     _instance: MeiliSearchClient | None = None
     _client: meilisearch.Client | None = None
+    _init_lock: threading.Lock | None = None
 
     def __new__(cls) -> MeiliSearchClient:
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            if cls._init_lock is None:
+                cls._init_lock = threading.Lock()
+            with cls._init_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
 
     @property

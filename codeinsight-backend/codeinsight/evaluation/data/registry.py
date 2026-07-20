@@ -209,7 +209,7 @@ def load_datasets_from_dir(directory: str | Path) -> list[EvalDataset]:
         return []
 
     datasets = []
-    for filepath in sorted(directory.glob("*.json")):
+    for filepath in sorted(directory.rglob("*.json")):
         dataset = load_dataset_from_file(filepath)
         if dataset:
             datasets.append(dataset)
