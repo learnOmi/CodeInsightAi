@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.agents.graph import AnalysisGraph as AgentAnalysisGraph
@@ -38,12 +39,12 @@ from codeinsight.analyzers import (
     RouteExtractor,
 )
 from codeinsight.constants.redis_keys import repo_active_task_key, task_cancel_key
-from codeinsight.db.redis_client import get_redis_client
+from codeinsight.db.redis_client import get_async_redis_client
 from codeinsight.db.session import async_session_factory
 from codeinsight.embedding.client import EmbeddingClient
 from codeinsight.exceptions import CancelledError
 from codeinsight.llm.client import LLMClient
-from codeinsight.models import FileModel
+from codeinsight.models import AstNodeModel, FileModel
 from codeinsight.parsers import ParserFactory
 from codeinsight.pipelines.structure_pipeline import StructureDataPipeline
 from codeinsight.repositories import (
@@ -71,16 +72,17 @@ class CancelChecker:
 
     def __init__(self) -> None:
         """T-6 修复：复用 Redis 客户端，避免频繁创建连接"""
-        self._client = get_redis_client()
+        self._client = None  # 惰性获取异步 Redis 客户端
 
-    def check(self, task_id: str | None) -> None:
+    async def check(self, task_id: str | None) -> None:
         """检查是否存在取消标志"""
         if not task_id:
             return
         try:
-            cancelled = self._client.get(task_cancel_key(task_id))
+            client = await get_async_redis_client()
+            cancelled = await client.get(task_cancel_key(task_id))
             if cancelled:
-                self._client.delete(task_cancel_key(task_id))
+                await client.delete(task_cancel_key(task_id))
                 logger.info("检测到取消标志，终止任务: task_id=%s", task_id)
                 raise CancelledError(f"Task {task_id} was cancelled by user")
         except Exception as exc:
@@ -278,8 +280,11 @@ class AnalysisOrchestrator:
 
     def _cleanup_redis_task_key(self) -> None:
         """任务完成后清理 Redis 中的活跃任务标记"""
+        # 此方法被 run() 的同步上下文调用（异常处理路径），保持同步
         try:
-            client = get_redis_client()
+            from codeinsight.db.redis_client import get_redis_client as _get_sync_redis
+
+            client = _get_sync_redis()
             client.delete(repo_active_task_key(str(self.repo_uuid)))
             logger.debug("已清理 Redis 活跃任务标记: repo=%s", self.repo_uuid)
         except Exception as exc:
@@ -315,20 +320,36 @@ class AnalysisOrchestrator:
                 await db.commit()
 
     async def _store_files_to_db(self, db: AsyncSession | None, files_data: list[dict]) -> None:
-        """存储扫描结果到 files 表"""
+        """存储扫描结果到 files 表
+
+        O-D3: 使用 savepoint 实现近似原子操作——删除和插入在同一事务中，
+        如果插入失败则回滚到 savepoint，保留旧数据。
+        """
         if db is not None:
-            await self.file_dao.delete_by_repository(db, self.repo_uuid)
-            if files_data:
-                repo_files = await self.file_dao.create_many(db, self.repo_uuid, files_data)
-                logger.info("文件存储完成: %d 个文件", len(repo_files))
+            sp = await db.begin_nested()
+            try:
+                await self.file_dao.delete_by_repository(db, self.repo_uuid)
+                if files_data:
+                    repo_files = await self.file_dao.create_many(db, self.repo_uuid, files_data)
+                    logger.info("文件存储完成: %d 个文件", len(repo_files))
+            except Exception:
+                await sp.rollback()
+                logger.error("文件存储失败，已回滚到 savepoint", exc_info=True)
+                raise
             return
 
         async with async_session_factory() as db:
-            await self.file_dao.delete_by_repository(db, self.repo_uuid)
-            if files_data:
-                repo_files = await self.file_dao.create_many(db, self.repo_uuid, files_data)
-                logger.info("文件存储完成: %d 个文件", len(repo_files))
-            await db.commit()
+            sp = await db.begin_nested()
+            try:
+                await self.file_dao.delete_by_repository(db, self.repo_uuid)
+                if files_data:
+                    repo_files = await self.file_dao.create_many(db, self.repo_uuid, files_data)
+                    logger.info("文件存储完成: %d 个文件", len(repo_files))
+                await db.commit()
+            except Exception:
+                await sp.rollback()
+                logger.error("文件存储失败，已回滚到 savepoint", exc_info=True)
+                raise
 
     async def _reconstruct_scan_result(self, db: AsyncSession | None = None) -> bool:
         """从数据库重建扫描结果（断点续跑用）"""
@@ -356,7 +377,8 @@ class AnalysisOrchestrator:
             def __init__(self, files_list: list[FileModel]) -> None:
                 self.files = [_DbScanFile(f) for f in files_list]
                 self.total_count = len(files_list)
-                self.total_lines = sum(f.line_count for f in files_list)
+                # O-B12: line_count 可能为 None，使用 or 0 防止 sum() 崩溃
+                self.total_lines = sum(f.line_count or 0 for f in files_list)
                 self.language_distribution: dict[str, int] = {}
                 for f in files_list:
                     self.language_distribution[f.language] = self.language_distribution.get(f.language, 0) + 1
@@ -381,7 +403,7 @@ class AnalysisOrchestrator:
         Returns:
             True 扫描成功，False 需要从头开始
         """
-        self.cancel_checker.check(self.task_id)
+        await self.cancel_checker.check(self.task_id)
 
         repo_path = await self._get_repo_path(db)
         if repo_path is None:
@@ -530,14 +552,25 @@ class AnalysisOrchestrator:
                     if file_id is None:
                         continue
 
-                    # 为所有节点分配 UUID，建立父节点映射
-                    node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
+                    # O-B10: 使用 name+file_path+start_line+end_line 作为稳定标识符，避免 id(node) 被内存回收复用
+                    node_key_index_a2: dict[str, int] = {}
+                    node_uuids_a2: dict[str, uuid.UUID] = {}
+                    for node in ast_nodes:
+                        key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
+                        idx = node_key_index_a2.get(key, 0)
+                        node_key_index_a2[key] = idx + 1
+                        node_uuids_a2[key] = uuid.uuid4()
+
                     nodes_data = []
                     for node in ast_nodes:
-                        parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
+                        key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
+                        parent_node_id = None
+                        if node.parent is not None:
+                            parent_key = f"{node.parent.file_path}:{node.parent.start_line}:{node.parent.end_line}:{node.parent.name}"
+                            parent_node_id = node_uuids_a2.get(parent_key)
                         nodes_data.append(
                             {
-                                "id": node_uuids[id(node)],
+                                "id": str(node_uuids_a2[key]),
                                 "repository_id": self.repo_uuid,
                                 "file_id": file_id,
                                 "node_type": node.node_type,
@@ -587,14 +620,25 @@ class AnalysisOrchestrator:
                     if file_id is None:
                         continue
 
-                    # 为所有节点分配 UUID，建立父节点映射
-                    node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
+                    # O-B10: 使用 name+file_path+start_line+end_line 作为稳定标识符，避免 id(node) 被内存回收复用
+                    node_key_index_2: dict[str, int] = {}
+                    node_uuids_2: dict[str, uuid.UUID] = {}
+                    for node in ast_nodes:
+                        key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
+                        idx = node_key_index_2.get(key, 0)
+                        node_key_index_2[key] = idx + 1
+                        node_uuids_2[key] = uuid.uuid4()
+
                     nodes_data = []
                     for node in ast_nodes:
-                        parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
+                        key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
+                        parent_node_id = None
+                        if node.parent is not None:
+                            parent_key = f"{node.parent.file_path}:{node.parent.start_line}:{node.parent.end_line}:{node.parent.name}"
+                            parent_node_id = node_uuids_2.get(parent_key)
                         nodes_data.append(
                             {
-                                "id": node_uuids[id(node)],
+                                "id": str(node_uuids_2[key]),
                                 "repository_id": self.repo_uuid,
                                 "file_id": file_id,
                                 "node_type": node.node_type,
@@ -647,11 +691,21 @@ class AnalysisOrchestrator:
                     ast_nodes = parser.parse_file(file_obj.absolute_path)
                     # 在入库前应用框架标签，确保 tags 字段被持久化到数据库
                     self.framework_tagger.tag_all(ast_nodes)
-                    # 为 parser 输出的 ASTNode 对象生成 UUID 映射（用于 parent_node_id 关联）
-                    node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
+                    # O-B10: 使用 name+file_path+start_line+end_line 作为稳定标识符
+                    node_key_index_inc2: dict[str, int] = {}
+                    node_uuids_inc2: dict[str, uuid.UUID] = {}
+                    for node in ast_nodes:
+                        key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
+                        idx = node_key_index_inc2.get(key, 0)
+                        node_key_index_inc2[key] = idx + 1
+                        node_uuids_inc2[key] = uuid.uuid4()
                     nodes_data = []
                     for node in ast_nodes:
-                        parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
+                        key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
+                        parent_node_id = None
+                        if node.parent is not None:
+                            parent_key = f"{node.parent.file_path}:{node.parent.start_line}:{node.parent.end_line}:{node.parent.name}"
+                            parent_node_id = node_uuids_inc2.get(parent_key)
                         nodes_data.append(
                             {
                                 "repository_id": self.repo_uuid,
@@ -699,12 +753,21 @@ class AnalysisOrchestrator:
                     # 在入库前应用框架标签，确保 tags 字段被持久化到数据库
                     self.framework_tagger.tag_all(ast_nodes)
 
-                    # O-B7: 与全量分支保持一致，使用 UUID 映射而非 getattr(node, "parent_id")
-                    # ASTNode 对象没有 parent_id 属性，需要像全量分支一样构建 id(node) → UUID 映射
-                    node_uuids = {id(node): uuid.uuid4() for node in ast_nodes}
+                    # O-B10: 使用 name+file_path+start_line+end_line 作为稳定标识符
+                    node_key_index_inc2b: dict[str, int] = {}
+                    node_uuids_inc2b: dict[str, uuid.UUID] = {}
+                    for node in ast_nodes:
+                        key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
+                        idx = node_key_index_inc2b.get(key, 0)
+                        node_key_index_inc2b[key] = idx + 1
+                        node_uuids_inc2b[key] = uuid.uuid4()
                     nodes_data = []
                     for node in ast_nodes:
-                        parent_node_id = node_uuids.get(id(node.parent)) if node.parent else None
+                        key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
+                        parent_node_id = None
+                        if node.parent is not None:
+                            parent_key = f"{node.parent.file_path}:{node.parent.start_line}:{node.parent.end_line}:{node.parent.name}"
+                            parent_node_id = node_uuids_inc2b.get(parent_key)
                         nodes_data.append(
                             {
                                 "repository_id": self.repo_uuid,
@@ -954,43 +1017,37 @@ class AnalysisOrchestrator:
         repo_path = Path(repo_path_str)
         all_deps: list[dict] = []
 
-        # 从 files 表中获取依赖声明文件
-        files = await self.file_dao.get_by_repository(db, self.repo_uuid)
-        dep_files = []
-
+        # O-P1: 数据库层使用 LIKE 查询依赖文件，而非全量加载后内存过滤
         from codeinsight.analyzers.dependency_parser import DEPENDENCY_FILE_PATTERNS
 
-        for f in files:
-            filename = Path(f.path).name
-            if filename in DEPENDENCY_FILE_PATTERNS:
-                dep_files.append(repo_path / f.path)
+        dep_files = await self.file_dao.get_dependency_files(db, self.repo_uuid, set(DEPENDENCY_FILE_PATTERNS.keys()))
+        dep_paths = [repo_path / f.path for f in dep_files]
 
         logger.info(
-            "外部依赖解析: 总文件数=%d, 找到依赖文件=%d, 依赖文件列表=%s",
-            len(files),
-            len(dep_files),
-            [str(f.name) for f in dep_files],
+            "外部依赖解析: 找到依赖文件=%d, 依赖文件列表=%s",
+            len(dep_paths),
+            [str(p.name) for p in dep_paths],
         )
 
-        if not dep_files:
+        if not dep_paths:
             # Phase 5: 如果 files 表中没有依赖声明文件，
             # 尝试从仓库路径向上查找（用户可能只扫描了 src/ 子目录）
-            dep_files = self._find_dep_files_upward(str(repo_path))
-            if dep_files:
+            dep_paths = self._find_dep_files_upward(str(repo_path))
+            if dep_paths:
                 logger.info(
                     "从仓库路径向上找到 %d 个依赖声明文件: %s",
-                    len(dep_files),
-                    [f.name for f in dep_files],
+                    len(dep_paths),
+                    [f.name for f in dep_paths],
                 )
 
-        if not dep_files:
+        if not dep_paths:
             logger.info("未找到依赖声明文件，跳过外部依赖解析")
             return 0
 
-        logger.info("找到 %d 个依赖声明文件", len(dep_files))
+        logger.info("找到 %d 个依赖声明文件", len(dep_paths))
 
         # 解析每个依赖文件
-        for dep_file in dep_files:
+        for dep_file in dep_paths:
             try:
                 entries = self.dependency_parser.parse_file(dep_file)
                 for entry in entries:
@@ -1095,6 +1152,8 @@ class AnalysisOrchestrator:
         """
         AST 级框架检测：从数据库查询节点标签和注解
 
+        O-P2: 使用分批加载替代全量加载，避免大仓库 OOM
+
         Args:
             db: 数据库会话
 
@@ -1103,29 +1162,54 @@ class AnalysisOrchestrator:
         """
         from codeinsight.parsers.base import ASTNode, ASTNodeList
 
-        # 查询所有节点
-        nodes = await self.ast_node_dao.get_by_repository(db, self.repo_uuid)
+        # O-P2: 分批加载 AST 节点（每批 500 个），避免全量加载到内存
+        batch_size = 500
+        offset = 0
+        all_framework_results: list = []
 
-        # 转换为 ASTNodeList 供 FrameworkDetector 使用
-        ast_nodes = ASTNodeList()
-        for node_model in nodes:
-            ast_node = ASTNode(
-                node_type=node_model.node_type,
-                name=node_model.name,
-                start_line=node_model.start_line,
-                end_line=node_model.end_line,
-                start_column=node_model.start_column,
-                end_column=node_model.end_column,
-                language=node_model.language,
-                file_path=node_model.file_path,
-                tags=node_model.tags or [],
-                annotations=node_model.annotations or [],
-                qualified_name=node_model.qualified_name or "",
+        while True:
+            # 分页查询
+            result = await db.execute(
+                select(AstNodeModel)
+                .where(AstNodeModel.repository_id == self.repo_uuid)
+                .order_by(AstNodeModel.start_line, AstNodeModel.created_at.desc())
+                .offset(offset)
+                .limit(batch_size)
             )
-            ast_nodes.add(ast_node)
+            nodes = list(result.scalars().all())
 
-        # tags 已在解析阶段由 FrameworkTagger 打好并入库，此处直接用于框架检测
-        return self.framework_detector.detect_ast_level(ast_nodes)
+            if not nodes:
+                break
+
+            # 转换为 ASTNodeList 供 FrameworkDetector 使用
+            ast_nodes = ASTNodeList()
+            for node_model in nodes:
+                ast_node = ASTNode(
+                    node_type=node_model.node_type,
+                    name=node_model.name,
+                    start_line=node_model.start_line,
+                    end_line=node_model.end_line,
+                    start_column=node_model.start_column,
+                    end_column=node_model.end_column,
+                    language=node_model.language,
+                    file_path=node_model.file_path,
+                    tags=node_model.tags or [],
+                    annotations=node_model.annotations or [],
+                    qualified_name=node_model.qualified_name or "",
+                )
+                ast_nodes.add(ast_node)
+
+            # tags 已在解析阶段由 FrameworkTagger 打好并入库，此处直接用于框架检测
+            batch_results = self.framework_detector.detect_ast_level(ast_nodes)
+            all_framework_results.extend(batch_results)
+
+            offset += batch_size
+
+            if len(nodes) < batch_size:
+                break
+
+        logger.debug("AST 级框架检测完成: 分批加载 %d 个节点，检测结果 %d 个框架", offset, len(all_framework_results))
+        return all_framework_results
 
     async def save_snapshot(self, db: AsyncSession | None = None) -> None:
         """保存分析快照
@@ -1229,7 +1313,8 @@ class AnalysisOrchestrator:
         elif status == TaskStatus.PARSING.value:
             return version, "ast"
         elif status == TaskStatus.ANALYZING_STRUCTURES.value:
-            return version, "structures"
+            # O-B8: 补充 frameworks 步骤映射，断点续跑时框架检测不再重复执行
+            return version, "frameworks"
         elif status == TaskStatus.ANALYZING_MODULES.value:
             return version, "ai"
         elif status == TaskStatus.STORING.value:
@@ -1455,9 +1540,11 @@ class AnalysisOrchestrator:
                     for n in ast_nodes
                 ]
 
-                # 构建代码片段
+                # 获取仓库路径用于代码读取
                 repo_path = await self._get_repo_path(shared_db)
-                files = await self.file_dao.list_by_repository(shared_db, self.repo_uuid, limit=500)
+
+                # O-B11: 移除 500 条限制，支持大仓库完整分析
+                files = await self.file_dao.get_by_repository(shared_db, self.repo_uuid)
                 code_snippets = []
                 for f in files:
                     try:
@@ -1521,6 +1608,8 @@ class AnalysisOrchestrator:
 
                 # AI 阶段子进度：定期推送进度给 Celery
                 if self.task_id:
+                    # O-B9: 使用 asyncio.Event 替代函数属性突变，消除竞态条件
+                    stop_event = asyncio.Event()
 
                     async def _ai_progress_pusher():
                         for pct in range(62, 80, 2):
@@ -1528,18 +1617,20 @@ class AnalysisOrchestrator:
                                 TaskStatus.ANALYZING_MODULES, float(pct), self.total_files, self.total_files, 0
                             )
                             await asyncio.sleep(2)
-                            if getattr(_ai_progress_pusher, "_done", False):
+                            if stop_event.is_set():
                                 break
 
                     pusher_task = asyncio.create_task(_ai_progress_pusher())
                 else:
+                    stop_event = None
                     pusher_task = None
 
                 try:
                     final_state = await agent_graph.run(initial_state)
                 finally:
                     if pusher_task:
-                        _ai_progress_pusher._done = True  # type: ignore[attr-defined]
+                        assert stop_event is not None
+                        stop_event.set()
                         pusher_task.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await pusher_task
@@ -1577,11 +1668,11 @@ class AnalysisOrchestrator:
                 await shared_db.commit()
                 logger.info("AI 分析完成: knowledge_points=%d", knowledge_points_count)
 
-                # 同步知识点到 Meilisearch 索引
+                # 同步知识点到 Meilisearch 索引（异步安全）
                 if knowledge_points_count > 0:
                     try:
-                        meili_client = MeiliSearchClient()
-                        meili_client.add_documents(final_state["knowledge_points"])
+                        meili_client = await MeiliSearchClient.create()
+                        await meili_client.add_documents(final_state["knowledge_points"])
                         logger.info("知识点已同步到 Meilisearch: count=%d", knowledge_points_count)
                     except Exception as exc:
                         logger.warning("知识点同步到 Meilisearch 失败: %s", exc)

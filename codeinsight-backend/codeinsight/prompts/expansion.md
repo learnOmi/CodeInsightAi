@@ -33,15 +33,15 @@
 ## 输出格式
 
 ```json
-{
+{{
     "principle": "string",
     "applicable_scenarios": ["string"],
     "best_practices": ["string"],
     "related_patterns": ["string"],
     "learning_resources": [
-        {"title": "string", "url": "string", "type": "book|article|video|course"}
+        {{"title": "string", "url": "string", "type": "book|article|video|course"}}
     ]
-}
+}}
 ```
 
 ---
@@ -56,7 +56,7 @@
 
 **输出**：
 ```json
-{
+{{
     "principle": "工厂方法模式通过定义一个创建对象的接口，让子类决定实例化哪个类。它将对象的创建和使用分离，客户端只需依赖抽象接口而非具体实现。核心在于通过继承机制将实例化逻辑下放到子类，实现控制反转。",
     "applicable_scenarios": [
         "类无法预知需要创建哪种对象时",
@@ -76,11 +76,11 @@
         "Prototype — 工厂方法返回新实例，原型模式返回克隆"
     ],
     "learning_resources": [
-        {"title": "GoF 设计模式", "url": "https://en.wikipedia.org/wiki/Factory_method_pattern", "type": "article"},
-        {"title": "Refactoring Guru — Factory Method", "url": "https://refactoring.guru/design-patterns/factory-method", "type": "article"},
-        {"title": "Head First Design Patterns", "url": "https://www.oreilly.com/library/view/head-first-design/9781492077992/", "type": "book"}
+        {{"title": "GoF 设计模式", "url": "https://en.wikipedia.org/wiki/Factory_method_pattern", "type": "article"}},
+        {{"title": "Refactoring Guru — Factory Method", "url": "https://refactoring.guru/design-patterns/factory-method", "type": "article"}},
+        {{"title": "Head First Design Patterns", "url": "https://www.oreilly.com/library/view/head-first-design/9781492077992/", "type": "book"}}
     ]
-}
+}}
 ```
 
 ### 示例 2：事件驱动架构
@@ -91,7 +91,7 @@
 
 **输出**：
 ```json
-{
+{{
     "principle": "事件驱动架构基于事件的产生、检测、消费和响应。组件之间不直接通信，而是通过事件总线发布和订阅事件，实现松耦合。事件可以是状态变更、用户操作或外部触发的信号，支持同步和异步处理模式。",
     "applicable_scenarios": [
         "需要高可扩展性和低耦合的微服务系统",
@@ -113,11 +113,11 @@
         "Observer — 事件驱动的本地变体"
     ],
     "learning_resources": [
-        {"title": "Building Event-Driven Microservices", "url": "https://www.oreilly.com/library/view/building-event-driven-microservices/9781492057888/", "type": "book"},
-        {"title": "Event-Driven Architecture — AWS", "url": "https://aws.amazon.com/event-driven-architecture/", "type": "article"},
-        {"title": "Martin Fowler — Event Sourcing", "url": "https://martinfowler.com/eaaDev/EventSourcing.html", "type": "article"}
+        {{"title": "Building Event-Driven Microservices", "url": "https://www.oreilly.com/library/view/building-event-driven-microservices/9781492057888/", "type": "book"}},
+        {{"title": "Event-Driven Architecture — AWS", "url": "https://aws.amazon.com/event-driven-architecture/", "type": "article"}},
+        {{"title": "Martin Fowler — Event Sourcing", "url": "https://martinfowler.com/eaaDev/EventSourcing.html", "type": "article"}}
     ]
-}
+}}
 ```
 
 ---

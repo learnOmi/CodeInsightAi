@@ -195,18 +195,24 @@ class AgentBridge:
         Returns:
             (TestCase, 提取知识点) 元组列表
         """
-        results: list[tuple[TestCase, list[dict[str, Any]]]] = []
+        import asyncio
 
-        for case in test_cases:
+        sem = asyncio.Semaphore(3)  # 限制并发度
+
+        async def _process(case: TestCase) -> tuple[TestCase, list[dict[str, Any]]]:
+            # E-P1: 在获取信号量前检查 max_cases，避免并发任务同时通过检查
             if self._config.max_cases > 0 and self._cases_processed >= self._config.max_cases:
-                logger.info("批量处理提前终止: 已达到最大用例数 (%d)", self._config.max_cases)
-                break
+                return (case, [])
+            async with sem:
+                try:
+                    points = await self.extract(case)
+                    return (case, points)
+                except Exception as exc:  # noqa: BLE001 - 评估时捕获所有异常继续处理
+                    logger.error("AgentBridge.extract 失败: case_id=%s, error=%s", case.case_id, exc)
+                    return (case, [])
 
-            try:
-                points = await self.extract(case)
-                results.append((case, points))
-            except Exception as exc:  # noqa: BLE001 - 评估时捕获所有异常继续处理
-                logger.error("AgentBridge.extract 失败: case_id=%s, error=%s", case.case_id, exc)
-                results.append((case, []))
+        tasks = [_process(case) for case in test_cases]
+        results = await asyncio.gather(*tasks)
 
-        return results
+        # E-P1: 按原始顺序返回结果
+        return list(results)

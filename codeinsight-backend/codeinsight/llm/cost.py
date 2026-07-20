@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -40,10 +42,11 @@ class CostTracker:
         Args:
             max_records: 最大保留记录数
         """
-        self._records: list[CostRecord] = []
+        self._records: deque[CostRecord] = deque()  # L-D5: 使用 deque 替代 list，pop(0) 为 O(1)
         self._max_records = max_records
+        self._lock = asyncio.Lock()  # L-D6: 添加并发锁保护
 
-    def record(
+    async def record(
         self,
         model: str,
         provider: str,
@@ -53,7 +56,7 @@ class CostTracker:
         task_type: str = "",
     ) -> None:
         """
-        记录一次 LLM 调用成本
+        记录一次 LLM 调用成本（异步并发安全）
 
         Args:
             model: 模型名称
@@ -71,10 +74,12 @@ class CostTracker:
             cost=cost,
             task_type=task_type,
         )
-        self._records.append(record)
 
-        if len(self._records) > self._max_records:
-            self._records.pop(0)
+        async with self._lock:
+            self._records.append(record)
+
+            if len(self._records) > self._max_records:
+                self._records.popleft()  # L-D5: deque.popleft() 为 O(1)
 
         logger.debug(
             "成本记录: model=%s, tokens=%d+%d, cost=$%.6f",

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from typing import Any
@@ -63,7 +64,8 @@ class KnowledgePointEvaluator:
         Returns:
             评估结果
         """
-        start_time = time.time()
+        # E-D1: 使用单调时钟，不受系统时间调整影响
+        start_time = time.monotonic()
         logger.info("开始评估: repo_id=%s", repo_id)
 
         active_matcher = matcher or self._matcher
@@ -111,7 +113,8 @@ class KnowledgePointEvaluator:
         overall_f1 = self._metric_calculator.calculate_f1(overall_precision, overall_recall)
         avg_confidence = self._metric_calculator.calculate_average_confidence(confidence_scores)
 
-        execution_time = time.time() - start_time
+        # E-D1: 使用单调时钟计算耗时
+        execution_time = time.monotonic() - start_time
 
         result = EvaluationResult(
             repo_id=repo_id,
@@ -210,11 +213,15 @@ class SelfEvaluator:
         Returns:
             自评估结果
         """
-        start_time = time.time()
+        # E-D1: 使用单调时钟
+        start_time = time.monotonic()
         logger.info("开始自评估: repo_id=%s", repo_id)
 
+        # E-D2: 复制输入避免原地修改副作用
+        evaluated_points = [copy.deepcopy(point) for point in extracted_points]
+
         confidence_scores = []
-        for point in extracted_points:
+        for point in evaluated_points:
             confidence = await self._evaluate_single_point(point, code_context)
             point["confidence"] = confidence
             confidence_scores.append(confidence)
@@ -230,7 +237,7 @@ class SelfEvaluator:
             total_extracted=len(extracted_points),
             total_expected=len(extracted_points),
             avg_confidence=avg_confidence,
-            execution_time=time.time() - start_time,
+            execution_time=time.monotonic() - start_time,
         )
 
         logger.info(

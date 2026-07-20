@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from codeinsight.agents.state import AnalysisState
 from codeinsight.llm.client import LLMClient
@@ -65,9 +65,11 @@ class AnalysisNode:
         """
         raise NotImplementedError("Subclasses must implement execute method")
 
-    def _build_messages(self, state: AnalysisState, system_prompt: str) -> list[dict[str, Any]]:
+    async def _build_messages(self, state: AnalysisState, system_prompt: str) -> list[dict[str, Any]]:
         """
         构建 LLM 对话消息列表
+
+        在构建完成后估算 Token 数，如果超过上下文窗口的 80%，记录警告。
 
         Args:
             state: 当前分析状态
@@ -84,10 +86,30 @@ class AnalysisNode:
 
 请按照指定的输出格式返回分析结果。"""
 
-        return [
+        messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ]
+
+        # A-D5: 使用 count_tokens() 估算总长度，超过 80% 时警告
+        try:
+            total_tokens = await self._llm_client.count_tokens(messages)
+            # 保守估计常见模型上下文窗口为 128k tokens
+            estimated_context_limit = 128_000
+            usage_ratio = total_tokens / estimated_context_limit
+            if usage_ratio > 0.8:
+                logger.warning(
+                    "LLM 请求 Token 数接近上下文窗口限制: ~%d/%d (%.0f%%), repo_id=%s",
+                    total_tokens,
+                    estimated_context_limit,
+                    usage_ratio * 100,
+                    state.get("repo_id", ""),
+                )
+        except Exception:
+            # count_tokens 失败时静默继续
+            pass
+
+        return messages
 
     def _build_code_context(self, state: AnalysisState) -> str:
         """
@@ -142,7 +164,7 @@ class AnalysisNode:
             validated = _kp_adapter.validate_python(parsed)
             return self._normalize_knowledge_points(validated, category)
 
-        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        except (json.JSONDecodeError, TypeError, ValidationError) as exc:
             logger.warning("LLM 响应解析失败: %s, 原始内容: %s...", exc, content[:200])
             # Fallback: treat raw content as a single knowledge point
             return [
@@ -210,14 +232,10 @@ class DesignPatternNode(AnalysisNode):
 
         try:
             prompt = load_design_pattern_prompt()
-            messages = self._build_messages(state, prompt)
+            messages = await self._build_messages(state, prompt)
 
             response = await self._llm_client.chat(messages)
             knowledge_points = self._parse_response(response, category)
-
-            state["knowledge_points"].extend(knowledge_points)
-            state["current_category"] = category
-            state["progress"] = 0.2
 
             logger.info(
                 "设计模式分析完成: repo_id=%s, extracted=%d",
@@ -225,11 +243,16 @@ class DesignPatternNode(AnalysisNode):
                 len(knowledge_points),
             )
 
+            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
+            return {
+                "knowledge_points": knowledge_points,
+                "current_category": category,
+                "progress": 0.2,
+            }
+
         except LLMError as exc:
             logger.error("设计模式分析失败: %s", exc)
-            state["error"] = str(exc)
-
-        return state
+            return {"error": str(exc)}
 
 
 class ArchitectureNode(AnalysisNode):
@@ -245,14 +268,10 @@ class ArchitectureNode(AnalysisNode):
 
         try:
             prompt = load_architecture_prompt()
-            messages = self._build_messages(state, prompt)
+            messages = await self._build_messages(state, prompt)
 
             response = await self._llm_client.chat(messages)
             knowledge_points = self._parse_response(response, category)
-
-            state["knowledge_points"].extend(knowledge_points)
-            state["current_category"] = category
-            state["progress"] = 0.4
 
             logger.info(
                 "架构设计分析完成: repo_id=%s, extracted=%d",
@@ -260,11 +279,16 @@ class ArchitectureNode(AnalysisNode):
                 len(knowledge_points),
             )
 
+            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
+            return {
+                "knowledge_points": knowledge_points,
+                "current_category": category,
+                "progress": 0.4,
+            }
+
         except LLMError as exc:
             logger.error("架构设计分析失败: %s", exc)
-            state["error"] = str(exc)
-
-        return state
+            return {"error": str(exc)}
 
 
 class AlgorithmNode(AnalysisNode):
@@ -280,14 +304,10 @@ class AlgorithmNode(AnalysisNode):
 
         try:
             prompt = load_algorithm_prompt()
-            messages = self._build_messages(state, prompt)
+            messages = await self._build_messages(state, prompt)
 
             response = await self._llm_client.chat(messages)
             knowledge_points = self._parse_response(response, category)
-
-            state["knowledge_points"].extend(knowledge_points)
-            state["current_category"] = category
-            state["progress"] = 0.6
 
             logger.info(
                 "算法实现分析完成: repo_id=%s, extracted=%d",
@@ -295,11 +315,16 @@ class AlgorithmNode(AnalysisNode):
                 len(knowledge_points),
             )
 
+            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
+            return {
+                "knowledge_points": knowledge_points,
+                "current_category": category,
+                "progress": 0.6,
+            }
+
         except LLMError as exc:
             logger.error("算法实现分析失败: %s", exc)
-            state["error"] = str(exc)
-
-        return state
+            return {"error": str(exc)}
 
 
 class EngineeringNode(AnalysisNode):
@@ -315,14 +340,10 @@ class EngineeringNode(AnalysisNode):
 
         try:
             prompt = load_engineering_prompt()
-            messages = self._build_messages(state, prompt)
+            messages = await self._build_messages(state, prompt)
 
             response = await self._llm_client.chat(messages)
             knowledge_points = self._parse_response(response, category)
-
-            state["knowledge_points"].extend(knowledge_points)
-            state["current_category"] = category
-            state["progress"] = 0.8
 
             logger.info(
                 "工程技术分析完成: repo_id=%s, extracted=%d",
@@ -330,11 +351,16 @@ class EngineeringNode(AnalysisNode):
                 len(knowledge_points),
             )
 
+            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
+            return {
+                "knowledge_points": knowledge_points,
+                "current_category": category,
+                "progress": 0.8,
+            }
+
         except LLMError as exc:
             logger.error("工程技术分析失败: %s", exc)
-            state["error"] = str(exc)
-
-        return state
+            return {"error": str(exc)}
 
 
 class DomainKnowledgeNode(AnalysisNode):
@@ -350,14 +376,10 @@ class DomainKnowledgeNode(AnalysisNode):
 
         try:
             prompt = load_domain_knowledge_prompt()
-            messages = self._build_messages(state, prompt)
+            messages = await self._build_messages(state, prompt)
 
             response = await self._llm_client.chat(messages)
             knowledge_points = self._parse_response(response, category)
-
-            state["knowledge_points"].extend(knowledge_points)
-            state["current_category"] = category
-            state["progress"] = 1.0
 
             logger.info(
                 "领域知识分析完成: repo_id=%s, extracted=%d",
@@ -365,11 +387,16 @@ class DomainKnowledgeNode(AnalysisNode):
                 len(knowledge_points),
             )
 
+            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
+            return {
+                "knowledge_points": knowledge_points,
+                "current_category": category,
+                "progress": 1.0,
+            }
+
         except LLMError as exc:
             logger.error("领域知识分析失败: %s", exc)
-            state["error"] = str(exc)
-
-        return state
+            return {"error": str(exc)}
 
 
 class MergeNode:
@@ -384,8 +411,9 @@ class MergeNode:
     该节点在 fan-in 阶段执行，接收所有 Agent 的累积输出。
     """
 
-    def __init__(self, llm_client: LLMClient):
-        self._llm_client = llm_client
+    def __init__(self, llm_client: LLMClient | None = None):
+        # A-D3: llm_client 参数已移除，保留签名兼容旧调用方
+        pass
 
     async def execute(self, state: AnalysisState) -> AnalysisState:
         """执行合并后处理
@@ -500,10 +528,11 @@ class ExpansionNode:
             category = kp.get("category_name", kp.get("category", ""))
             description = kp.get("description", "")
 
-            prompt = (
-                self._prompt_template.replace("{title}", title)
-                .replace("{category}", category)
-                .replace("{description}", description[:500])
+            # A-B3: 使用 str.format_map 替代链式 str.replace，
+            # 避免 description 中包含 "{title}" 时被二次替换
+            # 注意：expansion.md 模板中的 JSON 示例花括号已转义为 {{/}}
+            prompt = self._prompt_template.format_map(
+                {"title": title, "category": category, "description": description[:500]}
             )
 
             # 简单知识点（描述短）路由到本地模型以节省成本

@@ -7,7 +7,7 @@ File 数据访问对象
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from codeinsight.models import FileModel
@@ -77,6 +77,40 @@ class FileDAO:
             .limit(limit)
             .order_by(FileModel.path)
         )
+        return list(result.scalars().all())
+
+    async def get_dependency_files(
+        self,
+        db: AsyncSession,
+        repository_id: UUID,
+        patterns: set[str],
+    ) -> list[FileModel]:
+        """
+        获取依赖声明文件（O-P1: 数据库层 LIKE 查询，避免全量加载）
+
+        使用 SQL LIKE 条件在数据库层筛选依赖声明文件，
+        而非全量加载所有文件后在内存中过滤。
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            patterns: 依赖声明文件名集合（如 pom.xml, package.json）
+
+        Returns:
+            匹配的 FileModel 列表
+        """
+        if not patterns:
+            return []
+
+        conditions = [
+            FileModel.repository_id == repository_id,
+            or_(
+                *[FileModel.path.ilike(f"%/{pattern}") for pattern in patterns]
+                + [FileModel.path == pattern for pattern in patterns]
+            ),
+        ]
+
+        result = await db.execute(select(FileModel).where(*conditions).order_by(FileModel.path))
         return list(result.scalars().all())
 
     async def update(self, db: AsyncSession, file_id: UUID, data: FileUpdate) -> FileModel:

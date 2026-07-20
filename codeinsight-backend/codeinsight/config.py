@@ -118,6 +118,21 @@ class Settings(BaseSettings):
     # 向量嵌入维度（当前使用 text-embedding-3-small，输出 1536 维）
     embedding_dimension: int = 1536
 
+    # LLM 成本映射 (USD / 1M tokens)，用于 CostTracker
+    llm_cost_map: dict[str, dict[str, float]] = {
+        "claude-3.5-sonnet-20241022": {"input": 3.0, "output": 15.0},
+        "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
+        "gpt-4o": {"input": 2.5, "output": 10.0},
+        "text-embedding-3-small": {"input": 0.02, "output": 0.0},
+    }
+
+    # 简单任务 → 本地模型的降级映射
+    llm_simple_task_models: dict[str, str] = {
+        "classification": "ollama/llama3.1:8b",
+        "summarization": "ollama/llama3.1:8b",
+        "extraction": "ollama/mistral:7b",
+    }
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

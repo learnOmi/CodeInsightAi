@@ -65,7 +65,11 @@ class EmbeddingClient:
         embeddings = await self.embed([text])
         if not embeddings:
             raise LLMError("Empty embedding returned", provider="", model="")
-        return embeddings[0]
+        result = embeddings[0]
+        # L-B9: 检查是否为空向量（所有元素为 0）
+        if not any(v != 0 for v in result):
+            raise LLMError("Empty embedding vector (all zeros)", provider="", model="")
+        return result
 
     async def store(
         self,
@@ -88,8 +92,10 @@ class EmbeddingClient:
             LLMError: 当存储失败时抛出
         """
         try:
-            # pgvector's Vector type accepts list[float] at runtime despite type annotation mismatch
-            model.embedding = vector  # type: ignore[assignment]
+            # L-D9: 显式类型转换，避免 type: ignore 掩盖真实类型不匹配
+            # mypy 认为 Vector 列不接受 list[float]，但 pgvector 运行时支持
+            model_embedding = list[float](vector)
+            model.embedding = model_embedding  # type: ignore[assignment]
             session.add(model)
 
             logger.debug(

@@ -59,7 +59,7 @@ class ChangeType(StrEnum):
 class FileChange:
     """单个文件变更"""
 
-    file_id: UUID
+    file_id: UUID | None
     path: str
     change_type: ChangeType
     old_hash: str | None  # 旧 hash（deleted/modified）
@@ -318,10 +318,10 @@ class IncrementalAnalyzer:
         # 检查删除
         for path in previous_by_path:
             if path not in current_by_path:
-                # 删除文件使用哨兵 file_id（传播逻辑会跳过 DELETED 类型，不会使用该 ID）
+                # S-D2: 使用 None 替代全零 UUID 哨兵，语义更清晰
                 changes.append(
                     FileChange(
-                        file_id=UUID("00000000-0000-0000-0000-000000000000"),
+                        file_id=None,
                         path=path,
                         change_type=ChangeType.DELETED,
                         old_hash=previous_by_path[path],

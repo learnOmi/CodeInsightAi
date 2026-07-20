@@ -28,7 +28,7 @@ from codeinsight.constants.redis_keys import (
     task_mode_key,
     task_repo_key,
 )
-from codeinsight.db.redis_client import get_redis_client
+from codeinsight.db.redis_client import get_async_redis_client
 from codeinsight.db.session import get_db_session
 from codeinsight.repositories import RepositoryDAO
 from codeinsight.repositories.analysis_version import AnalysisVersionDAO
@@ -67,7 +67,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _lookup_repository(task_id: str) -> UUID | None:
+async def _lookup_repository(task_id: str) -> UUID | None:
     """
     根据 task_id 查找关联的 repository_id
 
@@ -82,8 +82,8 @@ def _lookup_repository(task_id: str) -> UUID | None:
         repository UUID，未找到则返回 None
     """
     try:
-        client = get_redis_client()
-        raw = client.get(task_repo_key(task_id))
+        client = await get_async_redis_client()
+        raw = await client.get(task_repo_key(task_id))
         if raw is not None:
             return UUID(str(raw))
         logger.debug("Redis 中未找到任务映射: task_id=%s", task_id)
@@ -92,7 +92,7 @@ def _lookup_repository(task_id: str) -> UUID | None:
     return None
 
 
-def _lookup_task_mode(task_id: str) -> AnalysisMode:
+async def _lookup_task_mode(task_id: str) -> AnalysisMode:
     """
     根据 task_id 查找分析模式
 
@@ -105,8 +105,8 @@ def _lookup_task_mode(task_id: str) -> AnalysisMode:
         AnalysisMode，读取失败时降级为 FULL
     """
     try:
-        client = get_redis_client()
-        raw = client.get(task_mode_key(task_id))
+        client = await get_async_redis_client()
+        raw = await client.get(task_mode_key(task_id))
         if raw is not None:
             return AnalysisMode(str(raw))
     except redis.RedisError:
@@ -114,7 +114,7 @@ def _lookup_task_mode(task_id: str) -> AnalysisMode:
     return AnalysisMode.FULL
 
 
-def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = AnalysisMode.FULL) -> AnalysisTask:
+async def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = AnalysisMode.FULL) -> AnalysisTask:
     """
     将 Celery AsyncResult 转换为 AnalysisTask Schema
 
@@ -158,9 +158,27 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
         knowledge_points_found=meta.get("knowledge_points_found", 0),
     )
 
-    submitted_at = _utcnow()
+    # O-D2: 从 Redis 读取实际提交时间（由 submit_analysis 写入），而非始终使用当前时间
+    submitted_at: datetime | None = None
+    try:
+        client = await get_async_redis_client()
+        submitted_at_raw = await client.get(f"task:{task_id}:submitted_at")
+        if submitted_at_raw:
+            if isinstance(submitted_at_raw, bytes):
+                submitted_at = datetime.fromisoformat(submitted_at_raw.decode("utf-8"))
+            else:
+                submitted_at = datetime.fromisoformat(submitted_at_raw)
+    except Exception:
+        logger.debug("无法读取任务提交时间", exc_info=True)
+    if submitted_at is None:
+        submitted_at = _utcnow()
     started_at_raw = meta.get("started_at") if status != TaskStatus.PENDING else None
-    started_at: datetime | None = datetime.fromisoformat(started_at_raw) if started_at_raw else None
+    started_at: datetime | None = None
+    if started_at_raw:
+        try:
+            started_at = datetime.fromisoformat(started_at_raw)
+        except (ValueError, TypeError):
+            started_at = None
 
     error_message: str | None = None
     if result.state == "FAILURE":
@@ -205,8 +223,8 @@ async def _trigger_analysis(
 
     # 检查是否已有正在运行的任务（防止重复提交）
     try:
-        client = get_redis_client()
-        existing_task_id = client.get(repo_active_task_key(str(repository_id)))
+        client = await get_async_redis_client()
+        existing_task_id = await client.get(repo_active_task_key(str(repository_id)))
         if existing_task_id:
             if isinstance(existing_task_id, bytes):
                 task_id_str = existing_task_id.decode("utf-8")
@@ -219,7 +237,7 @@ async def _trigger_analysis(
                 old_result: AsyncResult = AsyncResult(task_id_str, app=celery_app)
                 if old_result.state in ("SUCCESS", "FAILURE"):
                     logger.info("旧任务已结束(%s)，清理 Redis key: repo=%s", old_result.state, repository_id)
-                    client.delete(repo_active_task_key(str(repository_id)))
+                    await client.delete(repo_active_task_key(str(repository_id)))
                 else:
                     raise HTTPException(
                         status_code=409,
@@ -228,7 +246,7 @@ async def _trigger_analysis(
             else:
                 # eager 模式：任务同步执行完毕，key 残留即为过期，直接清理
                 logger.info("eager 模式：清理残留任务 key: repo=%s", repository_id)
-                client.delete(repo_active_task_key(str(repository_id)))
+                await client.delete(repo_active_task_key(str(repository_id)))
     except redis.RedisError as exc:
         logger.warning("Redis 检查失败，允许继续: %s", exc)
 
@@ -237,11 +255,15 @@ async def _trigger_analysis(
         from codeinsight.tasks.analysis_orchestrator import AnalysisOrchestrator
 
         logger.info("eager 模式：直接执行分析: repo=%s, mode=%s", repository_id, mode.value)
+        # O-B14: 传递 task_id 给 orchestrator，使 CancelChecker 能正常工作
+        eager_task_id = f"eager-{uuid.uuid4()}"
         orchestrator = AnalysisOrchestrator(
             repo_uuid=repository_id,
             mode=mode.value,
             task_instance=None,
         )
+        # 设置 task_id 以便 CancelChecker 能检查取消标志
+        orchestrator.task_id = eager_task_id
         try:
             result = await orchestrator._run_async()
             final_status = TaskStatus.COMPLETED
@@ -259,7 +281,7 @@ async def _trigger_analysis(
             result = {}
 
         return AnalysisTask(
-            task_id=f"eager-{uuid.uuid4()}",
+            task_id=eager_task_id,
             repository_id=repository_id,
             status=final_status,
             mode=mode,
@@ -284,18 +306,24 @@ async def _trigger_analysis(
 
     # 存储 task_id → repository_id 和 mode 映射到 Redis
     try:
-        client = get_redis_client()
-        client.set(
+        client = await get_async_redis_client()
+        await client.set(
             task_repo_key(celery_result.id),
             str(repository_id),
             ex=settings.redis_task_mapping_ttl,
         )
-        client.set(
+        await client.set(
             task_mode_key(celery_result.id),
             mode.value,
             ex=settings.redis_task_mapping_ttl,
         )
-        client.set(repo_active_task_key(str(repository_id)), celery_result.id, ex=settings.redis_task_mapping_ttl)
+        await client.set(repo_active_task_key(str(repository_id)), celery_result.id, ex=settings.redis_task_mapping_ttl)
+        # O-D2: 记录实际提交时间到 Redis
+        await client.set(
+            f"task:{celery_result.id}:submitted_at",
+            _utcnow().isoformat(),
+            ex=settings.redis_task_mapping_ttl,
+        )
     except redis.RedisError as exc:
         logger.warning("Redis 写入映射失败: %s", exc)
 
@@ -387,14 +415,14 @@ async def get_task_status(task_id: str):
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found") from exc
 
     # 查找关联的 repository_id 和分析模式
-    repo_id = _lookup_repository(task_id)
-    mode = _lookup_task_mode(task_id)
+    repo_id = await _lookup_repository(task_id)
+    mode = await _lookup_task_mode(task_id)
 
     if repo_id is None:
         logger.info("任务 %s 未关联仓库信息，使用占位值", task_id)
         repo_id = UUID("00000000-0000-0000-0000-000000000000")
 
-    return _celery_result_to_task(task_id, repo_id, mode)
+    return await _celery_result_to_task(task_id, repo_id, mode)
 
 
 @router.post("/tasks/{task_id}/cancel")
@@ -423,11 +451,11 @@ async def cancel_task(task_id: str):
         logger.warning("任务不存在或无法查询: task_id=%s, error=%s", task_id, exc)
         # 尝试从 Redis 查找关联仓库，直接更新仓库状态
         try:
-            client = get_redis_client()
-            repo_id_raw = client.get(task_repo_key(task_id))
+            client = await get_async_redis_client()
+            repo_id_raw = await client.get(task_repo_key(task_id))
             if repo_id_raw:
                 repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else str(repo_id_raw)
-                client.delete(repo_active_task_key(repo_id_str))
+                await client.delete(repo_active_task_key(repo_id_str))
                 logger.info("任务不存在，已清理 Redis: task_id=%s, repo=%s", task_id, repo_id_str)
         except redis.RedisError:
             pass
@@ -443,12 +471,12 @@ async def cancel_task(task_id: str):
     logger.info("任务取消请求已发送: task_id=%s", task_id)
     # 清理 Redis 中的活跃任务标记和取消标志
     try:
-        client = get_redis_client()
-        repo_id_raw = client.get(task_repo_key(task_id))
+        client = await get_async_redis_client()
+        repo_id_raw = await client.get(task_repo_key(task_id))
         if repo_id_raw:
             repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else str(repo_id_raw)
-            client.delete(repo_active_task_key(repo_id_str))
-        client.set(task_cancel_key(task_id), "1", ex=settings.redis_cancel_flag_ttl)
+            await client.delete(repo_active_task_key(repo_id_str))
+        await client.set(task_cancel_key(task_id), "1", ex=settings.redis_cancel_flag_ttl)
     except redis.RedisError as exc:
         logger.warning("Redis 清理失败: %s", exc)
     return {"message": f"Task {task_id} cancellation requested"}
@@ -514,9 +542,7 @@ async def stream_task_progress(task_id: str):
                 last_step = current_step
                 yield f"event: progress\ndata: {json.dumps({'current_step': current_step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found})}\n\n"
 
-            if percent >= 100.0:
-                break
-
+            # O-B13: 移除 percent >= 100.0 的提前退出条件，确保 SUCCESS 状态时发送 complete 事件
             await asyncio.sleep(1)
 
     return StreamingResponse(

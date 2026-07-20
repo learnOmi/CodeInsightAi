@@ -108,7 +108,13 @@ class KnowledgePointDAO:
             query = query.where(KnowledgePointModel.category == category)
 
         if tag is not None:
-            query = query.where(KnowledgePointModel.tags.contains([tag]))
+            # S-B3: PostgreSQL ARRAY 使用 contains()，MySQL 需改用 JSON_CONTAINS
+            # 当前系统依赖 PostgreSQL，若未来需要跨数据库支持，可在此处按后端类型分支
+            if db.get_bind().dialect.name == "postgresql":
+                query = query.where(KnowledgePointModel.tags.contains([tag]))
+            else:
+                # 非 PostgreSQL 后端：降级为字符串匹配（性能较差但可移植）
+                query = query.where(KnowledgePointModel.tags.ilike(f"%{tag}%"))
 
         # R-6: 排序字段白名单验证，防止任意属性注入
         if sort_by not in self._ALLOWED_SORT_FIELDS:
@@ -181,12 +187,12 @@ class KnowledgePointDAO:
         await db.flush()
         await db.refresh(kp)
 
-        # 同步到 Meilisearch 索引
+        # 同步到 Meilisearch 索引（异步安全）
         try:
             from codeinsight.services.meilisearch_client import MeiliSearchClient
 
-            meili_client = MeiliSearchClient()
-            meili_client.add_document(
+            meili_client = await MeiliSearchClient.create()
+            await meili_client.add_document(
                 {
                     "id": str(kp.id),
                     "title": kp.title,
@@ -223,12 +229,12 @@ class KnowledgePointDAO:
         await db.delete(kp)
         await db.flush()
 
-        # 从 Meilisearch 索引删除
+        # 从 Meilisearch 索引删除（异步安全）
         try:
             from codeinsight.services.meilisearch_client import MeiliSearchClient
 
-            meili_client = MeiliSearchClient()
-            meili_client.delete_document(point_id)
+            meili_client = await MeiliSearchClient.create()
+            await meili_client.delete_document(point_id)
         except Exception as exc:
             logger.warning("知识点从 Meilisearch 删除失败: id=%s, error=%s", point_id, exc)
 

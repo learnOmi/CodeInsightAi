@@ -375,42 +375,43 @@ class TestLLMClientTokens:
 # ────────── CostTracker ──────────
 
 
+@pytest.mark.asyncio
 class TestCostTracker:
     """成本追踪器测试"""
 
-    def test_record_and_daily_cost(self):
+    async def test_record_and_daily_cost(self):
         """记录和日成本查询"""
         tracker = CostTracker()
         assert tracker.get_daily_cost() == 0.0
 
-        tracker.record("claude-3.5-sonnet", "claude", 1000, 500, 0.01)
+        await tracker.record("claude-3.5-sonnet", "claude", 1000, 500, 0.01)
         assert tracker.get_daily_cost() == 0.01
 
-    def test_cost_by_model(self):
+    async def test_cost_by_model(self):
         """按模型分组成本"""
         tracker = CostTracker()
-        tracker.record("model-a", "claude", 1000, 500, 0.01)
-        tracker.record("model-b", "gpt", 2000, 1000, 0.02)
+        await tracker.record("model-a", "claude", 1000, 500, 0.01)
+        await tracker.record("model-b", "gpt", 2000, 1000, 0.02)
 
         costs = tracker.get_cost_by_model()
         assert costs["model-a"] == 0.01
         assert costs["model-b"] == 0.02
 
-    def test_cost_by_task(self):
+    async def test_cost_by_task(self):
         """按任务类型分组成本"""
         tracker = CostTracker()
-        tracker.record("model-a", "claude", 1000, 500, 0.01, task_type="design_pattern")
-        tracker.record("model-a", "claude", 2000, 1000, 0.02, task_type="architecture")
+        await tracker.record("model-a", "claude", 1000, 500, 0.01, task_type="design_pattern")
+        await tracker.record("model-a", "claude", 2000, 1000, 0.02, task_type="architecture")
 
         costs = tracker.get_cost_by_task()
         assert costs["design_pattern"] == 0.01
         assert costs["architecture"] == 0.02
 
-    def test_total_stats(self):
+    async def test_total_stats(self):
         """总统计"""
         tracker = CostTracker()
-        tracker.record("model-a", "claude", 1000, 500, 0.01)
-        tracker.record("model-a", "claude", 2000, 1000, 0.02)
+        await tracker.record("model-a", "claude", 1000, 500, 0.01)
+        await tracker.record("model-a", "claude", 2000, 1000, 0.02)
 
         stats = tracker.get_total_stats()
         assert stats["total_records"] == 2
@@ -418,17 +419,17 @@ class TestCostTracker:
         assert stats["total_prompt_tokens"] == 3000
         assert stats["total_completion_tokens"] == 1500
 
-    def test_max_records(self):
+    async def test_max_records(self):
         """最大记录数限制"""
         tracker = CostTracker(max_records=3)
         for _i in range(5):
-            tracker.record("model", "provider", 100, 50, 0.01)
+            await tracker.record("model", "provider", 100, 50, 0.01)
         assert len(tracker._records) == 3
 
-    def test_clear(self):
+    async def test_clear(self):
         """清空记录"""
         tracker = CostTracker()
-        tracker.record("model", "provider", 100, 50, 0.01)
+        await tracker.record("model", "provider", 100, 50, 0.01)
         tracker.clear()
         assert tracker.get_daily_cost() == 0.0
 

@@ -64,12 +64,15 @@ def _merge_messages(previous: list[dict[str, Any]], new: list[dict[str, Any]]) -
     return merged
 
 
-class AnalysisState(TypedDict):
+class AnalysisState(TypedDict, total=False):
     """
     代码知识分析状态
 
     在 LangGraph 工作流中，该状态在所有 Agent 节点之间共享和传递。
     所有字段使用 Annotated reducer 以支持并行 fan-out 执行。
+
+    使用 total=False 因为 LangGraph 节点只返回状态的部分更新，
+    由 reducer 函数合并。mypy 不会要求所有键都必须在返回值中出现。
 
     Attributes:
         repo_id: 仓库唯一标识符

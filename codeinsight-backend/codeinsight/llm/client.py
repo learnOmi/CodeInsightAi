@@ -10,26 +10,41 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, Literal, cast
+from typing import Any
 
 import litellm
 from pydantic import BaseModel, Field
 
 from codeinsight.config import settings
 from codeinsight.llm.cost import get_cost_tracker
-from codeinsight.llm.errors import LLMError
+from codeinsight.llm.errors import LLMError, OllamaUnavailableError
 
 logger = logging.getLogger(__name__)
 
 
-class LLMConfig(BaseModel):
-    """LLM 客户端配置——从全局 Settings 读取"""
+# L-E2: provider 从 Literal 限制改为 str + 配置驱动注册，支持动态扩展
+PROVIDER_REGISTRY: dict[str, dict[str, Any]] = {
+    "claude": {"default_model": "claude-3.5-sonnet-20241022"},
+    "gpt": {"default_model": "gpt-4o"},
+    "openai": {"default_model": "gpt-4o"},
+    "ollama": {"default_model": "llama3.1:8b", "api_base_prefix": "ollama/"},
+}
 
-    provider: Literal["claude", "gpt", "ollama", "openai"] = Field(
-        default_factory=lambda: cast(
-            "Literal['claude', 'gpt', 'ollama', 'openai']",
-            settings.llm_provider if settings.llm_provider in ("claude", "gpt", "ollama", "openai") else "claude",
-        )
+
+def register_provider(name: str, *, default_model: str, api_base_prefix: str | None = None) -> None:
+    """注册新的 LLM provider（配置驱动扩展）"""
+    PROVIDER_REGISTRY[name.lower()] = {
+        "default_model": default_model,
+        "api_base_prefix": api_base_prefix,
+    }
+
+
+class LLMConfig(BaseModel):
+    """LLM 客户端配置——从全局 Settings 加载"""
+
+    # L-E2: provider 改为 str，允许任意注册的 provider 名称
+    provider: str = Field(
+        default_factory=lambda: settings.llm_provider or "claude",
     )
     model: str = Field(default_factory=lambda: settings.llm_model or "")
     api_key: str | None = Field(default_factory=lambda: settings.llm_api_key or None)
@@ -57,23 +72,25 @@ class LLMClient:
     提供统一的对话、嵌入、流式响应、Token 计数接口。
     """
 
-    # 成本单价 (USD / 1M tokens)，用于 CostTracker
-    MODEL_COST_MAP: dict[str, dict[str, float]] = {
-        "claude-3.5-sonnet-20241022": {"input": 3.0, "output": 15.0},
-        "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
-        "gpt-4o": {"input": 2.5, "output": 10.0},
-        "text-embedding-3-small": {"input": 0.02, "output": 0.0},
-    }
-
-    # 简单任务 → 本地模型的降级映射
-    SIMPLE_TASK_MODELS: dict[str, str] = {
-        "classification": "ollama/llama3.1:8b",
-        "summarization": "ollama/llama3.1:8b",
-        "extraction": "ollama/mistral:7b",
-    }
+    # L-E1: 成本单价和简单任务路由从 Settings 配置加载，避免硬编码
+    # 通过 _get_cost_map() / _get_task_models() 懒加载，确保使用最新配置
+    _cost_map: dict[str, dict[str, float]] | None = None
+    _task_models: dict[str, str] | None = None
 
     # 本地模型成本（近似为 0，因为本地运行不计费）
     LOCAL_MODEL_COST = 0.0
+
+    @property
+    def model_cost_map(self) -> dict[str, dict[str, float]]:
+        if self._cost_map is None:
+            self._cost_map = dict(settings.llm_cost_map)
+        return self._cost_map
+
+    @property
+    def simple_task_models(self) -> dict[str, str]:
+        if self._task_models is None:
+            self._task_models = dict(settings.llm_simple_task_models)
+        return self._task_models
 
     def __init__(self, config: LLMConfig | None = None):
         """
@@ -163,7 +180,7 @@ class LLMClient:
 
     def _get_cost_per_token(self, model_key: str) -> tuple[float, float]:
         """获取每 token 的输入/输出成本"""
-        costs = self.MODEL_COST_MAP.get(model_key, {"input": 0.0, "output": 0.0})
+        costs = self.model_cost_map.get(model_key, {"input": 0.0, "output": 0.0})
         return costs["input"] / 1_000_000, costs["output"] / 1_000_000
 
     # ────────── Ollama 健康检查 ──────────
@@ -175,11 +192,16 @@ class LLMClient:
         向 Ollama API 的 /api/tags 端点发送 GET 请求，
         验证服务是否正常运行。
 
+        L-D8: 健康检查失败时抛出 OllamaUnavailableError，调用方可捕获并降级。
+
         Returns:
-            True 如果 Ollama 服务可用，否则 False
+            True 如果 Ollama 服务可用
+
+        Raises:
+            OllamaUnavailableError: Ollama 服务不可用时抛出
         """
         if self.config.provider.lower() == "ollama":
-            # 即使 provider 是 ollama，也执行实际健康检查（避免 Ollama 服务已崩溃的情况）
+            # 即使 provider 是 ollama，也执行实际健康检查
             pass
 
         try:
@@ -188,10 +210,13 @@ class LLMClient:
             base_url = self.config.ollama_base_url.rstrip("/")
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(f"{base_url}/api/tags")
-                return resp.status_code == 200
-        except Exception:
-            logger.debug("Ollama 健康检查失败", exc_info=True)
-            return False
+                if resp.status_code == 200:
+                    return True
+                raise OllamaUnavailableError(f"Ollama 服务返回 HTTP {resp.status_code}")
+        except OllamaUnavailableError:
+            raise
+        except Exception as exc:
+            raise OllamaUnavailableError(f"Ollama 服务不可用: {exc}") from exc
 
     # ────────── 核心接口 ──────────
 
@@ -235,6 +260,22 @@ class LLMClient:
 
             if response_model:
                 parsed = response_model.model_validate_json(content)
+
+                # L-D4: response_model 路径也记录成本
+                input_cost, output_cost = self._get_cost_per_token(self._get_model_key())
+                call_cost = (prompt_tokens * input_cost) + (completion_tokens * output_cost)
+                if prompt_tokens > 0 or completion_tokens > 0:
+                    try:
+                        await get_cost_tracker().record(
+                            model=self._get_model_key(),
+                            provider=self.config.provider,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            cost=call_cost,
+                        )
+                    except Exception:
+                        logger.debug("成本记录失败", exc_info=True)
+
                 logger.debug(
                     "LLM 响应已解析: provider=%s, model=%s, tokens=%d+%d",
                     self.config.provider,
@@ -243,6 +284,10 @@ class LLMClient:
                     completion_tokens,
                 )
                 return parsed
+
+            # L-D3: 跳过零成本记录
+            if prompt_tokens == 0 and completion_tokens == 0:
+                return {"content": content, "prompt_tokens": 0, "completion_tokens": 0, "model": self._model_name}
 
             result: dict[str, Any] = {
                 "content": content,
@@ -257,7 +302,7 @@ class LLMClient:
 
             # 记录成本到 CostTracker
             try:
-                get_cost_tracker().record(
+                await get_cost_tracker().record(
                     model=self._get_model_key(),
                     provider=self.config.provider,
                     prompt_tokens=prompt_tokens,
@@ -342,32 +387,41 @@ class LLMClient:
             fallback_providers = ["gpt", "ollama"]
 
         errors: list[str] = []
-        original_provider = self.config.provider
-        original_model = self.config.model
+        all_providers = [self.config.provider] + fallback_providers
 
-        async with self._config_lock:
-            for _attempt, provider in enumerate([original_provider] + fallback_providers):
-                try:
-                    self.config.provider = provider  # type: ignore[assignment]
-                    self._model_name = self._resolve_model_name()
-                    result = await self.chat(messages)
-                    if isinstance(result, dict):
-                        result["provider"] = provider
-                    return result  # type: ignore[return-value]
-                except Exception as exc:
-                    errors.append(f"{provider}: {exc}")
-                    logger.warning("Provider %s 失败，尝试下一个: %s", provider, exc)
+        # L-B4: 使用配置副本（LLMConfig 快照）替代直接修改 self.config，
+        # 避免多协程共享实例时 provider/model 互相覆盖
+        for _attempt, provider in enumerate(all_providers):
+            try:
+                fallback_config = LLMConfig(
+                    provider=provider,
+                    model=self.config.model,
+                    api_key=self.config.api_key,
+                    api_base=self.config.api_base,
+                    ollama_base_url=self.config.ollama_base_url,
+                    temperature=self.config.temperature,
+                    max_tokens=self.config.max_tokens,
+                    embedding_model=self.config.embedding_model,
+                    ollama_embedding_model=self.config.ollama_embedding_model,
+                    num_retries=self.config.num_retries,
+                    request_timeout=self.config.request_timeout,
+                    embedding_timeout=self.config.embedding_timeout,
+                    max_concurrency=self.config.max_concurrency,
+                )
+                fallback_client = LLMClient(fallback_config)
+                result = await fallback_client.chat(messages)
+                if isinstance(result, dict):
+                    result["provider"] = provider
+                return result  # type: ignore[return-value]
+            except Exception as exc:
+                errors.append(f"{provider}: {exc}")
+                logger.warning("Provider %s 失败，尝试下一个: %s", provider, exc)
 
-            # 恢复原始配置
-            self.config.provider = original_provider  # type: ignore[assignment]
-            self.config.model = original_model  # type: ignore[assignment]
-            self._model_name = self._resolve_model_name()
-
-            raise LLMError(
-                f"所有 Provider 均失败: {'; '.join(errors)}",
-                provider=",".join([original_provider] + fallback_providers),
-                model=self._model_name,
-            )
+        raise LLMError(
+            f"所有 Provider 均失败: {'; '.join(errors)}",
+            provider=",".join(all_providers),
+            model=self._model_name,
+        )
 
     async def chat_for_task(
         self,
@@ -392,11 +446,13 @@ class LLMClient:
         if not settings.ollama_task_routing:
             return await self.chat(messages)  # type: ignore[return-value]
 
-        if task_type in self.SIMPLE_TASK_MODELS:
-            local_model = self.SIMPLE_TASK_MODELS[task_type]
+        if task_type in self.simple_task_models:
+            local_model = self.simple_task_models[task_type]
             if self.config.provider.lower() != "ollama":
-                # 路由前检查 Ollama 可用性
-                if not await self.check_ollama_health():
+                # L-D8: Ollama 不可用时抛出 OllamaUnavailableError，自动降级到云端
+                try:
+                    await self.check_ollama_health()
+                except OllamaUnavailableError:
                     logger.warning(
                         "Ollama 不可用，任务 '%s' 留在云端: %s",
                         task_type,
@@ -449,20 +505,14 @@ class LLMClient:
                 # 使用 Ollama 专用嵌入模型（text-embedding-3-small 在 Ollama 上不存在）
                 embedding_model = f"ollama/{self.config.ollama_embedding_model}"
 
-            kwargs: dict[str, Any] = {
-                "model": embedding_model,
-                "input": texts,
-                "timeout": self.config.embedding_timeout,
-                "num_retries": self.config.num_retries,
-            }
-
-            if self.config.api_key:
-                kwargs["api_key"] = self.config.api_key
-
-            if self.config.api_base:
-                kwargs["api_base"] = self.config.api_base
-            elif self.config.provider.lower() == "ollama":
-                kwargs["api_base"] = self.config.ollama_base_url
+            # L-P1: 复用 _get_api_kwargs() 构建基础参数，避免与 chat() 重复
+            kwargs = self._get_api_kwargs(timeout=self.config.embedding_timeout)
+            kwargs["model"] = embedding_model
+            kwargs["input"] = texts
+            # 移除 chat 专用参数
+            kwargs.pop("temperature", None)
+            kwargs.pop("max_tokens", None)
+            kwargs.pop("num_retries", None)
 
             async with self._semaphore:
                 response = await litellm.aembedding(**kwargs)

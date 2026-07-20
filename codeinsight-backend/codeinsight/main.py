@@ -49,10 +49,10 @@ async def lifespan(app: FastAPI):
         logger.error("[STARTUP] Config validation FAILED: %s", exc)
         raise
 
-    # 初始化 Meilisearch 索引
+    # 初始化 Meilisearch 索引（异步安全）
     try:
-        meili_client = MeiliSearchClient()
-        meili_client.ensure_index()
+        meili_client = await MeiliSearchClient.create()
+        await meili_client.ensure_index()
         logger.info("[STARTUP] Meilisearch index initialized")
     except Exception as exc:
         logger.warning("[STARTUP] Meilisearch initialization skipped: %s", exc)
@@ -166,12 +166,12 @@ def create_app() -> FastAPI:
             logger.error("Health check: database unavailable - %s", exc)
             checks["database"] = {"status": "unavailable"}
 
-        # 检测 Redis 连接
+        # 检测 Redis 连接（异步安全）
         try:
-            from codeinsight.db.redis_client import get_redis_client
+            from codeinsight.db.redis_client import get_async_redis_client
 
-            redis_client = get_redis_client()
-            redis_client.ping()
+            redis_client = await get_async_redis_client()
+            await redis_client.ping()
             checks["redis"] = {"status": "ok"}
         except Exception as exc:
             logger.error("Health check: redis unavailable - %s", exc)

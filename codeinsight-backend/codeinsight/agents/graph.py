@@ -66,7 +66,12 @@ def _route_to_agents(state: AnalysisState) -> list[Send]:
         node_name = CATEGORY_TO_NODE[category]
         return [Send(node_name, state)]
 
-    agent_names = ["design_pattern", "architecture", "algorithm", "engineering", "domain_knowledge"]
+    # A-D2: category 未匹配时记录警告
+    if category and category not in CATEGORY_TO_NODE:
+        logger.warning("未知分类 '%s'，回退到全部分类路由", category)
+
+    # A-E2: 从 ANALYSIS_NODES 推导，避免硬编码重复
+    agent_names = [name for name, _ in ANALYSIS_NODES]
     return [Send(name, state) for name in agent_names]
 
 
