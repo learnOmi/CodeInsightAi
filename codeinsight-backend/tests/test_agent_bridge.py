@@ -180,9 +180,12 @@ class TestAgentBridge:
 
         cases = [test_case, test_case, test_case]
         results = await bridge.extract_batch(cases)
-        # 只处理 1 个用例
-        assert len(results) == 1
+        # 所有任务并发启动，但只有第 1 个实际执行提取，其余被 max_cases 跳过
+        assert len(results) == 3
         assert bridge.cases_processed == 1
+        # 第 1 个有实际结果，后 2 个为空列表
+        assert results[1][1] == []
+        assert results[2][1] == []
 
     async def test_extract_batch_exception_handling(self, llm_client, test_case):
         """extract_batch 异常处理"""

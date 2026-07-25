@@ -7,7 +7,7 @@ Agent 模块单元测试（P3-02）
 from __future__ import annotations
 
 import json
-from unittest.mock import ANY, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -673,7 +673,7 @@ class TestExpansionNode:
     async def test_generate_expansion(self, base_state, valid_expansion_json):
         """为知识点生成拓展内容"""
         llm_client = MagicMock(spec=LLMClient)
-        llm_client.chat_for_task = AsyncMock(return_value={"content": valid_expansion_json})
+        llm_client.chat = AsyncMock(return_value={"content": valid_expansion_json})
 
         state = base_state
         node = ExpansionNode(llm_client)
@@ -686,10 +686,7 @@ class TestExpansionNode:
         assert len(kp["expansion"]["learning_resources"]) == 2
         assert kp["expansion"]["learning_resources"][0]["type"] == "article"
         # 简短描述应路由到 summarization 任务
-        llm_client.chat_for_task.assert_called_with(
-            ANY,
-            task_type="summarization",
-        )
+        llm_client.chat.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_skip_empty_kps(self):
@@ -762,7 +759,7 @@ class TestExpansionNode:
         """直接解析 JSON"""
         node = ExpansionNode(MagicMock())
         content = '{"principle": "test", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": []}'
-        result = await node._parse_and_validate(content)
+        result = node._parse_merged_expansion(content)
         assert result is not None
         assert result["principle"] == "test"
 
@@ -771,7 +768,7 @@ class TestExpansionNode:
         """从代码块中提取 JSON"""
         node = ExpansionNode(MagicMock())
         content = 'Some text\n```json\n{"principle": "test", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": []}\n```'
-        result = await node._parse_and_validate(content)
+        result = node._parse_merged_expansion(content)
         assert result is not None
         assert result["principle"] == "test"
 
@@ -780,14 +777,14 @@ class TestExpansionNode:
         """非法 JSON 返回 None"""
         node = ExpansionNode(MagicMock())
         content = "not json at all"
-        result = await node._parse_and_validate(content)
+        result = node._parse_merged_expansion(content)
         assert result is None
 
     @pytest.mark.asyncio
     async def test_generate_expansion_retry_then_succeed(self, base_state):
         """首次失败后重试成功"""
         llm_client = MagicMock(spec=LLMClient)
-        llm_client.chat_for_task = AsyncMock(
+        llm_client.chat = AsyncMock(
             side_effect=[
                 Exception("First failure"),
                 {
@@ -805,7 +802,7 @@ class TestExpansionNode:
     async def test_generate_expansion_retry_exhausted(self, base_state):
         """重试耗尽后返回 None"""
         llm_client = MagicMock(spec=LLMClient)
-        llm_client.chat_for_task = AsyncMock(side_effect=Exception("Persistent failure"))
+        llm_client.chat = AsyncMock(side_effect=Exception("Persistent failure"))
 
         node = ExpansionNode(llm_client)
         result = await node.execute(base_state)
@@ -816,7 +813,7 @@ class TestExpansionNode:
     async def test_generate_expansion_multiple_kps(self):
         """多个知识点并发生成"""
         llm_client = MagicMock(spec=LLMClient)
-        llm_client.chat_for_task = AsyncMock(
+        llm_client.chat = AsyncMock(
             return_value={
                 "content": '{"principle": "p", "applicable_scenarios": ["s1"], "best_practices": ["p1"], "related_patterns": ["r1"], "learning_resources": []}'
             }

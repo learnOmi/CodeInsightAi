@@ -9,9 +9,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from codeinsight.agents.state import AnalysisState
 from codeinsight.llm.client import LLMClient
@@ -22,10 +23,9 @@ from codeinsight.prompts import (
     load_design_pattern_prompt,
     load_domain_knowledge_prompt,
     load_engineering_prompt,
-    load_expansion_prompt,
 )
 from codeinsight.schemas.constants import CATEGORY_NAMES
-from codeinsight.schemas.knowledge import ExpansionContent, KnowledgePointExtraction
+from codeinsight.schemas.knowledge import ExpansionContent, KnowledgePointExtraction, LearningResource
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,96 @@ MAX_CODE_CHARS_PER_SNIPPET = 1000
 
 # Pydantic TypeAdapter for validating LLM output as a list of KnowledgePointExtraction
 _kp_adapter: TypeAdapter[list[KnowledgePointExtraction]] = TypeAdapter(list[KnowledgePointExtraction])
+
+
+# ── 拓展内容维度模型（每个维度独立、简单、容错） ──────────────────────────
+
+
+class _DimensionPrinciple(BaseModel):
+    """拓展内容 - 原理维度"""
+
+    principle: str
+
+
+class _DimensionScenarios(BaseModel):
+    """拓展内容 - 场景维度"""
+
+    applicable_scenarios: list[str]
+
+
+class _DimensionPractices(BaseModel):
+    """拓展内容 - 实践维度"""
+
+    best_practices: list[str]
+
+
+class _DimensionPatterns(BaseModel):
+    """拓展内容 - 关联模式维度"""
+
+    related_patterns: list[str]
+
+
+class _DimensionResources(BaseModel):
+    """拓展内容 - 学习资源维度"""
+
+    learning_resources: list[LearningResource]
+
+
+# ── 维度配置 ────────────────────────────────────────────────────────
+
+_DIMENSION_CONFIG: dict[str, tuple[str, type[BaseModel]]] = {
+    "principle": (
+        "请为以下知识点生成核心原理说明。\n\n"
+        "知识点标题：{title}\n"
+        "知识点分类：{category}\n"
+        "知识点描述：{description}\n\n"
+        "请用100-200字解释该模式/技术的核心原理和技术本质，\n"
+        '重点说明"为什么"而非"是什么"，揭示技术本质。\n\n'
+        '仅返回JSON，格式：{{"principle": "..."}}',
+        _DimensionPrinciple,
+    ),
+    "applicable_scenarios": (
+        "请为以下知识点列出适用场景。\n\n"
+        "知识点标题：{title}\n"
+        "知识点分类：{category}\n"
+        "知识点描述：{description}\n\n"
+        "请列出3-5个具体的适用场景，每个场景20-50字。\n"
+        "场景应具体，避免泛泛的描述。\n\n"
+        '仅返回JSON，格式：{{"applicable_scenarios": ["..."]}}',
+        _DimensionScenarios,
+    ),
+    "best_practices": (
+        "请为以下知识点列出最佳实践建议。\n\n"
+        "知识点标题：{title}\n"
+        "知识点分类：{category}\n"
+        "知识点描述：{description}\n\n"
+        "请列出3-5条可操作的最佳实践建议，每条20-50字。\n"
+        "建议应具体可操作，给出具体建议而非笼统原则。\n\n"
+        '仅返回JSON，格式：{{"best_practices": ["..."]}}',
+        _DimensionPractices,
+    ),
+    "related_patterns": (
+        "请为以下知识点列出关联的技术或模式。\n\n"
+        "知识点标题：{title}\n"
+        "知识点分类：{category}\n"
+        "知识点描述：{description}\n\n"
+        "请列出3-5个关联的技术/模式，每个附带简要说明关联关系。\n"
+        '需要说明关联关系（如"与XX的区别"或"XX的补充"）。\n\n'
+        '仅返回JSON，格式：{{"related_patterns": ["..."]}}',
+        _DimensionPatterns,
+    ),
+    "learning_resources": (
+        "请为以下知识点推荐学习资源。\n\n"
+        "知识点标题：{title}\n"
+        "知识点分类：{category}\n"
+        "知识点描述：{description}\n\n"
+        "请推荐3-5个学习资源，每个包含title、url、type。\n"
+        "type必须为book/article/video/course之一。\n"
+        "url必须是真实有效的学习资源链接。\n\n"
+        '仅返回JSON，格式：{{"learning_resources": [{{"title": "...", "url": "...", "type": "..."}}]}}',
+        _DimensionResources,
+    ),
+}
 
 
 class AnalysisNode:
@@ -121,14 +211,51 @@ class AnalysisNode:
         Returns:
             代码上下文字符串
         """
-        snippets = []
-        for snippet in state["code_snippets"][:MAX_CODE_SNIPPETS]:
+        snippets = state.get("code_snippets", [])
+        if not snippets:
+            # 如果 code_snippets 为空，尝试使用 ast_data 构建上下文
+            ast_data = state.get("ast_data", [])
+            if ast_data:
+                logger.warning(
+                    "code_snippets 为空，使用 ast_data 构建上下文: repo_id=%s, ast_nodes=%d",
+                    state.get("repo_id", ""),
+                    len(ast_data),
+                )
+                # 从 ast_data 构建基本的文件结构信息
+                files_summary: dict[str, set[str]] = {}
+                for node in ast_data[:500]:
+                    file_id = node.get("file_id", "")
+                    name = node.get("name", "")
+                    node_type = node.get("node_type", "")
+                    qualified_name = node.get("qualified_name", "")
+                    if file_id:
+                        if file_id not in files_summary:
+                            files_summary[file_id] = set()
+                        files_summary[file_id].add(f"{node_type}:{name} ({qualified_name})")
+
+                context_parts = [f"AST 节点总数: {len(ast_data)}"]
+                for fid, symbols in files_summary.items():
+                    context_parts.append(f"文件 {fid}: {', '.join(list(symbols)[:20])}")
+                return "\n\n".join(context_parts[:50])
+
+            logger.warning("构建代码上下文时 code_snippets 和 ast_data 均为空: repo_id=%s", state.get("repo_id", ""))
+            return ""
+        snippets_with_code = [s for s in snippets if s.get("code", "")]
+        if not snippets_with_code:
+            logger.warning(
+                "构建代码上下文时所有 snippets 的 code 字段为空: repo_id=%s, snippets_count=%d",
+                state.get("repo_id", ""),
+                len(snippets),
+            )
+            return ""
+        snippets_list = []
+        for snippet in snippets_with_code[:MAX_CODE_SNIPPETS]:
             file_path = snippet.get("file_path", "")
             code = snippet.get("code", "")
             if code:
                 truncated_code = code[:MAX_CODE_CHARS_PER_SNIPPET]
-                snippets.append(f"文件: {file_path}\n{truncated_code}...")
-        return "\n\n".join(snippets)
+                snippets_list.append(f"文件: {file_path}\n{truncated_code}...")
+        return "\n\n".join(snippets_list)
 
     def _parse_response(self, response: Any, category: str) -> list[dict[str, Any]]:
         """
@@ -148,6 +275,19 @@ class AnalysisNode:
 
         if not content:
             return []
+
+        # 清理 markdown 代码块标记（如 ```json ... ```），只保留纯 JSON 内容
+        content = content.strip()
+        if content.startswith("```"):
+            # 去掉开头的 ```json 或 ``` 等标记
+            first_newline = content.find("\n")
+            if first_newline != -1:
+                content = content[first_newline + 1 :]
+            # 去掉结尾的 ```
+            if content.endswith("```"):
+                content = content[:-3].strip()
+            elif content.rstrip().endswith("```"):
+                content = content.rstrip()[:-3].strip()
 
         try:
             parsed = json.loads(content)
@@ -244,7 +384,7 @@ class DesignPatternNode(AnalysisNode):
             )
 
             # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {
+            return {  # type: ignore[typeddict-item]
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.2,
@@ -252,7 +392,7 @@ class DesignPatternNode(AnalysisNode):
 
         except LLMError as exc:
             logger.error("设计模式分析失败: %s", exc)
-            return {"error": str(exc)}
+            return {"error": str(exc)}  # type: ignore[typeddict-item]
 
 
 class ArchitectureNode(AnalysisNode):
@@ -280,7 +420,7 @@ class ArchitectureNode(AnalysisNode):
             )
 
             # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {
+            return {  # type: ignore[typeddict-item]
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.4,
@@ -288,7 +428,7 @@ class ArchitectureNode(AnalysisNode):
 
         except LLMError as exc:
             logger.error("架构设计分析失败: %s", exc)
-            return {"error": str(exc)}
+            return {"error": str(exc)}  # type: ignore[typeddict-item]
 
 
 class AlgorithmNode(AnalysisNode):
@@ -316,7 +456,7 @@ class AlgorithmNode(AnalysisNode):
             )
 
             # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {
+            return {  # type: ignore[typeddict-item]
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.6,
@@ -324,7 +464,7 @@ class AlgorithmNode(AnalysisNode):
 
         except LLMError as exc:
             logger.error("算法实现分析失败: %s", exc)
-            return {"error": str(exc)}
+            return {"error": str(exc)}  # type: ignore[typeddict-item]
 
 
 class EngineeringNode(AnalysisNode):
@@ -352,7 +492,7 @@ class EngineeringNode(AnalysisNode):
             )
 
             # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {
+            return {  # type: ignore[typeddict-item]
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.8,
@@ -360,7 +500,7 @@ class EngineeringNode(AnalysisNode):
 
         except LLMError as exc:
             logger.error("工程技术分析失败: %s", exc)
-            return {"error": str(exc)}
+            return {"error": str(exc)}  # type: ignore[typeddict-item]
 
 
 class DomainKnowledgeNode(AnalysisNode):
@@ -388,7 +528,7 @@ class DomainKnowledgeNode(AnalysisNode):
             )
 
             # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {
+            return {  # type: ignore[typeddict-item]
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 1.0,
@@ -396,7 +536,7 @@ class DomainKnowledgeNode(AnalysisNode):
 
         except LLMError as exc:
             logger.error("领域知识分析失败: %s", exc)
-            return {"error": str(exc)}
+            return {"error": str(exc)}  # type: ignore[typeddict-item]
 
 
 class MergeNode:
@@ -460,7 +600,8 @@ class ExpansionNode:
     - 关联模式（related_patterns）
     - 学习资源（learning_resources）
 
-    使用 LLM 并发生成，支持结构化校验和重试机制。
+    每个维度独立调用 LLM，5 个维度并行执行。
+    某个维度失败不影响其他维度，最终合并结果。
     """
 
     _expansion_adapter: TypeAdapter[ExpansionContent] = TypeAdapter(ExpansionContent)
@@ -468,23 +609,16 @@ class ExpansionNode:
     MAX_RETRIES = 2
     MAX_CONCURRENCY = 5
 
+    # 限流状态（类级别，所有实例共享）
+    _rate_limit_hits = 0
+    _rate_limit_lock = asyncio.Lock()
+
     def __init__(self, llm_client: LLMClient):
         self._llm_client = llm_client
-        self._prompt_template = load_expansion_prompt()
         self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENCY)
 
     async def execute(self, state: AnalysisState) -> AnalysisState:
-        """为所有知识点生成拓展内容
-
-        A-P1: 使用 asyncio.gather 并发处理，而非串行 for 循环
-        配合 MAX_CONCURRENCY 信号量限制并发度，避免 LLM 过载
-
-        Args:
-            state: 当前分析状态（已合并的知识点）
-
-        Returns:
-            更新了拓展内容后的分析状态
-        """
+        """为所有知识点生成拓展内容"""
         kps = state.get("knowledge_points", [])
         if not kps:
             state["progress"] = 1.0
@@ -492,110 +626,186 @@ class ExpansionNode:
 
         logger.info("开始生成拓展内容: %d 个知识点", len(kps))
 
-        sem = self._semaphore
+        async def _process_expansion(kp: dict) -> dict | None:
+            """生成单个知识点的拓展内容，返回更新后的副本"""
+            try:
+                expansion = await self._generate_expansion(kp)
+                if expansion:
+                    return {**kp, "expansion": expansion}
+                return None
+            except Exception as exc:
+                logger.warning(
+                    "知识点拓展内容生成失败: %s, title=%s",
+                    exc,
+                    kp.get("title", ""),
+                )
+                return None
 
-        async def _process_expansion(kp: dict) -> None:
-            async with sem:
-                try:
-                    expansion = await self._generate_expansion(kp)
-                    if expansion:
-                        kp["expansion"] = expansion
-                except Exception as exc:
-                    logger.warning(
-                        "知识点拓展内容生成失败: %s, title=%s",
-                        exc,
-                        kp.get("title", ""),
-                    )
+        # 并发处理所有知识点，生成新列表而非原地修改
+        results = await asyncio.gather(*[_process_expansion(kp) for kp in kps])
 
-        # 并发处理所有知识点，受 MAX_CONCURRENCY 限制
-        await asyncio.gather(*[_process_expansion(kp) for kp in kps])
+        # 用生成结果更新 knowledge_points（保留未变更的条目）
+        updated_kps = []
+        for original, result in zip(kps, results, strict=True):
+            updated_kps.append(result if result is not None else original)
 
+        state["knowledge_points"] = updated_kps
         state["progress"] = 1.0
-        logger.info("拓展内容生成完成")
+        logger.info("拓展内容生成完成: %d 个知识点已更新", len(updated_kps))
         return state
 
     async def _generate_expansion(self, kp: dict) -> dict | None:
-        """为单个知识点生成拓展内容，支持重试
-
-        Args:
-            kp: 知识点
-
-        Returns:
-            拓展内容 dict，失败时返回 None
         """
-        try:
-            title = kp.get("title", "")
-            category = kp.get("category_name", kp.get("category", ""))
-            description = kp.get("description", "")
+        为单个知识点生成拓展内容（合并为 1 次 LLM 调用）
 
-            # A-B3: 使用 str.format_map 替代链式 str.replace，
-            # 避免 description 中包含 "{title}" 时被二次替换
-            # 注意：expansion.md 模板中的 JSON 示例花括号已转义为 {{/}}
-            prompt = self._prompt_template.format_map(
-                {"title": title, "category": category, "description": description[:500]}
-            )
-
-            # 简单知识点（描述短）路由到本地模型以节省成本
-            # 复杂知识点（描述长）留在云端以保证质量
-            task_type = "summarization" if len(description) < 200 else "default"
-
-            for attempt in range(self.MAX_RETRIES + 1):
-                try:
-                    async with self._semaphore:
-                        response = await self._llm_client.chat_for_task(
-                            [{"role": "user", "content": prompt}],
-                            task_type=task_type,
-                        )
-                    content = response.get("content", "") if isinstance(response, dict) else str(response)
-
-                    # 尝试解析并校验
-                    result = await self._parse_and_validate(content)
-                    if result is not None:
-                        return result
-
-                    if attempt < self.MAX_RETRIES:
-                        logger.debug("拓展内容 JSON 解析失败，重试: title=%s, attempt=%d", title, attempt + 1)
-                        continue
-                    logger.warning("拓展内容 JSON 解析失败: title=%s", title)
-                    return None
-
-                except Exception as exc:
-                    if attempt < self.MAX_RETRIES:
-                        logger.debug("拓展内容生成失败，重试: title=%s, attempt=%d, error=%s", title, attempt + 1, exc)
-                        await asyncio.sleep(1)
-                        continue
-                    logger.warning("拓展内容生成失败: title=%s, error=%s", title, exc)
-                    return None
-
-            return None
-        except Exception as exc:
-            logger.warning("拓展内容生成异常: title=%s, error=%s", kp.get("title", ""), exc)
-            return None
-
-    async def _parse_and_validate(self, content: str) -> dict | None:
-        """解析并校验 JSON 内容
-
-        Args:
-            content: LLM 响应文本
-
-        Returns:
-            校验通过的 dict，失败时返回 None
+        将 5 个维度合并到一次调用中，大幅减少请求量。
+        即使 JSON 部分字段无效，也尽量提取可用内容。
         """
+        title = kp.get("title", "")
+        category = kp.get("category_name", kp.get("category", ""))
+        description = kp.get("description", "")[:500]
+
+        prompt = (
+            "请为以下知识点生成5个维度的拓展内容。\n\n"
+            f"知识点标题：{title}\n"
+            f"知识点分类：{category}\n"
+            f"知识点描述：{description}\n\n"
+            "请生成以下5个维度的内容：\n"
+            "1. principle: 核心原理和技术本质（100-200字）\n"
+            "2. applicable_scenarios: 适用场景列表（3-5个，每个20-50字）\n"
+            "3. best_practices: 最佳实践建议（3-5条，每条20-50字）\n"
+            "4. related_patterns: 关联的技术/模式（3-5个，附带简要说明）\n"
+            "5. learning_resources: 学习资源推荐（3-5个，含title/url/type）\n\n"
+            "仅返回JSON，不要包含任何Markdown标记或说明文字。\n"
+            "格式：\n"
+            "{\n"
+            '  "principle": "...",\n'
+            '  "applicable_scenarios": ["..."],\n'
+            '  "best_practices": ["..."],\n'
+            '  "related_patterns": ["..."],\n'
+            '  "learning_resources": [{"title": "...", "url": "...", "type": "book|article|video|course"}]\n'
+            "}"
+        )
+
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                # 限流：如果近期有频率限制命中，增加等待时间
+                async with self._rate_limit_lock:
+                    if self._rate_limit_hits > 0:
+                        await asyncio.sleep(min(2**self._rate_limit_hits, 30))
+
+                async with self._semaphore:
+                    response = await self._llm_client.chat(
+                        [{"role": "user", "content": prompt}],
+                        num_retries=0,  # 由本方法控制重试
+                    )
+
+                # 成功：降低频率限制计数
+                async with self._rate_limit_lock:
+                    if self._rate_limit_hits > 0:
+                        self._rate_limit_hits -= 1
+
+                content = response.get("content", "") if isinstance(response, dict) else str(response)
+
+                # 尝试解析（支持部分提取）
+                result = self._parse_merged_expansion(content)
+                if result is not None:
+                    return result
+
+                if attempt < self.MAX_RETRIES:
+                    logger.debug("拓展内容解析失败，重试: title=%s, attempt=%d", title, attempt + 1)
+                    continue
+                logger.warning("拓展内容解析失败: title=%s", title)
+                return None
+
+            except LLMError as exc:
+                exc_str = str(exc).lower()
+                is_rate_limit = "rate limit" in exc_str or "请求限制" in exc_str or "429" in exc_str
+                if is_rate_limit:
+                    async with self._rate_limit_lock:
+                        self._rate_limit_hits += 1
+                    logger.warning("拓展内容触发频率限制: title=%s, hits=%d", title, self._rate_limit_hits)
+
+                if attempt < self.MAX_RETRIES:
+                    wait = 2 ** (attempt + 1) * (3 if is_rate_limit else 1)
+                    logger.debug("拓展内容生成失败，重试: title=%s, attempt=%d, wait=%ds", title, attempt + 1, wait)
+                    await asyncio.sleep(wait)
+                    continue
+                logger.warning("拓展内容生成失败: title=%s, error=%s", title, exc)
+                return None
+
+            except Exception as exc:
+                if attempt < self.MAX_RETRIES:
+                    logger.debug("拓展内容生成异常，重试: title=%s, attempt=%d", title, attempt + 1)
+                    await asyncio.sleep(1)
+                    continue
+                logger.warning("拓展内容生成异常: title=%s, error=%s", title, exc)
+                return None
+
+        return None
+
+    def _parse_merged_expansion(self, content: str) -> dict | None:
+        """解析合并的拓展内容 JSON，支持部分提取
+
+        尝试完整解析，如果失败则尝试提取代码块。
+        如果仍然失败，尝试提取每个字段的可用部分。
+        """
+        # 1. 尝试完整解析
         try:
             parsed = json.loads(content)
             validated = self._expansion_adapter.validate_python(parsed)
             return validated.model_dump()
-        except (json.JSONDecodeError, Exception) as exc:
-            logger.debug("JSON 解析/校验失败: %s", exc)
-            # 尝试从代码块中提取
-            import re
+        except Exception:
+            pass
 
+        # 2. 尝试从代码块中提取
+        try:
             match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
             if match:
-                try:
-                    parsed = json.loads(match.group(1))
-                    validated = self._expansion_adapter.validate_python(parsed)
+                parsed = json.loads(match.group(1))
+                validated = self._expansion_adapter.validate_python(parsed)
+                return validated.model_dump()
+        except Exception:
+            pass
+
+        # 3. 部分提取：收集所有可用字段
+        try:
+            parsed = json.loads(content)
+            result: dict[str, Any] = {}
+            for field in [
+                "principle",
+                "applicable_scenarios",
+                "best_practices",
+                "related_patterns",
+                "learning_resources",
+            ]:
+                if field in parsed and parsed[field] is not None:
+                    result[field] = parsed[field]
+            if result:
+                validated = self._expansion_adapter.validate_python(result)
+                return validated.model_dump()
+        except Exception:
+            pass
+
+        # 4. 从代码块中做部分提取
+        try:
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
+            if match:
+                parsed = json.loads(match.group(1))
+                result = {}
+                for field in [
+                    "principle",
+                    "applicable_scenarios",
+                    "best_practices",
+                    "related_patterns",
+                    "learning_resources",
+                ]:
+                    if field in parsed and parsed[field] is not None:
+                        result[field] = parsed[field]
+                if result:
+                    validated = self._expansion_adapter.validate_python(result)
                     return validated.model_dump()
-                except Exception:
-                    pass
-            return None
+        except Exception:
+            pass
+
+        return None

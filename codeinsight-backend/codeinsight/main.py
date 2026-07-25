@@ -33,9 +33,22 @@ from codeinsight.services.meilisearch_client import MeiliSearchClient
 logger = logging.getLogger(__name__)
 
 
+def _configure_logging() -> None:
+    """确保 'codeinsight' 命名空间下的 logger 输出 INFO 级别日志"""
+    logging.getLogger("codeinsight").setLevel(logging.INFO)
+    # 如果 root logger 没有 handler，添加一个 stderr handler
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        root.addHandler(handler)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    # 配置日志级别，确保所有 logger.info 输出可见
+    _configure_logging()
     # 启动时执行
     logger.info("[STARTUP] CodeInsight AI Backend v%s", settings.app_version)
     logger.info("[STARTUP] Environment: %s", settings.app_env)
@@ -49,10 +62,10 @@ async def lifespan(app: FastAPI):
         logger.error("[STARTUP] Config validation FAILED: %s", exc)
         raise
 
-    # 初始化 Meilisearch 索引（异步安全）
+    # 初始化 Meilisearch 索引
     try:
-        meili_client = await MeiliSearchClient.create()
-        await meili_client.ensure_index()
+        meili_client = MeiliSearchClient()
+        meili_client.ensure_index()
         logger.info("[STARTUP] Meilisearch index initialized")
     except Exception as exc:
         logger.warning("[STARTUP] Meilisearch initialization skipped: %s", exc)
@@ -166,12 +179,12 @@ def create_app() -> FastAPI:
             logger.error("Health check: database unavailable - %s", exc)
             checks["database"] = {"status": "unavailable"}
 
-        # 检测 Redis 连接（异步安全）
+        # 检测 Redis 连接
         try:
-            from codeinsight.db.redis_client import get_async_redis_client
+            from codeinsight.db.redis_client import get_redis_client
 
-            redis_client = await get_async_redis_client()
-            await redis_client.ping()
+            redis_client = get_redis_client()
+            redis_client.ping()
             checks["redis"] = {"status": "ok"}
         except Exception as exc:
             logger.error("Health check: redis unavailable - %s", exc)

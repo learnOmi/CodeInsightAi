@@ -14,12 +14,6 @@ interface SSEProgressPayload {
   knowledge_points_found: number;
 }
 
-/** SSE 完整事件载荷 */
-interface SSECompletePayload {
-  task_id: string;
-  status: string;
-}
-
 /** SSE 错误事件载荷 */
 interface SSEErrorPayload {
   task_id: string;

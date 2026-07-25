@@ -11,10 +11,10 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -43,14 +43,23 @@ class CodeSnippet(BaseModel):
         from_attributes=True,
         populate_by_name=True,
         alias_generator=to_camel,
+        extra="ignore",
     )
 
-    file_path: str
-    start_line: int
-    end_line: int
+    file_path: str = ""
+    start_line: int = 0
+    end_line: int = 0
     highlighted_lines: list[int] = []
-    language: str
-    signature: str
+    language: str = ""
+    signature: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_file_path(cls, data: Any) -> Any:
+        """兼容 LLM 提取格式：将 file 映射为 file_path"""
+        if isinstance(data, dict) and "file" in data and "file_path" not in data and "filePath" not in data:
+            data["file_path"] = data.pop("file")
+        return data
 
 
 class CallChainNode(BaseModel):
@@ -60,14 +69,29 @@ class CallChainNode(BaseModel):
         from_attributes=True,
         populate_by_name=True,
         alias_generator=to_camel,
+        extra="ignore",
     )
 
-    node_id: str
-    node_type: Literal["function", "class", "method", "function_call", "import", "module"]
-    file: str
-    lines: tuple[int, int]
-    signature: str
-    direction: Literal["entry", "call", "implementation", "export"]
+    node_id: str = ""
+    node_type: Literal["function", "class", "method", "function_call", "import", "module"] = "function_call"
+    file: str = ""
+    lines: tuple[int, int] = (0, 0)
+    signature: str = ""
+    direction: Literal["entry", "call", "implementation", "export"] = "call"
+
+    @field_validator("lines", mode="before")
+    @classmethod
+    def _coerce_lines(cls, v: Any) -> tuple[int, int]:
+        """兼容 LLM 提取格式：接受 list[int] 转为 tuple[int, int]"""
+        if isinstance(v, (list, tuple)):
+            if len(v) >= 2:
+                return (int(v[0]), int(v[1]))
+            elif len(v) == 1:
+                return (int(v[0]), int(v[0]))
+            return (0, 0)
+        if isinstance(v, int):
+            return (v, v)
+        return (0, 0)
 
 
 class LearningResource(BaseModel):
@@ -91,9 +115,10 @@ class ExpansionContent(BaseModel):
         from_attributes=True,
         populate_by_name=True,
         alias_generator=to_camel,
+        extra="ignore",
     )
 
-    principle: str
+    principle: str = ""
     applicable_scenarios: list[str] = []
     best_practices: list[str] = []
     related_patterns: list[str] = []
@@ -107,11 +132,12 @@ class KnowledgeMetadata(BaseModel):
         from_attributes=True,
         populate_by_name=True,
         alias_generator=to_camel,
+        extra="ignore",
     )
 
-    agent: str
-    prompt_version: str
-    model: str
+    agent: str = ""
+    prompt_version: str = ""
+    model: str = ""
     tokens_used: dict[str, int] = {}
 
 
@@ -242,3 +268,28 @@ class KnowledgePointExtraction(BaseModel):
     call_chain: list[CallChainExtraction] = []
     tags: list[str] = []
     expansion: ExpansionContent | None = None
+
+    @field_validator("call_chain", mode="before")
+    @classmethod
+    def _coerce_call_chain(cls, v: Any) -> list[Any]:
+        """兼容 LLM 返回字符串列表场景（自动转为对象）"""
+        if not v:
+            return []
+        coerced = []
+        for item in v:
+            if isinstance(item, str):
+                # 字符串格式："ClassName.MethodName" 或 "MethodName"
+                coerced.append(
+                    CallChainExtraction(
+                        node_id="",
+                        node_type="function_call",
+                        file="",
+                        name=item,
+                        lines=[],
+                    )
+                )
+            elif isinstance(item, dict):
+                coerced.append(CallChainExtraction(**item))
+            else:
+                coerced.append(item)
+        return coerced

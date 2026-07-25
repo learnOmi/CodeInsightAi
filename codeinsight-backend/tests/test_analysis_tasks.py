@@ -371,7 +371,7 @@ async def test_redis_mapping_on_submit():
         await submit_analysis(repo_uuid, mock_db, dao_instance, None)
 
         mock_get_redis.assert_called()
-        assert mock_redis.set.call_count == 3
+        assert mock_redis.set.call_count == 4
         first_call = mock_redis.set.call_args_list[0]
         assert first_call[0][0] == "task:mapped-task-id:repo"
         assert first_call[0][1] == repo_uuid

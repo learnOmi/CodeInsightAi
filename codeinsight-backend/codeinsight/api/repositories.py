@@ -47,6 +47,10 @@ async def create_repository(
 
     添加一个新的代码仓库，如果 auto_analyze 为 True 则自动提交分析任务。
     """
+    logger.info(
+        "create_repository 被调用: name=%s, path=%s, auto_analyze=%s", request.name, request.path, request.auto_analyze
+    )
+
     # 验证路径是否存在且为目录
     p = Path(request.path)
     if not p.exists():
@@ -66,7 +70,15 @@ async def create_repository(
         await db.commit()
         from codeinsight.api.analysis import _trigger_analysis
 
-        await _trigger_analysis(repo.id, repo)
+        analysis_task = await _trigger_analysis(repo.id, repo)
+        # 刷新仓库对象获取最新状态（分析完成后 orchestrator 会更新 repo.status）
+        try:
+            await db.refresh(repo)
+        except Exception:
+            logger.warning("刷新仓库状态失败: repo=%s", repo.id)
+        # 如果 eager 模式分析失败，将错误信息附加到响应头中
+        if analysis_task.status == "failed" and analysis_task.error_message:
+            logger.error("自动分析失败: repo=%s, error=%s", repo.id, analysis_task.error_message)
 
     return repo
 

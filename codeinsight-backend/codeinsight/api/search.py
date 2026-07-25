@@ -162,14 +162,14 @@ async def search_knowledge_points(
     if not q or not q.strip():
         return {"hits": [], "total": 0, "query": q}
 
-    client = await MeiliSearchClient.create()
+    client = MeiliSearchClient()
     filter_params: list[str] = []
     if repository_id:
         filter_params.append(f"repository_id = {repository_id}")
     if category:
         filter_params.append(f"category = {category}")
 
-    result = await client.search(
+    result = client.search(
         query=q.strip(),
         limit=limit,
         offset=offset,

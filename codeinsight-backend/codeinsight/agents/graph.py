@@ -92,15 +92,7 @@ def _route_to_expansion(state: AnalysisState) -> str:
     return END
 
 
-ANALYSIS_TIMEOUT = 300.0  # 分析图超时时间（秒）
-
-
-async def _run_with_timeout(graph, state, timeout=ANALYSIS_TIMEOUT):
-    """带超时的分析图执行"""
-    return await asyncio.wait_for(graph.ainvoke(state), timeout=timeout)
-
-
-ANALYSIS_TIMEOUT = 300.0  # 分析图执行超时时间（秒）
+ANALYSIS_TIMEOUT = 600.0  # 分析图执行超时时间（秒）
 
 
 class AnalysisGraph:

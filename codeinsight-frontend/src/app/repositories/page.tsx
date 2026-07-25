@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, BookOpen } from "lucide-react";
 import Link from "next/link";
 import { RepoForm } from "@/components/RepoForm";
 import { RepoList } from "@/components/RepoList";
@@ -19,6 +19,17 @@ export default function RepositoriesPage() {
         >
           <ArrowLeft className="w-4 h-4 text-[var(--text-secondary)]" />
           <span className="text-sm text-[var(--text-primary)]">返回</span>
+        </Link>
+      </div>
+
+      {/* 知识库入口 — 固定在右上角 */}
+      <div className="fixed top-4 right-6 z-50">
+        <Link
+          href="/knowledge"
+          className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors shadow-sm"
+        >
+          <BookOpen className="w-4 h-4 text-[var(--text-secondary)]" />
+          <span className="text-sm text-[var(--text-primary)]">知识库</span>
         </Link>
       </div>
 

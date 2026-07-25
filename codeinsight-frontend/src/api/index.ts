@@ -19,3 +19,6 @@ export * from "./frameworks";
 export * from "./stats";
 export * from "./module-dependencies";
 export * from "./search";
+
+// knowledge
+export * from "./knowledge";

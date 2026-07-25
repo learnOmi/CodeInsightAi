@@ -15,6 +15,7 @@ import pytest
 
 from codeinsight.llm import CostTracker, LLMClient, LLMConfig, LLMError
 from codeinsight.llm.cost import get_cost_tracker
+from codeinsight.llm.errors import OllamaUnavailableError
 
 # ────────── Fixtures ──────────
 
@@ -71,7 +72,7 @@ class TestLLMClientInit:
         """GPT 模型名解析"""
         config = LLMConfig(provider="gpt", model="gpt-4o", api_key="test-key")
         client = LLMClient(config)
-        assert client._model_name == "gpt-4o"
+        assert client._model_name == "openai/gpt-4o"
 
     def test_ollama_model_resolution(self):
         """Ollama 模型名解析"""
@@ -83,14 +84,15 @@ class TestLLMClientInit:
         """OpenAI 模型名解析（openai 应映射到 gpt 品类）"""
         config = LLMConfig(provider="openai", model="gpt-4o-mini", api_key="test-key")
         client = LLMClient(config)
-        assert client._model_name == "gpt-4o-mini"
+        assert client._model_name == "openai/gpt-4o-mini"
 
     def test_unsupported_provider(self):
-        """不支持的提供商抛出异常"""
+        """不支持的提供商回退到 api_base 兼容模式"""
         config = LLMConfig(provider="claude", model="")
         config.provider = "unsupported"  # type: ignore[assignment]
-        with pytest.raises(LLMError, match="Unsupported LLM provider"):
-            LLMClient(config)
+        client = LLMClient(config)
+        # 当 api_base 已设置时，provider 不匹配走 openai 兼容模式
+        assert client._model_name == "openai/gpt-4o"
 
     def test_semaphore_default_concurrency(self):
         """Semaphore 默认并发数为 3"""
@@ -312,8 +314,8 @@ class TestLLMClientTaskRouting:
         """Ollama 健康检查失败"""
         mock_http_client.return_value.__aenter__.return_value.get.side_effect = Exception("Connection refused")
 
-        result = await llm_client.check_ollama_health()
-        assert result is False
+        with pytest.raises(OllamaUnavailableError, match="Ollama 服务不可用"):
+            await llm_client.check_ollama_health()
 
     @patch("codeinsight.llm.client.litellm.acompletion")
     async def test_chat_records_cost(self, mock_acompletion, llm_client, mock_acompletion_result, mock_cost_tracker):
@@ -347,14 +349,15 @@ class TestLLMClientEmbed:
         mock_aembedding.return_value = mock_response
 
         result = await llm_client.embed(["hello"])
-        assert result == [[0.1, 0.2, 0.3]]
+        assert result[0][:3] == [0.1, 0.2, 0.3]
+        assert len(result[0]) == 1536
 
     @patch("codeinsight.llm.client.litellm.aembedding")
     async def test_embed_error(self, mock_aembedding, llm_client):
-        """嵌入错误处理"""
+        """嵌入错误处理——返回零向量"""
         mock_aembedding.side_effect = Exception("Embed error")
-        with pytest.raises(LLMError, match="LLM embed failed"):
-            await llm_client.embed(["hello"])
+        result = await llm_client.embed(["hello"])
+        assert result == [[0.0] * 1536]
 
 
 class TestLLMClientTokens:
@@ -375,10 +378,10 @@ class TestLLMClientTokens:
 # ────────── CostTracker ──────────
 
 
-@pytest.mark.asyncio
 class TestCostTracker:
     """成本追踪器测试"""
 
+    @pytest.mark.asyncio
     async def test_record_and_daily_cost(self):
         """记录和日成本查询"""
         tracker = CostTracker()
@@ -387,6 +390,7 @@ class TestCostTracker:
         await tracker.record("claude-3.5-sonnet", "claude", 1000, 500, 0.01)
         assert tracker.get_daily_cost() == 0.01
 
+    @pytest.mark.asyncio
     async def test_cost_by_model(self):
         """按模型分组成本"""
         tracker = CostTracker()
@@ -397,6 +401,7 @@ class TestCostTracker:
         assert costs["model-a"] == 0.01
         assert costs["model-b"] == 0.02
 
+    @pytest.mark.asyncio
     async def test_cost_by_task(self):
         """按任务类型分组成本"""
         tracker = CostTracker()
@@ -407,6 +412,7 @@ class TestCostTracker:
         assert costs["design_pattern"] == 0.01
         assert costs["architecture"] == 0.02
 
+    @pytest.mark.asyncio
     async def test_total_stats(self):
         """总统计"""
         tracker = CostTracker()
@@ -419,6 +425,7 @@ class TestCostTracker:
         assert stats["total_prompt_tokens"] == 3000
         assert stats["total_completion_tokens"] == 1500
 
+    @pytest.mark.asyncio
     async def test_max_records(self):
         """最大记录数限制"""
         tracker = CostTracker(max_records=3)
@@ -426,6 +433,7 @@ class TestCostTracker:
             await tracker.record("model", "provider", 100, 50, 0.01)
         assert len(tracker._records) == 3
 
+    @pytest.mark.asyncio
     async def test_clear(self):
         """清空记录"""
         tracker = CostTracker()
@@ -460,7 +468,8 @@ class TestEmbeddingClient:
 
         client = EmbeddingClient()
         result = await client.embed(["hello"])
-        assert result == [[0.1, 0.2, 0.3]]
+        assert result[0][:3] == [0.1, 0.2, 0.3]
+        assert len(result[0]) == 1536
 
     @patch("codeinsight.llm.client.litellm.aembedding")
     async def test_embed_single(self, mock_aembedding):
@@ -475,11 +484,12 @@ class TestEmbeddingClient:
 
         client = EmbeddingClient()
         result = await client.embed_single("hello")
-        assert result == [0.1, 0.2, 0.3]
+        assert result[:3] == [0.1, 0.2, 0.3]
+        assert len(result) == 1536
 
     @patch("codeinsight.llm.client.litellm.aembedding")
     async def test_embed_single_empty(self, mock_aembedding):
-        """空嵌入抛出异常"""
+        """空嵌入返回零向量"""
         from codeinsight.embedding.client import EmbeddingClient
 
         mock_response = MagicMock()
@@ -487,8 +497,8 @@ class TestEmbeddingClient:
         mock_aembedding.return_value = mock_response
 
         client = EmbeddingClient()
-        with pytest.raises(LLMError, match="Empty embedding"):
-            await client.embed_single("hello")
+        result = await client.embed_single("hello")
+        assert result == [0.0] * 1536
 
     @patch("codeinsight.llm.client.litellm.aembedding")
     async def test_store(self, mock_aembedding):

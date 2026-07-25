@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     # 本地模型
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
-    ollama_task_routing: bool = True  # 是否启用简单任务路由到本地模型
+    ollama_task_routing: bool = False  # 是否启用简单任务路由到本地模型（默认关闭，需要 Ollama 环境）
 
     # JWT
     secret_key: str = ""

@@ -24,6 +24,12 @@ def _accumulate_knowledge_points(previous: list[dict[str, Any]], new: list[dict[
     用于 LangGraph Annotated 状态字段，确保知识点在多个 Agent 节点
     之间累积而不是被覆盖。
 
+    处理两种场景：
+    1. 并行 fan-out：多个 Agent 节点返回各自的知识点，需要合并去重
+    2. 串行更新：ExpansionNode 为已有知识点添加 expansion 字段，
+       此时 new 中所有条目的 title 都已存在于 previous 中，
+       应返回 new（包含更新后的数据）而不是 previous。
+
     Args:
         previous: 已有的知识点列表
         new: 本轮分析新提取的知识点列表
@@ -31,13 +37,35 @@ def _accumulate_knowledge_points(previous: list[dict[str, Any]], new: list[dict[
     Returns:
         合并后的知识点列表
     """
+    if not new:
+        return previous
+    if not previous:
+        return new
+
     existing_titles = {p.get("title") for p in previous if p.get("title")}
-    return previous + [n for n in new if n.get("title") not in existing_titles]
+
+    # 分离出真正新增的条目（与已有条目不重复的）
+    truly_new = [n for n in new if n.get("title") not in existing_titles]
+
+    if not truly_new:
+        # 所有条目都已存在 -> 这是更新操作（如 ExpansionNode 添加 expansion 字段）
+        # 返回 new 以保留更新后的数据
+        return new
+
+    # 有真正新增的条目 -> 这是并行 fan-out 合并场景
+    return previous + truly_new
 
 
 def _keep_first(previous: Any, new: Any) -> Any:
-    """保留第一个值（用于并行分支中不需要更新的字段）"""
-    return previous if previous is not None else new
+    """保留第一个值（用于并行分支中不需要更新的字段）
+
+    注意：TypedDict 默认空值（""、[]、{}）会被视为"未设置"，
+    此时使用新值而不是默认值，确保 initial_state 传入的数据被正确保留。
+    """
+    # 空值（TypedDict 默认值）视为未设置，使用新值
+    if previous in (None, "", [], {}, ()):
+        return new
+    return previous
 
 
 def _keep_last(previous: Any, new: Any) -> Any:
@@ -64,15 +92,12 @@ def _merge_messages(previous: list[dict[str, Any]], new: list[dict[str, Any]]) -
     return merged
 
 
-class AnalysisState(TypedDict, total=False):
+class AnalysisState(TypedDict):
     """
     代码知识分析状态
 
     在 LangGraph 工作流中，该状态在所有 Agent 节点之间共享和传递。
     所有字段使用 Annotated reducer 以支持并行 fan-out 执行。
-
-    使用 total=False 因为 LangGraph 节点只返回状态的部分更新，
-    由 reducer 函数合并。mypy 不会要求所有键都必须在返回值中出现。
 
     Attributes:
         repo_id: 仓库唯一标识符
@@ -88,6 +113,8 @@ class AnalysisState(TypedDict, total=False):
     repo_id: Annotated[str, _keep_first]
     ast_data: Annotated[list[dict[str, Any]], _keep_first]
     code_snippets: Annotated[list[dict[str, Any]], _keep_first]
+
+    # 累积字段：使用专用 reducer
     knowledge_points: Annotated[list[dict[str, Any]], _accumulate_knowledge_points]
     current_category: Annotated[str, _keep_last]
     progress: Annotated[float, _merge_progress]

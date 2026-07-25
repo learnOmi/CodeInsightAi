@@ -175,7 +175,6 @@ class EvalEngine:
         languages: list[str] | None = None,
         categories: list[str] | None = None,
         data_dir: str | None = None,
-        config: EvalConfig | None = None,
     ) -> EvalReport:
         """运行评估
 
@@ -183,15 +182,13 @@ class EvalEngine:
             languages: 筛选语言
             categories: 筛选分类
             data_dir: 数据目录，覆盖 config 中的设置
-            config: 可选配置覆盖（E-B2 修复：用于不修改引擎实例配置的情况下传递替代配置）
 
         Returns:
             评估报告
         """
-        active_config = config or self.config
-        languages = languages or active_config.languages
-        categories = categories or active_config.categories
-        data_dir = data_dir or active_config.data_dir
+        languages = languages or self.config.languages
+        categories = categories or self.config.categories
+        data_dir = data_dir or self.config.data_dir
 
         # 加载测试用例
         test_cases = self._load_test_cases(languages, categories, data_dir)
@@ -238,7 +235,7 @@ class EvalEngine:
         total_time = time.time() - total_start
 
         # 构建报告
-        report = self._build_report(by_language_category, all_results, total_time, active_config)
+        report = self._build_report(by_language_category, all_results, total_time)
 
         # 输出报告
         for reporter in self._reporters:
@@ -302,7 +299,6 @@ class EvalEngine:
         by_language_category: dict[str, dict[str, list[EvaluationResult]]],
         all_results: list[EvaluationResult],
         total_time: float,
-        config: EvalConfig | None = None,
     ) -> EvalReport:
         """构建评估报告
 
@@ -363,7 +359,7 @@ class EvalEngine:
             by_language=lang_metrics,
             by_category=cat_metrics,
             by_language_category=lang_cat_nested,
-            config=config,
+            config=self.config,
         )
 
     def _merge_metric_results(self, results: list[EvaluationResult]) -> MetricResult:
@@ -575,24 +571,29 @@ class ABTestRunner:
         Returns:
             A/B 测试结果
         """
-        # E-B2: 通过 config 参数传递替代配置，不修改共享引擎实例
-        # 使用深拷贝避免 report 持有被覆盖后的配置引用
-        control_config = copy.deepcopy(self._control_config)
-        experiment_config = copy.deepcopy(self._experiment_config)
+        # 保存原始配置
+        original_config = self._engine.config
 
+        # 运行对照组（使用深拷贝避免修改共享引擎的配置）
+        control_config = copy.deepcopy(self._control_config)
+        self._engine.config = control_config
         control_report = await self._engine.run(
             languages=languages,
             categories=categories,
             data_dir=data_dir,
-            config=control_config,
         )
 
+        # 运行实验组（使用深拷贝避免修改共享引擎的配置）
+        experiment_config = copy.deepcopy(self._experiment_config)
+        self._engine.config = experiment_config
         experiment_report = await self._engine.run(
             languages=languages,
             categories=categories,
             data_dir=data_dir,
-            config=experiment_config,
         )
+
+        # 恢复原始配置
+        self._engine.config = original_config
 
         return ABTestResult(
             control=control_report,

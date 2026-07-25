@@ -551,6 +551,8 @@ class AnalysisOrchestrator:
                     file_id = file_id_map.get(scanned_file.path)
                     if file_id is None:
                         continue
+                    # 显式转换为 uuid.UUID，避免 SQLAlchemy 批量 flush 时 sentinels 匹配失败
+                    file_id = uuid.UUID(str(file_id))
 
                     # O-B10: 使用 name+file_path+start_line+end_line 作为稳定标识符，避免 id(node) 被内存回收复用
                     node_key_index_a2: dict[str, int] = {}
@@ -564,13 +566,15 @@ class AnalysisOrchestrator:
                     nodes_data = []
                     for node in ast_nodes:
                         key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
-                        parent_node_id = None
+                        parent_node_id: uuid.UUID | None = None
                         if node.parent is not None:
                             parent_key = f"{node.parent.file_path}:{node.parent.start_line}:{node.parent.end_line}:{node.parent.name}"
-                            parent_node_id = node_uuids_a2.get(parent_key)
+                            parent_uuid = node_uuids_a2.get(parent_key)
+                            if parent_uuid is not None:
+                                parent_node_id = parent_uuid
                         nodes_data.append(
                             {
-                                "id": str(node_uuids_a2[key]),
+                                "id": node_uuids_a2[key],
                                 "repository_id": self.repo_uuid,
                                 "file_id": file_id,
                                 "node_type": node.node_type,
@@ -592,6 +596,10 @@ class AnalysisOrchestrator:
                         result = await pipeline.ingest_ast_nodes(self.repo_uuid, nodes_data)
                         parsed_count += result.inserted_count
                 except Exception as exc:
+                    # 恢复共享 session：一个文件的失败不应污染后续文件
+                    if db is not None:
+                        with contextlib.suppress(Exception):
+                            await db.rollback()
                     logger.warning("AST 解析失败: file=%s, error=%s", scanned_file.absolute_path, exc)
                     continue
 
@@ -619,6 +627,8 @@ class AnalysisOrchestrator:
                     file_id = file_id_map.get(scanned_file.path)
                     if file_id is None:
                         continue
+                    # 显式转换为 uuid.UUID，避免 SQLAlchemy 批量 flush 时 sentinels 匹配失败
+                    file_id = uuid.UUID(str(file_id))
 
                     # O-B10: 使用 name+file_path+start_line+end_line 作为稳定标识符，避免 id(node) 被内存回收复用
                     node_key_index_2: dict[str, int] = {}
@@ -632,13 +642,15 @@ class AnalysisOrchestrator:
                     nodes_data = []
                     for node in ast_nodes:
                         key = f"{node.file_path}:{node.start_line}:{node.end_line}:{node.name}"
-                        parent_node_id = None
+                        parent_node_id_2: uuid.UUID | None = None
                         if node.parent is not None:
                             parent_key = f"{node.parent.file_path}:{node.parent.start_line}:{node.parent.end_line}:{node.parent.name}"
-                            parent_node_id = node_uuids_2.get(parent_key)
+                            parent_uuid = node_uuids_2.get(parent_key)
+                            if parent_uuid is not None:
+                                parent_node_id_2 = parent_uuid
                         nodes_data.append(
                             {
-                                "id": str(node_uuids_2[key]),
+                                "id": node_uuids_2[key],
                                 "repository_id": self.repo_uuid,
                                 "file_id": file_id,
                                 "node_type": node.node_type,
@@ -647,7 +659,7 @@ class AnalysisOrchestrator:
                                 "end_line": node.end_line,
                                 "start_column": node.start_column,
                                 "end_column": node.end_column,
-                                "parent_node_id": parent_node_id,
+                                "parent_node_id": parent_node_id_2,
                                 "file_path": node.file_path,
                                 "language": node.language,
                                 # Phase 1 新增：框架感知字段
@@ -1270,14 +1282,20 @@ class AnalysisOrchestrator:
         """标记任务失败"""
         self.progress_manager.update(TaskStatus.FAILED, 100.0, self.total_files, self.total_files, 0)
         if self.version_id is not None:
-            await self._update_analysis_version(
-                db,
-                TaskStatus.FAILED,
-                completed_at=datetime.now(UTC),
-                error_message=error_message,
-            )
+            try:
+                await self._update_analysis_version(
+                    db,
+                    TaskStatus.FAILED,
+                    completed_at=datetime.now(UTC),
+                    error_message=error_message,
+                )
+            except Exception:
+                logger.warning("更新分析版本失败状态失败（版本可能未提交），继续更新仓库状态", exc_info=True)
         # 即使 version_id 为 None（版本记录创建前失败），也要更新仓库状态
-        await self._set_repo_status(db, TaskStatus.FAILED.value)
+        try:
+            await self._set_repo_status(db, TaskStatus.FAILED.value)
+        except Exception:
+            logger.warning("更新仓库状态失败", exc_info=True)
         self._cleanup_redis_task_key()
         logger.error("分析任务失败: repo=%s, error=%s", self.repo_uuid, error_message)
 
@@ -1387,13 +1405,13 @@ class AnalysisOrchestrator:
         """同步入口：执行分析流程并返回结果
 
         O-B2: 兼容已有事件循环的环境（如 Celery Worker 使用 --pool=threads）
-        通过检测是否已有 running loop 来决定使用 asyncio.run() 还是 loop.run_until_complete()
+        通过检测是否已有 running loop 来决定使用 asyncio.run() 或在线程中执行。
         """
         try:
             try:
-                asyncio.get_running_loop()
-                loop = asyncio.get_event_loop()
-                return loop.run_until_complete(self._run_async())
+                loop = asyncio.get_running_loop()
+                # 已存在 running loop，使用 run_coroutine_threadsafe 在线程中执行
+                return asyncio.run_coroutine_threadsafe(self._run_async(), loop).result()
             except RuntimeError:
                 return asyncio.run(self._run_async())
         except CancelledError:
@@ -1401,8 +1419,8 @@ class AnalysisOrchestrator:
             raise
         except Exception as exc:
             try:
-                asyncio.get_running_loop()
-                asyncio.get_event_loop().run_until_complete(self.fail(None, str(exc)))
+                loop = asyncio.get_running_loop()
+                asyncio.run_coroutine_threadsafe(self.fail(None, str(exc)), loop).result()
             except RuntimeError:
                 asyncio.run(self.fail(None, str(exc)))
             raise
@@ -1502,13 +1520,13 @@ class AnalysisOrchestrator:
                     structures_progress = None
 
                 try:
-                    if do_full_analysis:
-                        await self.build_structures(shared_db, progress_callback=structures_progress)
-                    elif self.files_to_parse:
-                        await self.build_structures_incremental(shared_db, progress_callback=structures_progress)
+                    async with shared_db.begin_nested():
+                        if do_full_analysis:
+                            await self.build_structures(shared_db, progress_callback=structures_progress)
+                        elif self.files_to_parse:
+                            await self.build_structures_incremental(shared_db, progress_callback=structures_progress)
                 except Exception:
                     logger.exception("结构分析失败")
-                    await shared_db.rollback()
                     raise
 
             # Step 4.5: 框架检测 + API 路由提取 + 中间件链分析
@@ -1523,37 +1541,51 @@ class AnalysisOrchestrator:
                     shared_db, TaskStatus.ANALYZING_MODULES, analyzed_files=self.total_files
                 )
 
-                # 构建 AST 数据
-                from pathlib import Path
+            # 构建 AI 分析所需的 AST 数据和代码片段
+            # 注意：断点续跑（skip_to_step == "ai"）也需要重新加载这些数据
+            from pathlib import Path
 
-                ast_nodes = await self.ast_node_dao.get_by_repository(shared_db, self.repo_uuid)
-                ast_data = [
-                    {
-                        "id": str(n.id),
-                        "node_type": n.node_type,
-                        "name": n.name,
-                        "file_id": str(n.file_id),
-                        "start_line": n.start_line,
-                        "end_line": n.end_line,
-                        "qualified_name": n.qualified_name,
-                    }
-                    for n in ast_nodes
-                ]
+            ast_nodes = await self.ast_node_dao.get_by_repository(shared_db, self.repo_uuid)
+            ast_data = [
+                {
+                    "id": str(n.id),
+                    "node_type": n.node_type,
+                    "name": n.name,
+                    "file_id": str(n.file_id),
+                    "start_line": n.start_line,
+                    "end_line": n.end_line,
+                    "qualified_name": n.qualified_name,
+                }
+                for n in ast_nodes
+            ]
 
-                # 获取仓库路径用于代码读取
-                repo_path = await self._get_repo_path(shared_db)
+            # 获取仓库路径用于代码读取
+            repo_path = await self._get_repo_path(shared_db)
 
-                # O-B11: 移除 500 条限制，支持大仓库完整分析
-                files = await self.file_dao.get_by_repository(shared_db, self.repo_uuid)
-                code_snippets = []
-                for f in files:
-                    try:
-                        file_path = Path(repo_path) / f.path if repo_path else Path(f.absolute_path)
-                        content = file_path.read_text(encoding="utf-8", errors="replace")
-                        code_snippets.append({"file_path": f.path, "code": content[:5000]})
-                    except Exception:
-                        pass
+            # O-B11: 移除 500 条限制，支持大仓库完整分析
+            files = await self.file_dao.get_by_repository(shared_db, self.repo_uuid)
+            logger.info(
+                "代码片段加载: repo=%s, repo_path=%s, files=%d",
+                self.repo_uuid,
+                repo_path,
+                len(files),
+            )
+            code_snippets = []
+            for f in files:
+                try:
+                    file_path = Path(repo_path) / f.path if repo_path else Path(f.absolute_path)
+                    content = file_path.read_text(encoding="utf-8", errors="replace")
+                    code_snippets.append({"file_path": f.path, "code": content[:5000]})
+                except Exception as exc:
+                    logger.warning(
+                        "读取文件失败: repo=%s, path=%s, error=%s",
+                        self.repo_uuid,
+                        getattr(f, "path", None),
+                        exc,
+                    )
+            logger.info("代码片段加载完成: repo=%s, snippets=%d", self.repo_uuid, len(code_snippets))
 
+            if skip_to_step != "ai":
                 # P3-12: 增量 AI Agent 模式（仅分析变更文件的知识点）
                 kp_dao = KnowledgePointDAO()
                 preserved_kp_count = 0
@@ -1593,7 +1625,7 @@ class AnalysisOrchestrator:
 
                 # 运行 AI 分析
                 logger.info(
-                    "开始 AI 分析: repo_id=%s, ast_nodes=%d, files=%d",
+                    "开始 AI 分析: repo_id=%s, ast_nodes=%d, snippets=%d",
                     self.repo_uuid,
                     len(ast_data),
                     len(code_snippets),
@@ -1636,32 +1668,34 @@ class AnalysisOrchestrator:
                             await pusher_task
 
                 # 保存知识点到数据库
-                embedding_client = EmbeddingClient(llm_client=llm_client)
+                embedding_client = EmbeddingClient()
                 knowledge_points_count = 0
                 for kp in final_state["knowledge_points"]:
                     try:
-                        # 生成嵌入向量
-                        embed_text = f"{kp['title']}\n{kp['description']}"
-                        embedding = await embedding_client.embed_single(embed_text)
+                        # 使用 savepoint 隔离每个知识点的保存，失败时回滚 savepoint 不影响外层事务
+                        async with shared_db.begin_nested():
+                            # 生成嵌入向量
+                            embed_text = f"{kp['title']}\n{kp['description']}"
+                            embedding = await embedding_client.embed_single(embed_text)
 
-                        kp_data = {
-                            "id": uuid.uuid4(),
-                            "version": self.version_tag,
-                            "repository_id": self.repo_uuid,
-                            "category": kp["category"],
-                            "category_name": kp["category_name"],
-                            "title": kp["title"],
-                            "description": kp["description"],
-                            "confidence": kp["confidence"],
-                            "tags": kp.get("tags", []),
-                            "code_snippets": kp.get("code_snippets", []),
-                            "call_chain": kp.get("call_chain", []),
-                            "expansion": kp.get("expansion", {}),
-                            "knowledge_metadata": kp.get("metadata", {}),
-                            "embedding": embedding,
-                        }
-                        await kp_dao.create(shared_db, kp_data)
-                        knowledge_points_count += 1
+                            kp_data = {
+                                "id": uuid.uuid4(),
+                                "version": self.version_tag,
+                                "repository_id": self.repo_uuid,
+                                "category": kp["category"],
+                                "category_name": kp["category_name"],
+                                "title": kp["title"],
+                                "description": kp["description"],
+                                "confidence": kp["confidence"],
+                                "tags": kp.get("tags", []),
+                                "code_snippets": kp.get("code_snippets", []),
+                                "call_chain": kp.get("call_chain", []),
+                                "expansion": kp.get("expansion", {}),
+                                "knowledge_metadata": kp.get("metadata", {}),
+                                "embedding": embedding,
+                            }
+                            await kp_dao.create(shared_db, kp_data)
+                            knowledge_points_count += 1
                     except Exception as exc:
                         logger.warning("知识点保存失败: %s", exc)
 
@@ -1671,8 +1705,8 @@ class AnalysisOrchestrator:
                 # 同步知识点到 Meilisearch 索引（异步安全）
                 if knowledge_points_count > 0:
                     try:
-                        meili_client = await MeiliSearchClient.create()
-                        await meili_client.add_documents(final_state["knowledge_points"])
+                        meili_client = MeiliSearchClient()
+                        meili_client.add_documents(final_state["knowledge_points"])
                         logger.info("知识点已同步到 Meilisearch: count=%d", knowledge_points_count)
                     except Exception as exc:
                         logger.warning("知识点同步到 Meilisearch 失败: %s", exc)
@@ -1695,6 +1729,9 @@ class AnalysisOrchestrator:
 
             # Step 7: 完成
             await self.complete(shared_db, knowledge_points_count=knowledge_points_count)
+
+            # 提交 save_snapshot 和 complete 的变更（版本状态、仓库状态、快照记录）
+            await shared_db.commit()
 
         return {
             "version_id": str(self.version_id),

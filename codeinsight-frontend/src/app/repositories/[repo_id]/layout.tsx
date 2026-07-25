@@ -2,6 +2,7 @@
 
 import { use, type ReactNode } from "react";
 import Link from "next/link";
+import { BookOpen } from "lucide-react";
 import { useRepository } from "@/hooks/use-repositories";
 import { useAnalysisStatus } from "@/hooks/use-analysis-status";
 import { StatusBadge } from "@/components/analysis-status";
@@ -40,7 +41,14 @@ export default function RepoDetailLayout({
               {repo.path}
             </span>
           )}
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-3">
+            <Link
+              href="/knowledge"
+              className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>知识库</span>
+            </Link>
             <StatusBadge status={currentStatus} />
           </div>
         </div>
