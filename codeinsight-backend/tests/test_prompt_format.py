@@ -121,8 +121,8 @@ class TestPromptCrossReference:
     def test_consistent_category_values(self):
         """分类前缀与 base.md 一致"""
         base_content = (PROMPT_DIR / "base.md").read_text(encoding="utf-8")
-        categories = re.findall(r"`(DP|AD|AL|ET|DK)`", base_content)
-        assert len(categories) >= 5  # 5 个分类
+        categories = re.findall(r"`(DP|AD|AL|ET|DK|TT|TK)`", base_content)
+        assert len(categories) >= 7  # 7 个分类
 
         # 验证每个分类 prompt 的 category 值与 base.md 一致
         cat_map = {

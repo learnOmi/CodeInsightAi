@@ -40,6 +40,45 @@ export async function apiFetch<T>(
   return JSON.parse(text);
 }
 
+/** 带响应头的 API 请求函数，返回数据和响应头 */
+export async function apiFetchWithHeaders<T>(
+  path: string,
+  options: globalThis.RequestInit = {}
+): Promise<{ data: T; headers: Headers }> {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(API_KEY && { "X-API-Key": API_KEY }),
+    ...options.headers,
+  };
+
+  const response = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 304) {
+    throw new APIError(304, "资源未修改");
+  }
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new APIError(response.status, errorBody.detail || errorBody.message || "API request failed");
+  }
+
+  // Handle empty response body (e.g., 204 No Content)
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json") || response.status === 204) {
+    return { data: null as unknown as T, headers: response.headers };
+  }
+
+  const text = await response.text();
+  if (!text) {
+    return { data: null as unknown as T, headers: response.headers };
+  }
+
+  return { data: JSON.parse(text), headers: response.headers };
+}
+
 /** API 错误类 */
 export class APIError extends Error {
   constructor(public status: number, message: string) {

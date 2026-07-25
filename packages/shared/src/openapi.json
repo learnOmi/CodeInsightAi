@@ -3629,10 +3629,12 @@
           "AD",
           "AL",
           "ET",
-          "DK"
+          "DK",
+          "TT",
+          "TK"
         ],
         "title": "KnowledgeCategory",
-        "description": "知识点分类枚举\n\nDP: 设计模式 (Design Pattern)\nAD: 架构决策 (Architecture Decision)\nAL: 算法实现 (Algorithm)\nET: 工程技巧 (Engineering Tip)\nDK: 领域知识 (Domain Knowledge)"
+        "description": "知识点分类枚举\n\nDP: 设计模式 (Design Pattern)\nAD: 架构决策 (Architecture Decision)\nAL: 算法实现 (Algorithm)\nET: 工程技巧 (Engineering Tip)\nDK: 领域知识 (Domain Knowledge)\nTT: 开发模板 (Template/Technique)\nTK: 技术栈 (Technology/Toolkit)"
       },
       "KnowledgeMetadata": {
         "properties": {

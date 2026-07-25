@@ -1298,7 +1298,7 @@ export interface components {
          *     DK: 领域知识 (Domain Knowledge)
          * @enum {string}
          */
-        KnowledgeCategory: "DP" | "AD" | "AL" | "ET" | "DK";
+        KnowledgeCategory: "DP" | "AD" | "AL" | "ET" | "DK" | "TT" | "TK";
         /**
          * KnowledgeMetadata
          * @description 知识点元数据

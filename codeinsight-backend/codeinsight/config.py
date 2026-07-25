@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     incremental_max_propagation_depth: int = 3
     incremental_max_snapshot_versions: int = 5
 
-    # Celery（开发环境同步执行方便调试）
+    # Celery（开发环境同步执行方便调试，生产环境设为 False）
     celery_task_always_eager: bool = True
 
     # Redis 键 TTL（秒）

@@ -46,6 +46,7 @@ async def create_repository(
     添加代码仓库
 
     添加一个新的代码仓库，如果 auto_analyze 为 True 则自动提交分析任务。
+    返回的响应头中包含 X-Task-Id（如果 auto_analyze 为 True）。
     """
     logger.info(
         "create_repository 被调用: name=%s, path=%s, auto_analyze=%s", request.name, request.path, request.auto_analyze
@@ -64,6 +65,7 @@ async def create_repository(
 
     repo = await dao.create(db, request)
 
+    task_id = None
     # 创建后自动分析
     if request.auto_analyze:
         # 显式提交，确保分析任务（独立 session）能查到仓库记录
@@ -71,15 +73,20 @@ async def create_repository(
         from codeinsight.api.analysis import _trigger_analysis
 
         analysis_task = await _trigger_analysis(repo.id, repo)
-        # 刷新仓库对象获取最新状态（分析完成后 orchestrator 会更新 repo.status）
-        try:
-            await db.refresh(repo)
-        except Exception:
-            logger.warning("刷新仓库状态失败: repo=%s", repo.id)
-        # 如果 eager 模式分析失败，将错误信息附加到响应头中
+
+        task_id = str(analysis_task.task_id)
+        # 分析失败时仅记录日志，不删除仓库（支持断点传续）
         if analysis_task.status == "failed" and analysis_task.error_message:
             logger.error("自动分析失败: repo=%s, error=%s", repo.id, analysis_task.error_message)
 
+    # 始终返回 task_id（通过响应头）
+    if task_id:
+        return Response(
+            status_code=201,
+            content=Repository.model_validate(repo).model_dump_json(),
+            media_type="application/json",
+            headers={"X-Task-Id": task_id},
+        )
     return repo
 
 

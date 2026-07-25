@@ -95,6 +95,26 @@ def load_domain_knowledge_prompt() -> str:
     return _load_prompt("domain.md")
 
 
+def load_template_technique_prompt() -> str:
+    """
+    加载开发模板分析提示词
+
+    Returns:
+        开发模板分析提示词内容
+    """
+    return _load_prompt("tt.md")
+
+
+def load_technology_stack_prompt() -> str:
+    """
+    加载技术栈分析提示词
+
+    Returns:
+        技术栈分析提示词内容
+    """
+    return _load_prompt("tk.md")
+
+
 def load_expansion_prompt() -> str:
     """
     加载拓展内容生成提示词
@@ -112,5 +132,7 @@ __all__ = [
     "load_algorithm_prompt",
     "load_engineering_prompt",
     "load_domain_knowledge_prompt",
+    "load_template_technique_prompt",
+    "load_technology_stack_prompt",
     "load_expansion_prompt",
 ]

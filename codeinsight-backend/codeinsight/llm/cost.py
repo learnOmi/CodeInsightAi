@@ -170,3 +170,73 @@ def get_cost_tracker() -> CostTracker:
     if _tracker is None:
         _tracker = CostTracker()
     return _tracker
+
+
+class CostBudget:
+    """
+    LLM 调用预算控制器
+
+    控制单次分析任务的最大预算，防止 API 费用超支。
+    """
+
+    def __init__(self, max_budget_usd: float = 10.0):
+        """
+        初始化预算控制器
+
+        Args:
+            max_budget_usd: 最大预算（USD），默认 10 美元
+        """
+        self._max_budget = max_budget_usd
+        self._spent = 0.0
+        self._lock = asyncio.Lock()
+
+    @property
+    def max_budget(self) -> float:
+        """获取最大预算（USD）"""
+        return self._max_budget
+
+    @property
+    def spent(self) -> float:
+        """获取已花费金额（USD）"""
+        return self._spent
+
+    @property
+    def remaining(self) -> float:
+        """获取剩余预算（USD）"""
+        return max(0.0, self._max_budget - self._spent)
+
+    async def check(self, estimated_cost: float = 0.0) -> bool:
+        """
+        检查是否超出预算
+
+        Args:
+            estimated_cost: 预估的本次调用成本（USD），默认 0
+
+        Returns:
+            True 预算充足，False 已超出预算
+        """
+        async with self._lock:
+            if self._spent + estimated_cost > self._max_budget:
+                logger.warning(
+                    "LLM 预算即将耗尽: spent=%.4f, estimated=%.4f, max=%.4f",
+                    self._spent,
+                    estimated_cost,
+                    self._max_budget,
+                )
+                return False
+            return True
+
+    async def record(self, cost: float) -> None:
+        """
+        记录实际花费
+
+        Args:
+            cost: 实际花费金额（USD）
+        """
+        async with self._lock:
+            self._spent += cost
+
+    def reset(self) -> None:
+        """重置预算"""
+        self._spent = 0.0
+        logger.info("预算已重置: max=%.2f", self._max_budget)

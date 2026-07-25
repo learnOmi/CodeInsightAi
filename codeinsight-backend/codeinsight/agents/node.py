@@ -23,6 +23,8 @@ from codeinsight.prompts import (
     load_design_pattern_prompt,
     load_domain_knowledge_prompt,
     load_engineering_prompt,
+    load_technology_stack_prompt,
+    load_template_technique_prompt,
 )
 from codeinsight.schemas.constants import CATEGORY_NAMES
 from codeinsight.schemas.knowledge import ExpansionContent, KnowledgePointExtraction, LearningResource
@@ -30,8 +32,8 @@ from codeinsight.schemas.knowledge import ExpansionContent, KnowledgePointExtrac
 logger = logging.getLogger(__name__)
 
 # Maximum number of code snippets to include in context for LLM analysis
-MAX_CODE_SNIPPETS = 20
-MAX_CODE_CHARS_PER_SNIPPET = 1000
+MAX_CODE_SNIPPETS = 50
+MAX_CODE_CHARS_PER_SNIPPET = 5000
 
 # Pydantic TypeAdapter for validating LLM output as a list of KnowledgePointExtraction
 _kp_adapter: TypeAdapter[list[KnowledgePointExtraction]] = TypeAdapter(list[KnowledgePointExtraction])
@@ -160,6 +162,7 @@ class AnalysisNode:
         构建 LLM 对话消息列表
 
         在构建完成后估算 Token 数，如果超过上下文窗口的 80%，记录警告。
+        加入深度挖掘指令以提升分析质量。
 
         Args:
             state: 当前分析状态
@@ -168,11 +171,33 @@ class AnalysisNode:
         Returns:
             消息列表
         """
-        code_context = self._build_code_context(state)
-        user_message = f"""请分析以下代码，提取相关的知识点：
+        code_context = await self._build_code_context(state)
+
+        # 根据语言分布动态注入语言特定提示
+        language_hints = ""
+        language_dist = state.get("language_distribution", {})
+        if language_dist:
+            dominant_lang = max(language_dist.items(), key=lambda item: item[1])[0]
+            if dominant_lang == "python":
+                language_hints = "\n注意：这是 Python 代码，请特别关注 Python 特有的模式（如装饰器、context manager、元类、异步迭代器）。"
+            elif dominant_lang == "typescript":
+                language_hints = "\n注意：这是 TypeScript 代码，请特别关注类型系统中的模式（如泛型、interface 实现、类型守卫、装饰器）。"
+            elif dominant_lang == "java":
+                language_hints = "\n注意：这是 Java 代码，请特别关注面向对象设计模式、注解处理、泛型使用。"
+            elif dominant_lang == "go":
+                language_hints = "\n注意：这是 Go 代码，请特别关注接口隐式实现、goroutine 并发模式、error 处理模式。"
+
+        user_message = f"""请深入分析以下代码，提取相关的知识点：
 
 代码上下文：
 {code_context}
+
+## 分析要求
+
+1. **深度挖掘**：请深入分析代码结构，识别隐藏的复用模式、隐含的设计意图、以及代码中体现的架构思想。
+2. **反例思考**：对每个知识点，考虑并说明"什么时候不应该使用"此模式/方法。
+3. **改进建议**：如果发现代码可以改进的地方，请在知识点的描述中包含改进建议。
+4. **代码关联**：每个知识点必须有具体的代码引用，不能凭空臆断。{language_hints}
 
 请按照指定的输出格式返回分析结果。"""
 
@@ -201,9 +226,39 @@ class AnalysisNode:
 
         return messages
 
-    def _build_code_context(self, state: AnalysisState) -> str:
+    async def _estimate_prompt_tokens(self, system_prompt: str, state: AnalysisState) -> int:
+        """
+        估算 prompt 模板的 token 数（不含代码上下文）
+
+        用于动态上下文窗口计算，提前估算 prompt 模板的 token 消耗。
+
+        Args:
+            system_prompt: 系统提示词
+            state: 当前分析状态
+
+        Returns:
+            估算的 token 数
+        """
+        dummy_messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": "请深入分析以下代码，提取相关的知识点：\n\n代码上下文：\n[PLACEHOLDER]\n\n## 分析要求\n\n1. **深度挖掘**：请深入分析代码结构...\n\n请按照指定的输出格式返回分析结果。",
+            },
+        ]
+        try:
+            return await self._llm_client.count_tokens(dummy_messages)
+        except Exception:
+            # 估算失败时返回保守估计值
+            return 3000
+
+    async def _build_code_context(self, state: AnalysisState) -> str:
         """
         构建代码上下文字符串
+
+        根据代码片段数量动态调整上下文大小，优先保留完整定义。
+        增强内容包括文件结构信息和依赖关系。
+        支持动态 token 感知裁剪，避免超出上下文窗口。
 
         Args:
             state: 当前分析状态
@@ -223,7 +278,9 @@ class AnalysisNode:
                 )
                 # 从 ast_data 构建基本的文件结构信息
                 files_summary: dict[str, set[str]] = {}
-                for node in ast_data[:500]:
+                # 动态 AST 节点上限，取 min(len(ast_data), 2000) 而非固定 500
+                ast_limit = min(len(ast_data), 2000)
+                for node in ast_data[:ast_limit]:
                     file_id = node.get("file_id", "")
                     name = node.get("name", "")
                     node_type = node.get("node_type", "")
@@ -248,14 +305,83 @@ class AnalysisNode:
                 len(snippets),
             )
             return ""
+
+        # 构建文件依赖信息
+        file_deps = state.get("file_dependencies", {})
+        deps_info = ""
+        if file_deps:
+            dep_lines = []
+            for file_path, imports in list(file_deps.items())[:20]:
+                dep_lines.append(f"{file_path} 依赖: {', '.join(imports[:10])}")
+            if dep_lines:
+                deps_info = "文件依赖关系:\n" + "\n".join(dep_lines) + "\n\n"
+
+        # 构建文件结构信息
+        file_structure = state.get("file_structure", {})
+        structure_info = ""
+        if file_structure:
+            structure_lines = ["项目文件结构:"]
+            for root, files in list(file_structure.items())[:15]:
+                structure_lines.append(f"  {root}/: {', '.join(files[:10])}")
+            structure_info = "\n".join(structure_lines) + "\n\n"
+
+        # 动态 token 感知裁剪：根据可用 token 预算动态调整 snippet 数量和大小
+        max_snippets = MAX_CODE_SNIPPETS
+        max_chars = MAX_CODE_CHARS_PER_SNIPPET
+
+        # 仅在 state 中有 enable_chunking 标志时启用动态裁剪
+        if state.get("enable_chunking", False):
+            try:
+                # 估算 prompt 模板 token 数（不含代码上下文）
+                prompt_tokens = await self._estimate_prompt_tokens("", state)
+                # 计算剩余可用 token（保守估计，保留 40% 给输出）
+                context_window = 128_000
+                available_tokens = int(context_window * 0.6) - prompt_tokens
+                if available_tokens > 0:
+                    # 平均每字符约 0.25 token，每个 snippet 开销约 50 token（文件名等元数据）
+                    avg_chars_per_token = 4
+                    snippet_overhead_tokens = 50
+                    chars_budget = available_tokens * avg_chars_per_token
+                    # 动态计算每个 snippet 的最大字符数
+                    estimated_count = len(snippets_with_code)
+                    dynamic_chars = min(
+                        MAX_CODE_CHARS_PER_SNIPPET,
+                        max(
+                            1000,
+                            chars_budget // max(estimated_count, 1) - snippet_overhead_tokens * avg_chars_per_token,
+                        ),
+                    )
+                    max_chars = dynamic_chars
+                    logger.debug(
+                        "动态上下文裁剪: prompt_tokens=%d, available_tokens=%d, dynamic_chars=%d",
+                        prompt_tokens,
+                        available_tokens,
+                        dynamic_chars,
+                    )
+            except Exception:
+                # 动态裁剪失败时使用默认值
+                pass
+
         snippets_list = []
-        for snippet in snippets_with_code[:MAX_CODE_SNIPPETS]:
+        for snippet in snippets_with_code[:max_snippets]:
             file_path = snippet.get("file_path", "")
             code = snippet.get("code", "")
             if code:
-                truncated_code = code[:MAX_CODE_CHARS_PER_SNIPPET]
-                snippets_list.append(f"文件: {file_path}\n{truncated_code}...")
-        return "\n\n".join(snippets_list)
+                # 智能截断：优先保留 def/class/async def 的完整定义
+                truncated_code = code[:max_chars]
+                # 如果截断位置在函数/类定义中间，回退到上一个完整行
+                last_newline = truncated_code.rfind("\n")
+                if last_newline > 0:
+                    truncated_code = truncated_code[:last_newline]
+                snippets_list.append(f"文件: {file_path}\n{truncated_code}")
+
+        context_parts = []
+        if deps_info:
+            context_parts.append(deps_info)
+        if structure_info:
+            context_parts.append(structure_info)
+        context_parts.append("\n\n".join(snippets_list))
+        return "\n\n".join(context_parts)
 
     def _parse_response(self, response: Any, category: str) -> list[dict[str, Any]]:
         """
@@ -290,6 +416,8 @@ class AnalysisNode:
                 content = content.rstrip()[:-3].strip()
 
         try:
+            # 尝试修复常见 JSON 格式问题
+            content = self._repair_json(content)
             parsed = json.loads(content)
             if not isinstance(parsed, list):
                 # 尝试从包装对象中提取列表
@@ -322,6 +450,63 @@ class AnalysisNode:
                     "metadata": {},
                 }
             ]
+
+    @staticmethod
+    def _repair_json(content: str) -> str:
+        """修复常见 JSON 格式问题，提高 LLM 响应解析成功率"""
+        try:
+            # 尝试先直接解析，如果成功则无需修复
+            json.loads(content)
+            return content
+        except json.JSONDecodeError:
+            pass
+
+        # 1. 如果响应被截断，尝试找到最后一个完整 JSON 对象
+        # 在末尾补上缺失的 ] 和 }
+        stripped = content.rstrip()
+        open_brackets = stripped.count("[") - stripped.count("]")
+        open_braces = stripped.count("{") - stripped.count("}")
+        if open_brackets > 0:
+            stripped += "]" * open_brackets
+        if open_braces > 0:
+            stripped += "}" * open_braces
+
+        try:
+            json.loads(stripped)
+            return stripped
+        except json.JSONDecodeError:
+            content = stripped
+
+        # 2. 如果 JSON 数组末尾有截断的对象，去掉最后一个不完整的对象
+        try:
+            idx = content.rfind("}")
+            if idx != -1:
+                candidate = content[: idx + 1]
+                # 确保有匹配的 [
+                if candidate.rfind("[") < candidate.rfind("]"):
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except json.JSONDecodeError:
+                        pass
+        except Exception:
+            pass
+
+        # 3. 尝试提取 JSON 数组（找到第一个 [ 和最后一个 ]）
+        try:
+            start = content.find("[")
+            end = content.rfind("]")
+            if start != -1 and end != -1 and end > start:
+                candidate = content[start : end + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    pass
+        except Exception:
+            pass
+
+        return content
 
     @staticmethod
     def _normalize_knowledge_points(points: list[KnowledgePointExtraction], category: str) -> list[dict[str, Any]]:
@@ -560,11 +745,81 @@ class DomainKnowledgeNode(AnalysisNode):
             return {"error": str(exc)}  # type: ignore[typeddict-item]
 
 
+class TemplateTechniqueNode(AnalysisNode):
+    """
+    开发模板分析节点
+
+    识别代码中的 CRUD 模板、API 模板、测试模板、配置模板等可复用的代码骨架模式。
+    """
+
+    async def execute(self, state: AnalysisState) -> AnalysisState:
+        category = "TT"
+        logger.info("开始开发模板分析: repo_id=%s", state["repo_id"])
+
+        try:
+            prompt = load_template_technique_prompt()
+            messages = await self._build_messages(state, prompt)
+
+            response = await self._llm_client.chat(messages)
+            knowledge_points = self._parse_response(response, category)
+
+            logger.info(
+                "开发模板分析完成: repo_id=%s, extracted=%d",
+                state["repo_id"],
+                len(knowledge_points),
+            )
+
+            return {  # type: ignore[typeddict-item]
+                "knowledge_points": knowledge_points,
+                "current_category": category,
+                "progress": 1.0,
+            }
+
+        except LLMError as exc:
+            logger.error("开发模板分析失败: %s", exc)
+            return {"error": str(exc)}  # type: ignore[typeddict-item]
+
+
+class TechnologyStackNode(AnalysisNode):
+    """
+    技术栈分析节点
+
+    识别项目中使用的第三方库、框架、中间件及其使用方式，形成技术栈文档。
+    """
+
+    async def execute(self, state: AnalysisState) -> AnalysisState:
+        category = "TK"
+        logger.info("开始技术栈分析: repo_id=%s", state["repo_id"])
+
+        try:
+            prompt = load_technology_stack_prompt()
+            messages = await self._build_messages(state, prompt)
+
+            response = await self._llm_client.chat(messages)
+            knowledge_points = self._parse_response(response, category)
+
+            logger.info(
+                "技术栈分析完成: repo_id=%s, extracted=%d",
+                state["repo_id"],
+                len(knowledge_points),
+            )
+
+            return {  # type: ignore[typeddict-item]
+                "knowledge_points": knowledge_points,
+                "current_category": category,
+                "progress": 1.0,
+            }
+
+        except LLMError as exc:
+            logger.error("技术栈分析失败: %s", exc)
+            return {"error": str(exc)}  # type: ignore[typeddict-item]
+
+
 class MergeNode:
     """
     结果合并节点
 
-    对并行执行的 5 个分析 Agent 的输出进行后处理：
+    对并行执行的多个分析 Agent 的输出进行后处理：
     1. 去重（按 title 合并相似知识点）
     2. 排序（按 confidence 降序排列）
     3. 标记冲突（同一 title 对应不同 category 的冲突）
@@ -630,10 +885,6 @@ class ExpansionNode:
     MAX_RETRIES = 2
     MAX_CONCURRENCY = 5
 
-    # 限流状态（类级别，所有实例共享）
-    _rate_limit_hits = 0
-    _rate_limit_lock = asyncio.Lock()
-
     def __init__(self, llm_client: LLMClient):
         self._llm_client = llm_client
         self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENCY)
@@ -646,6 +897,21 @@ class ExpansionNode:
             return state
 
         logger.info("开始生成拓展内容: %d 个知识点", len(kps))
+
+        # 低置信度过滤：confidence < 0.7 的知识点跳过拓展生成
+        filtered_kps = []
+        skipped_count = 0
+        for kp in kps:
+            confidence = kp.get("confidence", 0.5)
+            if confidence < 0.7:
+                skipped_count += 1
+                # 保留知识点但不生成拓展内容
+                filtered_kps.append(kp)
+            else:
+                filtered_kps.append(kp)
+
+        if skipped_count > 0:
+            logger.info("低置信度知识点跳过拓展生成: %d 个 (confidence < 0.7)", skipped_count)
 
         async def _process_expansion(kp: dict) -> dict | None:
             """生成单个知识点的拓展内容，返回更新后的副本"""
@@ -663,11 +929,11 @@ class ExpansionNode:
                 return None
 
         # 并发处理所有知识点，生成新列表而非原地修改
-        results = await asyncio.gather(*[_process_expansion(kp) for kp in kps])
+        results = await asyncio.gather(*[_process_expansion(kp) for kp in filtered_kps])
 
         # 用生成结果更新 knowledge_points（保留未变更的条目）
         updated_kps = []
-        for original, result in zip(kps, results, strict=True):
+        for original, result in zip(filtered_kps, results, strict=True):
             updated_kps.append(result if result is not None else original)
 
         state["knowledge_points"] = updated_kps
@@ -710,21 +976,11 @@ class ExpansionNode:
 
         for attempt in range(self.MAX_RETRIES + 1):
             try:
-                # 限流：如果近期有频率限制命中，增加等待时间
-                async with self._rate_limit_lock:
-                    if self._rate_limit_hits > 0:
-                        await asyncio.sleep(min(2**self._rate_limit_hits, 30))
-
                 async with self._semaphore:
                     response = await self._llm_client.chat(
                         [{"role": "user", "content": prompt}],
                         num_retries=0,  # 由本方法控制重试
                     )
-
-                # 成功：降低频率限制计数
-                async with self._rate_limit_lock:
-                    if self._rate_limit_hits > 0:
-                        self._rate_limit_hits -= 1
 
                 content = response.get("content", "") if isinstance(response, dict) else str(response)
 
@@ -743,14 +999,11 @@ class ExpansionNode:
                 exc_str = str(exc).lower()
                 is_rate_limit = "rate limit" in exc_str or "请求限制" in exc_str or "429" in exc_str
                 if is_rate_limit:
-                    async with self._rate_limit_lock:
-                        self._rate_limit_hits += 1
-                    logger.warning("拓展内容触发频率限制: title=%s, hits=%d", title, self._rate_limit_hits)
+                    logger.warning("拓展内容触发频率限制，LLMClient 已自动退避: title=%s", title)
 
                 if attempt < self.MAX_RETRIES:
-                    wait = 2 ** (attempt + 1) * (3 if is_rate_limit else 1)
-                    logger.debug("拓展内容生成失败，重试: title=%s, attempt=%d, wait=%ds", title, attempt + 1, wait)
-                    await asyncio.sleep(wait)
+                    logger.debug("拓展内容生成失败，重试: title=%s, attempt=%d", title, attempt + 1)
+                    await asyncio.sleep(1)
                     continue
                 logger.warning("拓展内容生成失败: title=%s, error=%s", title, exc)
                 return None

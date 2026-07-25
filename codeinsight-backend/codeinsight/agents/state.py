@@ -108,6 +108,12 @@ class AnalysisState(TypedDict):
         progress: 分析进度（0.0 ~ 1.0）
         error: 分析过程中遇到的错误信息
         messages: LLM 对话历史（用于上下文记忆）
+        language_distribution: 语言分布信息
+        file_dependencies: 文件依赖关系
+        file_structure: 文件结构信息
+        enable_chunking: 是否启用分片模式（用于超大代码库）
+        chunk_progress: 分片处理进度（仅 enable_chunking=True 时使用）
+        chunk_results: 分片处理结果（仅 enable_chunking=True 时使用）
     """
 
     repo_id: Annotated[str, _keep_first]
@@ -120,3 +126,13 @@ class AnalysisState(TypedDict):
     progress: Annotated[float, _merge_progress]
     error: Annotated[str | None, _keep_first]
     messages: Annotated[list[dict[str, Any]], _merge_messages]
+
+    # 增强上下文字段
+    language_distribution: Annotated[dict[str, int], _keep_first]
+    file_dependencies: Annotated[dict[str, list[str]], _keep_first]
+    file_structure: Annotated[dict[str, list[str]], _keep_first]
+
+    # 分片模式字段（仅用于超大代码库）
+    enable_chunking: Annotated[bool, _keep_first]
+    chunk_progress: Annotated[dict[str, Any], _keep_first]
+    chunk_results: Annotated[list[dict[str, Any]], _accumulate_knowledge_points]

@@ -38,6 +38,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   AL: "算法实现",
   ET: "工程技巧",
   DK: "领域知识",
+  TT: "开发模板",
+  TK: "技术栈",
 };
 
 function resourceTypeLabel(type: string): string {

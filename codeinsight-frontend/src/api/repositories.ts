@@ -1,4 +1,4 @@
-import { apiFetch } from "./base";
+import { apiFetch, apiFetchWithHeaders } from "./base";
 import type { components } from "@codeinsight/shared";
 
 type Repository = components["schemas"]["Repository"];
@@ -19,11 +19,13 @@ export async function getRepository(id: string): Promise<Repository> {
 }
 
 /** 创建仓库 */
-export async function createRepository(data: RepositoryCreate): Promise<Repository> {
-  return apiFetch("/api/v1/repositories", {
+export async function createRepository(data: RepositoryCreate): Promise<Repository & { taskId?: string }> {
+  const { data: repo, headers } = await apiFetchWithHeaders<Repository>("/api/v1/repositories", {
     method: "POST",
     body: JSON.stringify(data),
   });
+  const taskId = headers.get("X-Task-Id") || undefined;
+  return taskId ? { ...repo, taskId } : repo;
 }
 
 /** 更新仓库 */

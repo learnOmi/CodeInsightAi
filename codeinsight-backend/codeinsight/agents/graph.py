@@ -23,6 +23,8 @@ from codeinsight.agents.node import (
     EngineeringNode,
     ExpansionNode,
     MergeNode,
+    TechnologyStackNode,
+    TemplateTechniqueNode,
 )
 from codeinsight.agents.state import AnalysisState
 from codeinsight.llm.client import LLMClient
@@ -35,6 +37,8 @@ ANALYSIS_NODES = [
     ("algorithm", "算法实现分析"),
     ("engineering", "工程技术分析"),
     ("domain_knowledge", "领域知识分析"),
+    ("template_technique", "开发模板分析"),
+    ("technology_stack", "技术栈分析"),
 ]
 
 # 评估分类代码 → 图节点名称映射
@@ -44,6 +48,8 @@ CATEGORY_TO_NODE: dict[str, str] = {
     "AL": "algorithm",
     "ET": "engineering",
     "DK": "domain_knowledge",
+    "TT": "template_technique",
+    "TK": "technology_stack",
 }
 
 
@@ -100,7 +106,7 @@ class AnalysisGraph:
     代码知识分析图（并行版本）
 
     使用 LangGraph 构建的 fan-out/fan-in 有向无环图：
-    1. 入口 → 扇形分发到 5 个分析节点（并行执行）
+    1. 入口 → 扇形分发到多个分析节点（并行执行）
     2. 所有分析节点汇聚到合并节点（去重 + 排序）
     3. 合并后进入拓展节点（生成拓展内容）
     4. 最终结束
@@ -138,6 +144,8 @@ class AnalysisGraph:
         algorithm_node = AlgorithmNode(self._llm_client)
         engineering_node = EngineeringNode(self._llm_client)
         domain_knowledge_node = DomainKnowledgeNode(self._llm_client)
+        template_technique_node = TemplateTechniqueNode(self._llm_client)
+        technology_stack_node = TechnologyStackNode(self._llm_client)
         merge_node = MergeNode(self._llm_client)
         expansion_node = ExpansionNode(self._llm_client)
 
@@ -147,6 +155,8 @@ class AnalysisGraph:
         workflow.add_node("algorithm", algorithm_node.execute)
         workflow.add_node("engineering", engineering_node.execute)
         workflow.add_node("domain_knowledge", domain_knowledge_node.execute)
+        workflow.add_node("template_technique", template_technique_node.execute)
+        workflow.add_node("technology_stack", technology_stack_node.execute)
         workflow.add_node("merge", merge_node.execute)
         workflow.add_node("expansion", expansion_node.execute)
 
@@ -238,6 +248,7 @@ class AnalysisGraph:
         ast_data: list[dict[str, Any]],
         code_snippets: list[dict[str, Any]],
         category: str = "",
+        enable_chunking: bool = False,
     ) -> AnalysisState:
         """
         创建初始分析状态
@@ -247,6 +258,7 @@ class AnalysisGraph:
             ast_data: AST 节点数据列表
             code_snippets: 代码片段数据列表
             category: 评估分类代码（可选），指定后只路由到对应分析节点
+            enable_chunking: 是否启用分片模式（用于超大代码库）
 
         Returns:
             初始分析状态
@@ -260,4 +272,10 @@ class AnalysisGraph:
             "progress": 0.0,
             "error": None,
             "messages": [],
+            "language_distribution": {},
+            "file_dependencies": {},
+            "file_structure": {},
+            "enable_chunking": enable_chunking,
+            "chunk_progress": {},
+            "chunk_results": [],
         }

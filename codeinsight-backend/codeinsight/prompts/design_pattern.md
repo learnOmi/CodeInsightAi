@@ -87,7 +87,7 @@ class AnimalFactory:
   "category": "DP",
   "prefix": "DP-Factory",
   "title": "工厂方法模式",
-  "description": "AnimalFactory 根据传入的类型参数创建不同的 Animal 实例，隐藏了具体的实例化逻辑",
+  "description": "AnimalFactory 根据传入的类型参数创建不同的 Animal 实例，隐藏了具体的实例化逻辑。改进建议：可考虑使用注册表模式消除 if-else 链。反例：如果只有一种动物类型，直接 new 即可，不需要工厂模式。",
   "confidence": 0.95,
   "code_snippets": [{"file": "factory.py", "start_line": 1, "end_line": 10, "content": "...", "highlighted_lines": [3, 5, 7]}],
   "tags": ["factory", "creation", "polymorphism"]
@@ -114,10 +114,58 @@ class EventBus:
   "category": "DP",
   "prefix": "DP-Observer",
   "title": "观察者模式",
-  "description": "EventBus 实现了发布-订阅机制，多个 listener 可以订阅同一事件并在事件触发时收到通知",
+  "description": "EventBus 实现了发布-订阅机制，多个 listener 可以订阅同一事件并在事件触发时收到通知。改进建议：可添加异步处理和错误隔离。反例：如果只有一对一的回调关系，使用简单的回调函数比完整的观察者模式更轻量。",
   "confidence": 0.95,
   "code_snippets": [{"file": "event_bus.py", "start_line": 1, "end_line": 12, "content": "...", "highlighted_lines": [5, 8, 11]}],
   "tags": ["observer", "pub-sub", "event-driven"]
+}
+```
+
+### 示例 3：负例 — 看似 Strategy 实为简单分支
+
+```python
+# 输入：以下代码不是 Strategy 模式，只是简单的 if-else 分支
+def calculate_price(discount_type: str, amount: float) -> float:
+    if discount_type == "percent":
+        return amount * 0.9
+    elif discount_type == "fixed":
+        return max(0, amount - 10)
+    elif discount_type == "none":
+        return amount
+    return amount
+
+# 输出：不应输出为 Strategy 模式，因为没有抽象策略接口和具体策略类
+# 正确的输出应该是 ET 分类（工程技巧）
+{
+  "category": "ET",
+  "prefix": "ET-Discount",
+  "title": "折扣计算逻辑",
+  "description": "根据折扣类型计算折扣价格。当前使用 if-else 实现，如果折扣类型增多，建议重构为策略模式。",
+  "confidence": 0.75,
+  "code_snippets": [{"file": "pricing.py", "start_line": 1, "end_line": 8, "content": "...", "highlighted_lines": [2, 3, 4, 5]}],
+  "tags": ["discount", "pricing", "refactoring"]
+}
+```
+
+### 示例 4：负例 — 看似 Singleton 实为配置常量
+
+```python
+# 输入：以下代码不是 Singleton 模式，只是全局配置常量
+class Config:
+    DEBUG = True
+    DATABASE_URL = "postgresql://localhost:5432/db"
+    MAX_RETRIES = 3
+
+# 输出：不应输出为 Singleton 模式，因为没有实例化控制和全局访问点
+# 正确的输出是 ET 分类（配置管理）
+{
+  "category": "ET",
+  "prefix": "ET-Config",
+  "title": "配置常量管理",
+  "description": "使用类变量集中管理配置常量，便于统一修改和维护。注意：这只是一个配置命名空间，不是 Singleton 模式。",
+  "confidence": 0.8,
+  "code_snippets": [{"file": "config.py", "start_line": 1, "end_line": 5, "content": "...", "highlighted_lines": [2, 3, 4]}],
+  "tags": ["configuration", "constants", "namespace"]
 }
 ```
 
@@ -128,3 +176,6 @@ class EventBus:
 - 只对确信的模式输出，不确定时不输出
 - 置信度必须 ≥ 0.7
 - 每个模式必须有关联的代码片段
+- **不要将简单的 if-else 分支识别为 Strategy 模式**
+- **不要将常量类识别为 Singleton 模式**
+- **不要将普通的函数调用链识别为 Chain of Responsibility**

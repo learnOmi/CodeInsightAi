@@ -332,6 +332,7 @@ class AnalysisOrchestrator:
                 if files_data:
                     repo_files = await self.file_dao.create_many(db, self.repo_uuid, files_data)
                     logger.info("文件存储完成: %d 个文件", len(repo_files))
+                await sp.commit()
             except Exception:
                 await sp.rollback()
                 logger.error("文件存储失败，已回滚到 savepoint", exc_info=True)
@@ -345,6 +346,7 @@ class AnalysisOrchestrator:
                 if files_data:
                     repo_files = await self.file_dao.create_many(db, self.repo_uuid, files_data)
                     logger.info("文件存储完成: %d 个文件", len(repo_files))
+                await sp.commit()
                 await db.commit()
             except Exception:
                 await sp.rollback()
@@ -540,6 +542,9 @@ class AnalysisOrchestrator:
             parsed_count = 0
 
             for scanned_file in self.scan_result.files:
+                file_sp = None
+                if db is not None:
+                    file_sp = await db.begin_nested()
                 try:
                     parser = ParserFactory.get_parser(scanned_file.language)
                     if parser is None:
@@ -595,11 +600,13 @@ class AnalysisOrchestrator:
                     if nodes_data:
                         result = await pipeline.ingest_ast_nodes(self.repo_uuid, nodes_data)
                         parsed_count += result.inserted_count
+                    if file_sp is not None:
+                        await file_sp.commit()
                 except Exception as exc:
-                    # 恢复共享 session：一个文件的失败不应污染后续文件
-                    if db is not None:
+                    # 单个文件失败时回滚 savepoint，不影响 session 中的其他数据（已存储的文件、AST 节点）
+                    if file_sp is not None:
                         with contextlib.suppress(Exception):
-                            await db.rollback()
+                            await file_sp.rollback()
                     logger.warning("AST 解析失败: file=%s, error=%s", scanned_file.absolute_path, exc)
                     continue
 
@@ -1589,6 +1596,7 @@ class AnalysisOrchestrator:
                 # P3-12: 增量 AI Agent 模式（仅分析变更文件的知识点）
                 kp_dao = KnowledgePointDAO()
                 preserved_kp_count = 0
+                preserved_kps: list[Any] = []
                 if not do_full_analysis and self.incremental_diff is not None:
                     affected_paths: set[str] = {c.path for c in self.incremental_diff.changed_files}
                     affected_paths.update(self.incremental_diff.propagated_files)
@@ -1601,19 +1609,57 @@ class AnalysisOrchestrator:
                     ast_data = [a for a in ast_data if a["file_id"] in affected_file_ids]
                     code_snippets = [s for s in code_snippets if s["file_path"] in affected_paths]
 
-                    # 加载上一版本的知识点，按 code_snippets.file_path 拆分
+                    # 加载上一版本的知识点，进行智能保留匹配
                     prev_version = await self.version_dao.get_latest_completed(shared_db, self.repo_uuid)
                     if prev_version is not None and prev_version.version != self.version_tag:
                         existing_kps = await kp_dao.list(shared_db, self.repo_uuid, version=prev_version.version)
                         for existing_kp in existing_kps:
+                            # 多维度匹配：检查知识点的代码片段是否涉及变更文件
                             kp_file_paths = {s.get("file_path") for s in (existing_kp.code_snippets or [])}
-                            if kp_file_paths & affected_paths:
-                                # 关联变更文件 → 删除，后续由 LLM 重新生成
+                            directly_affected = bool(kp_file_paths & affected_paths)
+
+                            # 如果代码片段直接关联变更文件，则删除并重新生成
+                            if directly_affected:
                                 await kp_dao.delete(shared_db, existing_kp.id)
-                            else:
-                                # 未涉及变更文件 → 保留，更新版本号
-                                await kp_dao.update(shared_db, existing_kp.id, {"version": self.version_tag})
-                                preserved_kp_count += 1
+                                continue
+
+                            # 检查描述中是否涉及变更文件的关键词
+                            description_words = set((existing_kp.description or "").lower().split())
+                            affected_keywords: set[str] = set()
+                            for p in affected_paths:
+                                # 从文件路径中提取有意义的关键词（文件名、目录名）
+                                parts = p.replace("\\", "/").split("/")
+                                affected_keywords.update(parts[-2:])  # 取最后两级
+                            # 过滤掉空字符串和常见后缀
+                            affected_keywords = {k for k in affected_keywords if k and "." not in k and len(k) > 2}
+
+                            description_affected = bool(description_words & affected_keywords)
+
+                            if description_affected and not directly_affected:
+                                # 描述可能涉及变更文件，但代码片段不直接关联 → 警告保留
+                                logger.debug(
+                                    "知识点描述可能涉及变更文件，但代码片段不直接关联，保留: kp=%s",
+                                    existing_kp.title,
+                                )
+
+                            # 未涉及变更文件 → 保留，加 preserved 标记
+                            kp_data = existing_kp.to_dict() if hasattr(existing_kp, "to_dict") else {}
+                            kp_data["metadata"] = {
+                                "preserved": True,
+                                "preserved_reason": "no_changes_in_related_files",
+                                "preserved_from_version": prev_version.version,
+                            }
+                            # 更新版本号和 metadata
+                            await kp_dao.update(
+                                shared_db,
+                                existing_kp.id,
+                                {
+                                    "version": self.version_tag,
+                                    "metadata": kp_data.get("metadata", {}),
+                                },
+                            )
+                            preserved_kps.append(kp_data)
+                            preserved_kp_count += 1
 
                     logger.info(
                         "增量 AI Agent: 变更文件=%d, 保留历史知识点=%d, 输入 ast_nodes=%d, snippets=%d",
@@ -1623,12 +1669,18 @@ class AnalysisOrchestrator:
                         len(code_snippets),
                     )
 
+                # 代码库规模检测：文件数 > 2000 时启用分片模式
+                enable_chunking = self.total_files > 2000
+                if enable_chunking:
+                    logger.info("代码库规模较大 (files=%d)，启用分片模式", self.total_files)
+
                 # 运行 AI 分析
                 logger.info(
-                    "开始 AI 分析: repo_id=%s, ast_nodes=%d, snippets=%d",
+                    "开始 AI 分析: repo_id=%s, ast_nodes=%d, snippets=%d, enable_chunking=%s",
                     self.repo_uuid,
                     len(ast_data),
                     len(code_snippets),
+                    enable_chunking,
                 )
                 llm_client = LLMClient()
                 agent_graph = AgentAnalysisGraph(llm_client)
@@ -1636,6 +1688,7 @@ class AnalysisOrchestrator:
                     repo_id=str(self.repo_uuid),
                     ast_data=ast_data,
                     code_snippets=code_snippets,
+                    enable_chunking=enable_chunking,
                 )
 
                 # AI 阶段子进度：定期推送进度给 Celery

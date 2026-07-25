@@ -8,6 +8,8 @@ LLM 客户端
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
@@ -51,7 +53,7 @@ class LLMConfig(BaseModel):
     api_base: str | None = Field(default_factory=lambda: settings.llm_api_base or None)
     ollama_base_url: str = Field(default_factory=lambda: settings.ollama_host)
     temperature: float = Field(default_factory=lambda: settings.llm_temperature)
-    max_tokens: int = 4096
+    max_tokens: int = 8192
     embedding_model: str = "text-embedding-3-small"
     ollama_embedding_model: str = "nomic-embed-text"  # Ollama 本地嵌入模型（text-embedding-3-small 在 Ollama 上不存在）
     num_retries: int = 3
@@ -104,6 +106,9 @@ class LLMClient:
         self._model_name: str = self._resolve_model_name()
         self._semaphore = asyncio.Semaphore(self.config.max_concurrency)
         self._config_lock = asyncio.Lock()
+        # 全局限流退避计数器：所有并发调用共享，避免并发重试风暴
+        self._rate_limit_hits: int = 0
+        self._rate_limit_lock = asyncio.Lock()
         logger.info(
             "LLMClient 初始化: provider=%s, model=%s",
             self.config.provider,
@@ -167,7 +172,7 @@ class LLMClient:
             "temperature": self.config.temperature,
             "max_tokens": self.config.max_tokens,
             "timeout": timeout,
-            "num_retries": self.config.num_retries,
+            "num_retries": 0,  # 关闭 litellm 内部重试，由上层 _acompletion_with_retry 统一管控
         }
 
         if self.config.api_key:
@@ -180,6 +185,83 @@ class LLMClient:
             kwargs["api_base"] = self.config.api_base
 
         return kwargs
+
+    async def _acompletion_with_retry(
+        self,
+        messages: list[dict],
+        api_kwargs: dict[str, Any],
+        max_retries: int = 3,
+    ) -> Any:
+        """
+        带指数退避重试的 acompletion 调用
+
+        所有并发调用共享限流退避计数器，避免并发重试风暴。
+        免费用户限流窗口通常 60s+，退避时间 = max(2^(attempt+1), 60s) 起步。
+
+        Args:
+            messages: 对话消息列表
+            api_kwargs: API 关键字参数
+            max_retries: 最大重试次数（默认 3 次）
+
+        Returns:
+            litellm 响应对象
+
+        Raises:
+            RateLimitError: 重试耗尽后仍触发频率限制
+            LLMError: 其他 LLM 调用错误
+        """
+        for attempt in range(max_retries + 1):
+            # 被限流时，所有并发调用统一等待，避免并发重试风暴
+            async with self._rate_limit_lock:
+                if self._rate_limit_hits > 0:
+                    wait = min(2**self._rate_limit_hits, 60)
+                    logger.warning(
+                        "LLM 全局退避，等待 %ds（rate_limit_hits=%d）",
+                        wait,
+                        self._rate_limit_hits,
+                    )
+                    await asyncio.sleep(wait)
+
+            try:
+                # 成功：降低全局限流计数器
+                async with self._rate_limit_lock:
+                    if self._rate_limit_hits > 0:
+                        self._rate_limit_hits -= 1
+                return await litellm.acompletion(messages=messages, **api_kwargs)
+            except litellm.exceptions.RateLimitError as e:
+                if attempt < max_retries:
+                    # 累加全局限流计数器，所有并发调用统一退避
+                    async with self._rate_limit_lock:
+                        self._rate_limit_hits += 1
+                    wait = min(2**self._rate_limit_hits, 60)
+                    logger.warning(
+                        "LLM 频率限制，全局限流计数器=%d，等待 %ds: %s",
+                        self._rate_limit_hits,
+                        wait,
+                        e,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error("LLM 频率限制重试耗尽: %s", e)
+                    raise
+            except litellm.exceptions.InternalServerError as e:
+                if attempt < max_retries:
+                    async with self._rate_limit_lock:
+                        self._rate_limit_hits += 1
+                    wait = min(2**self._rate_limit_hits, 60)
+                    logger.warning(
+                        "LLM 上游内部错误，全局限流计数器=%d，等待 %ds: %s",
+                        self._rate_limit_hits,
+                        wait,
+                        e,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error("LLM 上游内部错误重试耗尽: %s", e)
+                    raise
+            except Exception:
+                # 非限流、非上游内部错误：不重试，直接抛出
+                raise
 
     def _estimate_tokens(self, text: str) -> int:
         """使用 litellm 估算 Token 数，回退到粗略估算"""
@@ -256,10 +338,7 @@ class LLMClient:
             if num_retries is not None:
                 api_kwargs["num_retries"] = num_retries
             async with self._semaphore:
-                response = await litellm.acompletion(
-                    messages=messages,
-                    **api_kwargs,
-                )
+                response = await self._acompletion_with_retry(messages, api_kwargs)
             content = response.choices[0].message.content if response.choices else None
             if content is None:
                 raise LLMError(
@@ -625,6 +704,85 @@ class LLMClient:
                 provider="ollama",
                 model=self.config.ollama_embedding_model,
             ) from exc
+
+    # ────────── 缓存与成本控制 ──────────
+
+    @staticmethod
+    def _compute_code_fingerprint(messages: list[dict]) -> str:
+        """
+        计算代码上下文的哈希指纹，用于缓存键
+
+        Args:
+            messages: 对话消息列表
+
+        Returns:
+            SHA256 哈希指纹
+        """
+        combined = ""
+        for msg in messages:
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                combined += content
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        combined += part.get("text", "")
+        return hashlib.sha256(combined.encode()).hexdigest()[:32]
+
+    async def chat_with_cache(
+        self,
+        messages: list[dict],
+        response_model: type[BaseModel] | None = None,
+        cache_ttl: int = 86400,
+    ) -> dict | BaseModel:
+        """
+        带缓存的对话请求
+
+        基于代码指纹的缓存，避免重复代码分析产生相同 API 调用。
+        缓存存储在 Redis 中，默认 TTL 为 24 小时。
+
+        Args:
+            messages: 对话消息列表
+            response_model: 可选的 Pydantic 模型
+            cache_ttl: 缓存 TTL（秒），默认 86400
+
+        Returns:
+            与 chat() 相同的返回值
+        """
+        # 尝试从缓存读取
+        try:
+            from codeinsight.db.redis_client import get_async_redis_client
+
+            fingerprint = self._compute_code_fingerprint(messages)
+            redis_client = await get_async_redis_client()
+            cached = await redis_client.get(f"llm_cache:{fingerprint}")
+            if cached:
+                cached_data = json.loads(cached)
+                logger.debug("LLM 缓存命中: fingerprint=%s", fingerprint[:8])
+                if response_model:
+                    return response_model.model_validate_json(cached_data.get("content", ""))
+                return cached_data
+        except Exception:
+            logger.debug("LLM 缓存读取失败，跳过缓存")
+
+        # 缓存未命中，调用 LLM
+        result = await self.chat(messages, response_model=response_model)
+
+        # 尝试写入缓存
+        try:
+            from codeinsight.db.redis_client import get_async_redis_client
+
+            fingerprint = self._compute_code_fingerprint(messages)
+            redis_client = await get_async_redis_client()
+            cache_data = result
+            if isinstance(result, BaseModel):
+                cache_data = {"content": result.model_dump_json()}
+            await redis_client.setex(f"llm_cache:{fingerprint}", cache_ttl, json.dumps(cache_data))
+            logger.debug("LLM 缓存写入: fingerprint=%s", fingerprint[:8])
+        except Exception:
+            logger.debug("LLM 缓存写入失败，跳过缓存")
+
+        return result
 
     async def count_tokens(
         self,

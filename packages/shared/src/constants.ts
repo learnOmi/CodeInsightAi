@@ -18,6 +18,8 @@ export const KNOWLEDGE_CATEGORY_NAMES: Record<KnowledgeCategory, string> = {
   'AL': '算法实现',
   'ET': '工程技巧',
   'DK': '领域知识',
+  'TT': '开发模板',
+  'TK': '技术栈',
 };
 
 /**
@@ -29,6 +31,8 @@ export const KNOWLEDGE_CATEGORY_COLORS: Record<KnowledgeCategory, string> = {
   'AL': '#10b981', // green
   'ET': '#f59e0b', // amber
   'DK': '#ef4444', // red
+  'TT': '#06b6d4', // cyan
+  'TK': '#ec4899', // pink
 };
 
 /**

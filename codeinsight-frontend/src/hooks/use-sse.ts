@@ -59,11 +59,12 @@ const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
  * @param taskId - Celery 任务 ID
  * @param enabled - 是否启用连接
  */
-export function useSSE(taskId: string, enabled = true): UseSSEResult {
+export function useSSE(taskId: string, enabled = true, maxReconnectAttempts = 3): UseSSEResult {
   const [data, setData] = useState<SSEData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isComplete, setIsComplete] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const reconnectCountRef = useRef(0);
 
   useEffect(() => {
     // 不满足连接条件时跳过
@@ -77,6 +78,9 @@ export function useSSE(taskId: string, enabled = true): UseSSEResult {
       setError(null);
       setIsComplete(false);
     }
+
+    // 重置重连计数
+    reconnectCountRef.current = 0;
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -183,6 +187,19 @@ export function useSSE(taskId: string, enabled = true): UseSSEResult {
           return;
         }
         if (!abortController.signal.aborted) {
+          // 断线重连逻辑
+          if (reconnectCountRef.current < maxReconnectAttempts) {
+            const attempt = reconnectCountRef.current + 1;
+            reconnectCountRef.current = attempt;
+            const delay = Math.min(1000 * Math.pow(2, attempt), 10000); // 指数退避，最大 10s
+            console.debug(`SSE 断线重连 (${attempt}/${maxReconnectAttempts}): ${delay}ms 后重试`);
+            setTimeout(() => {
+              if (!abortController.signal.aborted) {
+                connect();
+              }
+            }, delay);
+            return;
+          }
           setError(`SSE 连接异常: ${err}`);
           setIsComplete(true);
         }
@@ -195,7 +212,7 @@ export function useSSE(taskId: string, enabled = true): UseSSEResult {
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId, enabled]);
+  }, [taskId, enabled, maxReconnectAttempts]);
 
   return { data, error, isComplete };
 }
