@@ -427,6 +427,52 @@
         }
       }
     },
+    "/api/v1/tasks/{task_id}/stream": {
+      "get": {
+        "tags": [
+          "分析任务"
+        ],
+        "summary": "Stream Task Progress",
+        "description": "实时推送任务进度（SSE）\n\n通过 Server-Sent Events 推送任务进度更新，前端可使用 EventSource 消费。\n推送事件类型：\n- progress: 进度更新，data 包含 current_step、percent 等字段\n- complete: 任务完成，data 包含 task_id、status\n- error: 任务失败，data 包含 task_id、status、error\n\nArgs:\n    task_id: Celery 任务 ID\n\nReturns:\n    StreamingResponse (text/event-stream)",
+        "operationId": "stream_task_progress_api_v1_tasks__task_id__stream_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/knowledge-points": {
       "get": {
         "tags": [
@@ -484,10 +530,10 @@
                   "type": "null"
                 }
               ],
-              "description": "按分类筛选：DP-/AD-/AL-/ET-/DK-",
+              "description": "按分类筛选：DP/AD/AL/ET/DK",
               "title": "Category"
             },
-            "description": "按分类筛选：DP-/AD-/AL-/ET-/DK-"
+            "description": "按分类筛选：DP/AD/AL/ET/DK"
           },
           {
             "name": "tag",
@@ -700,32 +746,87 @@
         }
       }
     },
-    "/api/v1/search": {
-      "post": {
+    "/api/v1/search/nodes": {
+      "get": {
         "tags": [
           "搜索"
         ],
-        "summary": "Search",
-        "description": "搜索知识点",
-        "operationId": "search_api_v1_search_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchRequest"
-              }
+        "summary": "Search Nodes",
+        "description": "全局搜索 AST 节点\n\n按名称模糊搜索代码中的类、函数、方法等 AST 节点。\n基于 SQL ILIKE 模糊匹配，不涉及 AI。",
+        "operationId": "search_nodes_api_v1_search_nodes_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
             }
           },
-          "required": true
-        },
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "限定搜索的仓库",
+              "title": "Repository Id"
+            },
+            "description": "限定搜索的仓库"
+          },
+          {
+            "name": "node_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "限定节点类型（function/class/method 等）",
+              "title": "Node Type"
+            },
+            "description": "限定节点类型（function/class/method 等）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回条数上限",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "返回条数上限"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SearchResponse"
-                }
+                "schema": {}
               }
             }
           },
@@ -739,12 +840,86 @@
               }
             }
           }
-        },
+        }
+      }
+    },
+    "/api/v1/search/files": {
+      "get": {
+        "tags": [
+          "搜索"
+        ],
+        "summary": "Search Files",
+        "description": "全局搜索文件\n\n按路径模糊匹配文件名。",
+        "operationId": "search_files_api_v1_search_files_get",
         "security": [
           {
             "APIKeyHeader": []
           }
-        ]
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "限定搜索的仓库",
+              "title": "Repository Id"
+            },
+            "description": "限定搜索的仓库"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回条数上限",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "返回条数上限"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/search/suggestions": {
@@ -753,7 +928,7 @@
           "搜索"
         ],
         "summary": "Search Suggestions",
-        "description": "获取搜索建议",
+        "description": "获取搜索建议（自动补全）\n\n基于 AST 节点名前缀匹配，返回搜索建议列表。",
         "operationId": "search_suggestions_api_v1_search_suggestions_get",
         "security": [
           {
@@ -769,6 +944,39 @@
               "type": "string",
               "title": "Q"
             }
+          },
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "限定搜索的仓库",
+              "title": "Repository Id"
+            },
+            "description": "限定搜索的仓库"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "返回建议条数上限",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "返回建议条数上限"
           }
         ],
         "responses": {
@@ -776,9 +984,117 @@
             "description": "Successful Response",
             "content": {
               "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SearchSuggestionsResponse"
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/search/knowledge-points": {
+      "get": {
+        "tags": [
+          "搜索"
+        ],
+        "summary": "Search Knowledge Points",
+        "description": "全文搜索知识点\n\n使用 Meilisearch 对知识点的标题、描述、标签进行全文搜索，\n支持按分类和仓库筛选，按置信度排序。",
+        "operationId": "search_knowledge_points_api_v1_search_knowledge_points_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "repository_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "限定搜索的仓库",
+              "title": "Repository Id"
+            },
+            "description": "限定搜索的仓库"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "限定分类：DP/AD/AL/ET/DK",
+              "title": "Category"
+            },
+            "description": "限定分类：DP/AD/AL/ET/DK"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回条数上限",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "返回条数上限"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "偏移量",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "偏移量"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -2158,6 +2474,212 @@
         }
       }
     },
+    "/api/v1/repositories/{repository_id}/module-dependencies": {
+      "get": {
+        "tags": [
+          "模块依赖"
+        ],
+        "summary": "List Module Dependencies",
+        "description": "获取仓库的所有模块依赖关系\n\n返回模块间的导入关系，用于绘制模块级依赖图。",
+        "operationId": "list_module_dependencies_api_v1_repositories__repository_id__module_dependencies_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModuleDependency"
+                  },
+                  "title": "Response List Module Dependencies Api V1 Repositories  Repository Id  Module Dependencies Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/module-dependencies/count": {
+      "get": {
+        "tags": [
+          "模块依赖"
+        ],
+        "summary": "Count Module Dependencies",
+        "description": "获取仓库的模块依赖数量统计",
+        "operationId": "count_module_dependencies_api_v1_repositories__repository_id__module_dependencies_count_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Count Module Dependencies Api V1 Repositories  Repository Id  Module Dependencies Count Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/module-dependencies/stats": {
+      "get": {
+        "tags": [
+          "模块依赖"
+        ],
+        "summary": "Module Dependency Stats",
+        "description": "获取模块依赖分析统计信息\n\n包括：总依赖数、外部依赖数、内部依赖数、循环依赖数。",
+        "operationId": "module_dependency_stats_api_v1_repositories__repository_id__module_dependencies_stats_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Module Dependency Stats Api V1 Repositories  Repository Id  Module Dependencies Stats Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repositories/{repository_id}/stats": {
+      "get": {
+        "tags": [
+          "项目统计"
+        ],
+        "summary": "Repository Stats",
+        "description": "获取仓库的全方位统计信息\n\n返回一个一站式统计概览，覆盖文件、AST 节点、调用边、模块依赖、\n外部依赖、框架、API 路由等维度的数量统计。",
+        "operationId": "repository_stats_api_v1_repositories__repository_id__stats_get",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "repository_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Repository Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Repository Stats Api V1 Repositories  Repository Id  Stats Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -2605,7 +3127,8 @@
         "properties": {
           "nodeId": {
             "type": "string",
-            "title": "Nodeid"
+            "title": "Nodeid",
+            "default": ""
           },
           "nodeType": {
             "type": "string",
@@ -2617,11 +3140,13 @@
               "import",
               "module"
             ],
-            "title": "Nodetype"
+            "title": "Nodetype",
+            "default": "function_call"
           },
           "file": {
             "type": "string",
-            "title": "File"
+            "title": "File",
+            "default": ""
           },
           "lines": {
             "prefixItems": [
@@ -2635,11 +3160,16 @@
             "type": "array",
             "maxItems": 2,
             "minItems": 2,
-            "title": "Lines"
+            "title": "Lines",
+            "default": [
+              0,
+              0
+            ]
           },
           "signature": {
             "type": "string",
-            "title": "Signature"
+            "title": "Signature",
+            "default": ""
           },
           "direction": {
             "type": "string",
@@ -2649,18 +3179,11 @@
               "implementation",
               "export"
             ],
-            "title": "Direction"
+            "title": "Direction",
+            "default": "call"
           }
         },
         "type": "object",
-        "required": [
-          "nodeId",
-          "nodeType",
-          "file",
-          "lines",
-          "signature",
-          "direction"
-        ],
         "title": "CallChainNode",
         "description": "调用链节点"
       },
@@ -2721,15 +3244,18 @@
         "properties": {
           "filePath": {
             "type": "string",
-            "title": "Filepath"
+            "title": "Filepath",
+            "default": ""
           },
           "startLine": {
             "type": "integer",
-            "title": "Startline"
+            "title": "Startline",
+            "default": 0
           },
           "endLine": {
             "type": "integer",
-            "title": "Endline"
+            "title": "Endline",
+            "default": 0
           },
           "highlightedLines": {
             "items": {
@@ -2741,21 +3267,21 @@
           },
           "language": {
             "type": "string",
-            "title": "Language"
+            "title": "Language",
+            "default": ""
           },
           "signature": {
             "type": "string",
-            "title": "Signature"
+            "title": "Signature",
+            "default": ""
+          },
+          "content": {
+            "type": "string",
+            "title": "Content",
+            "default": ""
           }
         },
         "type": "object",
-        "required": [
-          "filePath",
-          "startLine",
-          "endLine",
-          "language",
-          "signature"
-        ],
         "title": "CodeSnippet",
         "description": "代码片段"
       },
@@ -2763,7 +3289,8 @@
         "properties": {
           "principle": {
             "type": "string",
-            "title": "Principle"
+            "title": "Principle",
+            "default": ""
           },
           "applicableScenarios": {
             "items": {
@@ -2799,9 +3326,6 @@
           }
         },
         "type": "object",
-        "required": [
-          "principle"
-        ],
         "title": "ExpansionContent",
         "description": "拓展内容"
       },
@@ -3101,28 +3625,31 @@
       "KnowledgeCategory": {
         "type": "string",
         "enum": [
-          "DP-",
-          "AD-",
-          "AL-",
-          "ET-",
-          "DK-"
+          "DP",
+          "AD",
+          "AL",
+          "ET",
+          "DK"
         ],
         "title": "KnowledgeCategory",
-        "description": "知识点分类枚举\n\nDP-: 设计模式 (Design Pattern)\nAD-: 架构决策 (Architecture Decision)\nAL-: 算法实现 (Algorithm)\nET-: 工程技巧 (Engineering Tip)\nDK-: 领域知识 (Domain Knowledge)"
+        "description": "知识点分类枚举\n\nDP: 设计模式 (Design Pattern)\nAD: 架构决策 (Architecture Decision)\nAL: 算法实现 (Algorithm)\nET: 工程技巧 (Engineering Tip)\nDK: 领域知识 (Domain Knowledge)"
       },
       "KnowledgeMetadata": {
         "properties": {
           "agent": {
             "type": "string",
-            "title": "Agent"
+            "title": "Agent",
+            "default": ""
           },
           "promptVersion": {
             "type": "string",
-            "title": "Promptversion"
+            "title": "Promptversion",
+            "default": ""
           },
           "model": {
             "type": "string",
-            "title": "Model"
+            "title": "Model",
+            "default": ""
           },
           "tokensUsed": {
             "additionalProperties": {
@@ -3134,11 +3661,6 @@
           }
         },
         "type": "object",
-        "required": [
-          "agent",
-          "promptVersion",
-          "model"
-        ],
         "title": "KnowledgeMetadata",
         "description": "知识点元数据"
       },
@@ -3329,6 +3851,49 @@
         ],
         "title": "LearningResource",
         "description": "学习资料"
+      },
+      "ModuleDependency": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "repositoryId": {
+            "type": "string",
+            "title": "Repositoryid"
+          },
+          "importerFileId": {
+            "type": "string",
+            "title": "Importerfileid"
+          },
+          "importedFileId": {
+            "type": "string",
+            "title": "Importedfileid"
+          },
+          "importName": {
+            "type": "string",
+            "title": "Importname"
+          },
+          "importType": {
+            "type": "string",
+            "title": "Importtype"
+          },
+          "createdAt": {
+            "type": "string",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "repositoryId",
+          "importerFileId",
+          "importName",
+          "importType",
+          "createdAt"
+        ],
+        "title": "ModuleDependency",
+        "description": "模块依赖"
       },
       "PaginatedKnowledgePoints": {
         "properties": {
@@ -3533,247 +4098,6 @@
         "type": "object",
         "title": "RepositoryUpdate",
         "description": "更新仓库请求"
-      },
-      "SearchMode": {
-        "type": "string",
-        "enum": [
-          "text",
-          "vector",
-          "hybrid"
-        ],
-        "title": "SearchMode",
-        "description": "搜索模式"
-      },
-      "SearchRequest": {
-        "properties": {
-          "q": {
-            "type": "string",
-            "title": "Q"
-          },
-          "repositoryId": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Repositoryid"
-          },
-          "category": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Category"
-          },
-          "mode": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/SearchMode"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "page": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Page"
-          },
-          "pageSize": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pagesize"
-          }
-        },
-        "type": "object",
-        "required": [
-          "q"
-        ],
-        "title": "SearchRequest",
-        "description": "搜索请求参数"
-      },
-      "SearchResponse": {
-        "properties": {
-          "query": {
-            "type": "string",
-            "title": "Query"
-          },
-          "mode": {
-            "$ref": "#/components/schemas/SearchMode"
-          },
-          "results": {
-            "items": {
-              "$ref": "#/components/schemas/SearchResult"
-            },
-            "type": "array",
-            "title": "Results",
-            "default": []
-          },
-          "facets": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Facets"
-          },
-          "durationMs": {
-            "type": "integer",
-            "title": "Durationms",
-            "default": 0
-          }
-        },
-        "type": "object",
-        "required": [
-          "query",
-          "mode"
-        ],
-        "title": "SearchResponse",
-        "description": "搜索响应"
-      },
-      "SearchResult": {
-        "properties": {
-          "type": {
-            "$ref": "#/components/schemas/SearchResultType"
-          },
-          "score": {
-            "type": "number",
-            "title": "Score"
-          },
-          "pointId": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pointid"
-          },
-          "point": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Point"
-          },
-          "repository": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Repository"
-          },
-          "matchedText": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Matchedtext"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "score"
-        ],
-        "title": "SearchResult",
-        "description": "搜索结果"
-      },
-      "SearchResultType": {
-        "type": "string",
-        "enum": [
-          "knowledge_point",
-          "repository",
-          "file"
-        ],
-        "title": "SearchResultType",
-        "description": "搜索结果类型"
-      },
-      "SearchSuggestion": {
-        "properties": {
-          "text": {
-            "type": "string",
-            "title": "Text"
-          },
-          "type": {
-            "type": "string",
-            "title": "Type"
-          },
-          "count": {
-            "type": "integer",
-            "title": "Count"
-          }
-        },
-        "type": "object",
-        "required": [
-          "text",
-          "type",
-          "count"
-        ],
-        "title": "SearchSuggestion",
-        "description": "搜索建议"
-      },
-      "SearchSuggestionsResponse": {
-        "properties": {
-          "query": {
-            "type": "string",
-            "title": "Query"
-          },
-          "suggestions": {
-            "items": {
-              "$ref": "#/components/schemas/SearchSuggestion"
-            },
-            "type": "array",
-            "title": "Suggestions",
-            "default": []
-          }
-        },
-        "type": "object",
-        "required": [
-          "query"
-        ],
-        "title": "SearchSuggestionsResponse",
-        "description": "搜索建议响应"
       },
       "TaskStatus": {
         "type": "string",

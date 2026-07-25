@@ -341,6 +341,27 @@ class AnalysisNode:
         normalized = []
         for point in points:
             expansion = point.expansion.model_dump() if point.expansion else {}
+            # 将 CodeSnippetExtraction 转换为 dict，确保 content 字段传递
+            snippets = []
+            for s in point.code_snippets:
+                snippet_dict = s.model_dump()
+                # 将 extraction 的 file 字段映射为 file_path
+                snippet_dict["file_path"] = snippet_dict.pop("file", "")
+                snippets.append(snippet_dict)
+            # 将 CallChainExtraction 转换为 dict，确保 name→signature 映射
+            call_chain = []
+            for c in point.call_chain:
+                chain_dict = c.model_dump()
+                # 将 extraction 的 name 字段映射为 signature
+                chain_dict["signature"] = chain_dict.get("name", "")
+                # 将 extraction 的 lines 转换为 tuple
+                lines = chain_dict.get("lines", [])
+                if lines and isinstance(lines, list):
+                    if len(lines) >= 2:
+                        chain_dict["lines"] = (lines[0], lines[1])
+                    elif len(lines) == 1:
+                        chain_dict["lines"] = (lines[0], lines[0])
+                call_chain.append(chain_dict)
             normalized.append(
                 {
                     "category": category,
@@ -350,8 +371,8 @@ class AnalysisNode:
                     "description": point.description,
                     "confidence": point.confidence,
                     "tags": point.tags,
-                    "code_snippets": [s.model_dump() for s in point.code_snippets],
-                    "call_chain": [c.model_dump() for c in point.call_chain],
+                    "code_snippets": snippets,
+                    "call_chain": call_chain,
                     "expansion": expansion,
                     "metadata": {},
                 }

@@ -52,6 +52,7 @@ class CodeSnippet(BaseModel):
     highlighted_lines: list[int] = []
     language: str = ""
     signature: str = ""
+    content: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -78,6 +79,15 @@ class CallChainNode(BaseModel):
     lines: tuple[int, int] = (0, 0)
     signature: str = ""
     direction: Literal["entry", "call", "implementation", "export"] = "call"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_name_to_signature(cls, data: Any) -> Any:
+        """兼容旧数据格式：将 CallChainExtraction 的 name 字段映射为 signature"""
+        if isinstance(data, dict) and "signature" not in data and "name" in data:
+            data = {**data}
+            data["signature"] = data.pop("name", "")
+        return data
 
     @field_validator("lines", mode="before")
     @classmethod

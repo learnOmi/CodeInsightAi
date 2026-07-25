@@ -146,6 +146,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tasks/{task_id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Task Progress
+         * @description 实时推送任务进度（SSE）
+         *
+         *     通过 Server-Sent Events 推送任务进度更新，前端可使用 EventSource 消费。
+         *     推送事件类型：
+         *     - progress: 进度更新，data 包含 current_step、percent 等字段
+         *     - complete: 任务完成，data 包含 task_id、status
+         *     - error: 任务失败，data 包含 task_id、status、error
+         *
+         *     Args:
+         *         task_id: Celery 任务 ID
+         *
+         *     Returns:
+         *         StreamingResponse (text/event-stream)
+         */
+        get: operations["stream_task_progress_api_v1_tasks__task_id__stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/knowledge-points": {
         parameters: {
             query?: never;
@@ -213,20 +245,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/search": {
+    "/api/v1/search/nodes": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
         /**
-         * Search
-         * @description 搜索知识点
+         * Search Nodes
+         * @description 全局搜索 AST 节点
+         *
+         *     按名称模糊搜索代码中的类、函数、方法等 AST 节点。
+         *     基于 SQL ILIKE 模糊匹配，不涉及 AI。
          */
-        post: operations["search_api_v1_search_post"];
+        get: operations["search_nodes_api_v1_search_nodes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Files
+         * @description 全局搜索文件
+         *
+         *     按路径模糊匹配文件名。
+         */
+        get: operations["search_files_api_v1_search_files_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -242,9 +299,34 @@ export interface paths {
         };
         /**
          * Search Suggestions
-         * @description 获取搜索建议
+         * @description 获取搜索建议（自动补全）
+         *
+         *     基于 AST 节点名前缀匹配，返回搜索建议列表。
          */
         get: operations["search_suggestions_api_v1_search_suggestions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/knowledge-points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Knowledge Points
+         * @description 全文搜索知识点
+         *
+         *     使用 Meilisearch 对知识点的标题、描述、标签进行全文搜索，
+         *     支持按分类和仓库筛选，按置信度排序。
+         */
+        get: operations["search_knowledge_points_api_v1_search_knowledge_points_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -657,6 +739,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/repositories/{repository_id}/module-dependencies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Module Dependencies
+         * @description 获取仓库的所有模块依赖关系
+         *
+         *     返回模块间的导入关系，用于绘制模块级依赖图。
+         */
+        get: operations["list_module_dependencies_api_v1_repositories__repository_id__module_dependencies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/module-dependencies/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count Module Dependencies
+         * @description 获取仓库的模块依赖数量统计
+         */
+        get: operations["count_module_dependencies_api_v1_repositories__repository_id__module_dependencies_count_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/module-dependencies/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Module Dependency Stats
+         * @description 获取模块依赖分析统计信息
+         *
+         *     包括：总依赖数、外部依赖数、内部依赖数、循环依赖数。
+         */
+        get: operations["module_dependency_stats_api_v1_repositories__repository_id__module_dependencies_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/repositories/{repository_id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Repository Stats
+         * @description 获取仓库的全方位统计信息
+         *
+         *     返回一个一站式统计概览，覆盖文件、AST 节点、调用边、模块依赖、
+         *     外部依赖、框架、API 路由等维度的数量统计。
+         */
+        get: operations["repository_stats_api_v1_repositories__repository_id__stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -853,24 +1022,41 @@ export interface components {
          * @description 调用链节点
          */
         CallChainNode: {
-            /** Nodeid */
+            /**
+             * Nodeid
+             * @default
+             */
             nodeId: string;
             /**
              * Nodetype
+             * @default function_call
              * @enum {string}
              */
             nodeType: "function" | "class" | "method" | "function_call" | "import" | "module";
-            /** File */
+            /**
+             * File
+             * @default
+             */
             file: string;
-            /** Lines */
+            /**
+             * Lines
+             * @default [
+             *       0,
+             *       0
+             *     ]
+             */
             lines: [
                 number,
                 number
             ];
-            /** Signature */
+            /**
+             * Signature
+             * @default
+             */
             signature: string;
             /**
              * Direction
+             * @default call
              * @enum {string}
              */
             direction: "entry" | "call" | "implementation" | "export";
@@ -904,28 +1090,51 @@ export interface components {
          * @description 代码片段
          */
         CodeSnippet: {
-            /** Filepath */
+            /**
+             * Filepath
+             * @default
+             */
             filePath: string;
-            /** Startline */
+            /**
+             * Startline
+             * @default 0
+             */
             startLine: number;
-            /** Endline */
+            /**
+             * Endline
+             * @default 0
+             */
             endLine: number;
             /**
              * Highlightedlines
              * @default []
              */
             highlightedLines: number[];
-            /** Language */
+            /**
+             * Language
+             * @default
+             */
             language: string;
-            /** Signature */
+            /**
+             * Signature
+             * @default
+             */
             signature: string;
+            /**
+             * Content
+             * @default
+             */
+            content: string;
         };
         /**
          * ExpansionContent
          * @description 拓展内容
          */
         ExpansionContent: {
-            /** Principle */
+            /**
+             * Principle
+             * @default
+             */
             principle: string;
             /**
              * Applicablescenarios
@@ -1082,24 +1291,33 @@ export interface components {
          * KnowledgeCategory
          * @description 知识点分类枚举
          *
-         *     DP-: 设计模式 (Design Pattern)
-         *     AD-: 架构决策 (Architecture Decision)
-         *     AL-: 算法实现 (Algorithm)
-         *     ET-: 工程技巧 (Engineering Tip)
-         *     DK-: 领域知识 (Domain Knowledge)
+         *     DP: 设计模式 (Design Pattern)
+         *     AD: 架构决策 (Architecture Decision)
+         *     AL: 算法实现 (Algorithm)
+         *     ET: 工程技巧 (Engineering Tip)
+         *     DK: 领域知识 (Domain Knowledge)
          * @enum {string}
          */
-        KnowledgeCategory: "DP-" | "AD-" | "AL-" | "ET-" | "DK-";
+        KnowledgeCategory: "DP" | "AD" | "AL" | "ET" | "DK";
         /**
          * KnowledgeMetadata
          * @description 知识点元数据
          */
         KnowledgeMetadata: {
-            /** Agent */
+            /**
+             * Agent
+             * @default
+             */
             agent: string;
-            /** Promptversion */
+            /**
+             * Promptversion
+             * @default
+             */
             promptVersion: string;
-            /** Model */
+            /**
+             * Model
+             * @default
+             */
             model: string;
             /**
              * Tokensused
@@ -1208,6 +1426,26 @@ export interface components {
             type: "book" | "article" | "video" | "course";
         };
         /**
+         * ModuleDependency
+         * @description 模块依赖
+         */
+        ModuleDependency: {
+            /** Id */
+            id: string;
+            /** Repositoryid */
+            repositoryId: string;
+            /** Importerfileid */
+            importerFileId: string;
+            /** Importedfileid */
+            importedFileId?: string;
+            /** Importname */
+            importName: string;
+            /** Importtype */
+            importType: string;
+            /** Createdat */
+            createdAt: string;
+        };
+        /**
          * PaginatedKnowledgePoints
          * @description 分页知识点列表响应
          */
@@ -1294,104 +1532,6 @@ export interface components {
             /** Name */
             name?: string | null;
             status?: components["schemas"]["RepositoryStatus"] | null;
-        };
-        /**
-         * SearchMode
-         * @description 搜索模式
-         * @enum {string}
-         */
-        SearchMode: "text" | "vector" | "hybrid";
-        /**
-         * SearchRequest
-         * @description 搜索请求参数
-         */
-        SearchRequest: {
-            /** Q */
-            q: string;
-            /** Repositoryid */
-            repositoryId?: string | null;
-            /** Category */
-            category?: string | null;
-            mode?: components["schemas"]["SearchMode"] | null;
-            /** Page */
-            page?: number | null;
-            /** Pagesize */
-            pageSize?: number | null;
-        };
-        /**
-         * SearchResponse
-         * @description 搜索响应
-         */
-        SearchResponse: {
-            /** Query */
-            query: string;
-            mode: components["schemas"]["SearchMode"];
-            /**
-             * Results
-             * @default []
-             */
-            results: components["schemas"]["SearchResult"][];
-            /** Facets */
-            facets?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Durationms
-             * @default 0
-             */
-            durationMs: number;
-        };
-        /**
-         * SearchResult
-         * @description 搜索结果
-         */
-        SearchResult: {
-            type: components["schemas"]["SearchResultType"];
-            /** Score */
-            score: number;
-            /** Pointid */
-            pointId?: string | null;
-            /** Point */
-            point?: {
-                [key: string]: unknown;
-            } | null;
-            /** Repository */
-            repository?: {
-                [key: string]: unknown;
-            } | null;
-            /** Matchedtext */
-            matchedText?: string | null;
-        };
-        /**
-         * SearchResultType
-         * @description 搜索结果类型
-         * @enum {string}
-         */
-        SearchResultType: "knowledge_point" | "repository" | "file";
-        /**
-         * SearchSuggestion
-         * @description 搜索建议
-         */
-        SearchSuggestion: {
-            /** Text */
-            text: string;
-            /** Type */
-            type: string;
-            /** Count */
-            count: number;
-        };
-        /**
-         * SearchSuggestionsResponse
-         * @description 搜索建议响应
-         */
-        SearchSuggestionsResponse: {
-            /** Query */
-            query: string;
-            /**
-             * Suggestions
-             * @default []
-             */
-            suggestions: components["schemas"]["SearchSuggestion"][];
         };
         /**
          * TaskStatus
@@ -1680,6 +1820,37 @@ export interface operations {
             };
         };
     };
+    stream_task_progress_api_v1_tasks__task_id__stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_knowledge_points_api_v1_knowledge_points_get: {
         parameters: {
             query: {
@@ -1687,7 +1858,7 @@ export interface operations {
                 repository_id: string;
                 /** @description 分析版本号，不传则使用当前版本 */
                 version?: string | null;
-                /** @description 按分类筛选：DP-/AD-/AL-/ET-/DK- */
+                /** @description 按分类筛选：DP/AD/AL/ET/DK */
                 category?: string | null;
                 /** @description 按标签筛选 */
                 tag?: string | null;
@@ -1791,18 +1962,22 @@ export interface operations {
             };
         };
     };
-    search_api_v1_search_post: {
+    search_nodes_api_v1_search_nodes_get: {
         parameters: {
-            query?: never;
+            query: {
+                q: string;
+                /** @description 限定搜索的仓库 */
+                repository_id?: string | null;
+                /** @description 限定节点类型（function/class/method 等） */
+                node_type?: string | null;
+                /** @description 返回条数上限 */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SearchRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -1810,7 +1985,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchResponse"];
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_files_api_v1_search_files_get: {
+        parameters: {
+            query: {
+                q: string;
+                /** @description 限定搜索的仓库 */
+                repository_id?: string | null;
+                /** @description 返回条数上限 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -1828,6 +2038,10 @@ export interface operations {
         parameters: {
             query: {
                 q: string;
+                /** @description 限定搜索的仓库 */
+                repository_id?: string | null;
+                /** @description 返回建议条数上限 */
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -1841,7 +2055,46 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchSuggestionsResponse"];
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_knowledge_points_api_v1_search_knowledge_points_get: {
+        parameters: {
+            query: {
+                q: string;
+                /** @description 限定搜索的仓库 */
+                repository_id?: string | null;
+                /** @description 限定分类：DP/AD/AL/ET/DK */
+                category?: string | null;
+                /** @description 返回条数上限 */
+                limit?: number;
+                /** @description 偏移量 */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -2534,6 +2787,136 @@ export interface operations {
         };
     };
     count_routes_api_v1_repositories__repository_id__routes_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_module_dependencies_api_v1_repositories__repository_id__module_dependencies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModuleDependency"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    count_module_dependencies_api_v1_repositories__repository_id__module_dependencies_count_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    module_dependency_stats_api_v1_repositories__repository_id__module_dependencies_stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                repository_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    repository_stats_api_v1_repositories__repository_id__stats_get: {
         parameters: {
             query?: never;
             header?: never;
