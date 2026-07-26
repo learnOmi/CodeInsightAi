@@ -12,6 +12,7 @@ interface SSEProgressPayload {
   files_processed: number;
   files_total: number;
   knowledge_points_found: number;
+  total_lines: number;
 }
 
 /** SSE 错误事件载荷 */
@@ -31,6 +32,7 @@ interface SSEData {
     filesProcessed: number;
     filesTotal: number;
     knowledgePointsFound: number;
+    totalLines: number;
   };
 }
 
@@ -67,20 +69,21 @@ export function useSSE(taskId: string, enabled = true, maxReconnectAttempts = 3)
   const reconnectCountRef = useRef(0);
 
   useEffect(() => {
+    // taskId 变化时重置状态，避免残留旧任务的进度数据
+    setData(null);
+    setError(null);
+    setIsComplete(false);
+    reconnectCountRef.current = 0;
+
+    console.log("[useSSE] taskId:", taskId, "enabled:", enabled);
+
     // 不满足连接条件时跳过
     if (!taskId || !enabled) {
+      console.log("[useSSE] 不满足连接条件，跳过");
       return;
     }
 
-    // 如果之前已完成，重置状态（允许重新连接）
-    if (isComplete) {
-      setData(null);
-      setError(null);
-      setIsComplete(false);
-    }
-
-    // 重置重连计数
-    reconnectCountRef.current = 0;
+    console.log("[useSSE] 开始连接 SSE:", taskId);
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -95,19 +98,24 @@ export function useSSE(taskId: string, enabled = true, maxReconnectAttempts = 3)
 
     const connect = async () => {
       try {
+        console.log("[useSSE] 发起 SSE 请求:", `${BASE_URL}/api/v1/tasks/${taskId}/stream`);
         const response = await fetch(
           `${BASE_URL}/api/v1/tasks/${taskId}/stream`,
           { headers, signal: abortController.signal },
         );
 
         if (!response.ok) {
+          console.error("[useSSE] SSE 连接失败:", response.status, response.statusText);
           setError(`SSE 连接失败 (${response.status})`);
           setIsComplete(true);
           return;
         }
 
+        console.log("[useSSE] SSE 连接成功，状态码:", response.status, "body type:", typeof response.body);
+
         const reader = response.body?.getReader();
         if (!reader) {
+          console.error("[useSSE] 响应体不可读");
           setError("响应体不可读");
           setIsComplete(true);
           return;
@@ -160,6 +168,7 @@ export function useSSE(taskId: string, enabled = true, maxReconnectAttempts = 3)
                     filesProcessed: payload.files_processed,
                     filesTotal: payload.files_total,
                     knowledgePointsFound: payload.knowledge_points_found,
+                    totalLines: payload.total_lines,
                   },
                 });
               } else if (eventType === "complete") {

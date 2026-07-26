@@ -92,6 +92,26 @@ def _merge_messages(previous: list[dict[str, Any]], new: list[dict[str, Any]]) -
     return merged
 
 
+def _merge_agent_results(previous: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """合并 Agent 执行结果：保留每个 Agent 的最终状态，失败信息保留第一次的错误"""
+    if not new:
+        return previous
+    if not previous:
+        return new
+
+    merged = {**previous}
+    for agent_name, result in new.items():
+        # 如果这个 Agent 尚未记录过结果，或者新结果标记为失败而旧结果是成功，则更新
+        if agent_name not in merged:
+            merged[agent_name] = result
+        else:
+            # 已存在：如果新结果是失败且旧结果不是，则更新为失败
+            if result.get("status") == "failed" and merged[agent_name].get("status") != "failed":
+                merged[agent_name] = result
+            # 否则保留先前的结果（可能已有错误信息）
+    return merged
+
+
 class AnalysisState(TypedDict):
     """
     代码知识分析状态
@@ -114,6 +134,7 @@ class AnalysisState(TypedDict):
         enable_chunking: 是否启用分片模式（用于超大代码库）
         chunk_progress: 分片处理进度（仅 enable_chunking=True 时使用）
         chunk_results: 分片处理结果（仅 enable_chunking=True 时使用）
+        agent_results: 每个 Agent 的执行结果（成功/失败/知识点数量）
     """
 
     repo_id: Annotated[str, _keep_first]
@@ -136,3 +157,6 @@ class AnalysisState(TypedDict):
     enable_chunking: Annotated[bool, _keep_first]
     chunk_progress: Annotated[dict[str, Any], _keep_first]
     chunk_results: Annotated[list[dict[str, Any]], _accumulate_knowledge_points]
+
+    # Agent 执行结果记录：记录每个 Agent 的状态（success/failed）和知识点数量
+    agent_results: Annotated[dict[str, Any], _merge_agent_results]

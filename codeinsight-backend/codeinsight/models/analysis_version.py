@@ -6,8 +6,20 @@ AnalysisVersion ORM 模型
 
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import TIMESTAMP, UUID, CheckConstraint, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    TIMESTAMP,
+    UUID,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -37,6 +49,8 @@ class AnalysisVersionModel(Base):
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
+    # A-D6: 记录每个 Agent 的执行状态（用于部分重试）
+    agent_status: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     __table_args__ = (
         # 同一仓库内版本标签唯一（而非全局唯一）

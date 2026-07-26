@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 import { searchNodes, searchFiles, searchSuggestions } from "@/api/search";
 import type { SearchNodeResult, SearchFileResult, SearchSuggestion } from "@/api/search";
 import { cn } from "@/utils";
+import { GlobalNav } from "@/components/GlobalNav";
 
 const SEARCH_TABS = ["代码节点", "文件"] as const;
 type SearchTab = (typeof SEARCH_TABS)[number];
@@ -125,8 +126,10 @@ export default function SearchPage() {
     activeTab === "代码节点" && Array.isArray(r);
 
   return (
-    <div className="max-w-4xl mx-auto py-12 px-4">
-      <header className="mb-8 relative">
+    <div className="max-w-4xl mx-auto py-6 px-4">
+      <GlobalNav />
+      <div className="mt-4">
+        <header className="mb-8 relative">
         {/* 标题后方光晕 */}
         <div className="absolute -top-8 -left-8 w-48 h-48 rounded-full bg-brand/10 blur-[100px] pointer-events-none" />
         <h1 className="text-5xl font-bold tracking-tight relative">
@@ -286,6 +289,7 @@ export default function SearchPage() {
           输入关键词开始搜索
         </div>
       )}
+      </div>
     </div>
   );
 }

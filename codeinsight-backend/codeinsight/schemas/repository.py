@@ -39,6 +39,7 @@ class Repository(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_analyzed_at: datetime | None = None
+    current_task_id: str | None = None
 
     @field_serializer("id")
     def serialize_id(self, value: UUID, _info) -> str:

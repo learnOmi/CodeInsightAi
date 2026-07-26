@@ -43,7 +43,7 @@ export default function RepoDetailLayout({
           )}
           <div className="ml-auto flex items-center gap-3">
             <Link
-              href="/knowledge"
+              href={`/knowledge?repositoryId=${repo_id}`}
               className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
             >
               <BookOpen className="w-4 h-4" />

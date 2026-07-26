@@ -12,6 +12,7 @@ CATEGORY_NAMES: dict[str, str] = {
     "DK": "领域知识",
     "TT": "开发模板",
     "TK": "技术栈",
+    "DS": "设计结构",
 }
 
-CATEGORY_LIST: list[str] = ["DP", "AD", "AL", "ET", "DK", "TT", "TK"]
+CATEGORY_LIST: list[str] = ["DP", "AD", "AL", "ET", "DK", "TT", "TK", "DS"]

@@ -21,12 +21,15 @@ export async function getKnowledgePoints(
   params: ListKnowledgePointsParams
 ): Promise<PaginatedKnowledgePoints> {
   const searchParams = new URLSearchParams({
-    repository_id: params.repositoryId,
     page: String(params.page ?? 1),
     page_size: String(params.pageSize ?? 20),
     sort_by: params.sortBy ?? "created_at",
     sort_order: params.sortOrder ?? "desc",
   });
+  // 仅在 repositoryId 非空时添加（后端空值会被解析为无效 UUID）
+  if (params.repositoryId) {
+    searchParams.set("repository_id", params.repositoryId);
+  }
   if (params.version) searchParams.set("version", params.version);
   if (params.category) searchParams.set("category", params.category);
   if (params.tag) searchParams.set("tag", params.tag);
@@ -39,7 +42,7 @@ export async function getKnowledgePoint(id: string): Promise<KnowledgePoint> {
   return apiFetch(`/api/v1/knowledge-points/${id}`);
 }
 
-/** 获取知识点统计 */
+/** 获取知识点统计（所有仓库或指定仓库） */
 export async function getKnowledgeStats(
   repositoryId: string,
   version?: string
@@ -47,6 +50,14 @@ export async function getKnowledgeStats(
   const searchParams = new URLSearchParams();
   if (version) searchParams.set("version", version);
   const query = searchParams.toString();
+
+  // 空 repositoryId 使用全局统计接口
+  if (!repositoryId) {
+    return apiFetch(
+      `/api/v1/knowledge-stats${query ? `?${query}` : ""}`
+    );
+  }
+
   return apiFetch(
     `/api/v1/repositories/${repositoryId}/knowledge-stats${query ? `?${query}` : ""}`
   );

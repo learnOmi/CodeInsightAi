@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, BookOpen } from "lucide-react";
-import Link from "next/link";
+import { GlobalNav } from "@/components/GlobalNav";
 import { RepoForm } from "@/components/RepoForm";
 import { RepoList } from "@/components/RepoList";
 
@@ -10,30 +9,12 @@ export default function RepositoriesPage() {
   const [showForm, setShowForm] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] py-8">
-      {/* 返回按钮 — 固定在左上角 */}
-      <div className="fixed top-4 left-6 z-50">
-        <Link
-          href="/"
-          className="flex items-center gap-2 p-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors shadow-sm"
-        >
-          <ArrowLeft className="w-4 h-4 text-[var(--text-secondary)]" />
-          <span className="text-sm text-[var(--text-primary)]">返回</span>
-        </Link>
+    <div className="min-h-screen bg-[var(--bg-base)]">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <GlobalNav />
       </div>
 
-      {/* 知识库入口 — 固定在右上角 */}
-      <div className="fixed top-4 right-6 z-50">
-        <Link
-          href="/knowledge"
-          className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-hover)] transition-colors shadow-sm"
-        >
-          <BookOpen className="w-4 h-4 text-[var(--text-secondary)]" />
-          <span className="text-sm text-[var(--text-primary)]">知识库</span>
-        </Link>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-[var(--text-primary)]">仓库管理</h1>

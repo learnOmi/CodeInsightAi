@@ -45,30 +45,56 @@ export function RepoCard({ repository }: RepoCardProps) {
   const cancelTask = useCancelTask();
   const deleteRepository = useDeleteRepository();
 
-  const isAnalyzing = repository.status === "analyzing";
-  const taskId = currentTaskId;
+  // 从 localStorage 读取 pending taskId（创建仓库时自动分析场景）
+  // 使用 initialized flag 确保组件挂载时立即检查，不依赖 repository.currentTaskId 变化
+  const [initialized, setInitialized] = useState(false);
 
-  // SSE 实时进度（替代轮询）
+  useEffect(() => {
+    if (!initialized) {
+      const pendingTaskId = localStorage.getItem("pending_task_id");
+      if (pendingTaskId) {
+        setCurrentTaskId(pendingTaskId);
+        localStorage.removeItem("pending_task_id");
+      }
+      setInitialized(true);
+    }
+  }, [initialized]);
+
+  const isAnalyzing = repository.status === "analyzing";
+  const taskId = currentTaskId || repository.currentTaskId || "";
+
+  console.log("[RepoCard] isAnalyzing:", isAnalyzing, "currentTaskId:", currentTaskId, "repository.currentTaskId:", repository.currentTaskId, "taskId:", taskId);
+
+  // SSE 实时进度：只要存在 taskId 就连接，不依赖 isAnalyzing 状态
+  // （isAnalyzing 依赖仓库列表 refetch，而分析期间没有 refetchInterval，导致状态卡顿）
   const { data: sseData, error: sseError, isComplete } = useSSE(
-    isAnalyzing ? taskId : "",
-    isAnalyzing,
+    taskId,
+    !!taskId,
   );
 
-  // SSE 连接完成/失败时刷新仓库数据
+  // SSE 连接完成/失败时刷新仓库数据，并清除 currentTaskId 避免重连
   useEffect(() => {
     if (isComplete) {
       queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      // 清除 currentTaskId，断开 SSE，等待下次分析重新建立连接
+      setCurrentTaskId("");
     }
   }, [isComplete, queryClient]);
 
   const handleSubmitAnalysis = async () => {
     setSubmitError("");
+    console.log("[RepoCard] 提交前 - currentTaskId:", currentTaskId, "repository.currentTaskId:", repository.currentTaskId);
     try {
       const result = await submitAnalysis.mutateAsync({ repositoryId: repository.id });
+      console.log("[RepoCard] submitAnalysis result:", result);
+      console.log("[RepoCard] 提交后 - result.status:", result.status);
+      // 立即刷新仓库列表，使 status 从 cancelled 更新为 analyzing
+      queryClient.invalidateQueries({ queryKey: ["repositories"] });
       // Eager 模式下分析同步完成，直接刷新仓库列表显示最终状态
       if (result.status === "completed" || result.status === "failed") {
-        queryClient.invalidateQueries({ queryKey: ["repositories"] });
+        console.log("[RepoCard] status 是 completed/failed，不设置 taskId");
       } else {
+        console.log("[RepoCard] 设置 currentTaskId:", result.taskId);
         setCurrentTaskId(result.taskId);
       }
     } catch (err) {
@@ -91,6 +117,8 @@ export function RepoCard({ repository }: RepoCardProps) {
     if (taskId) {
       try {
         await cancelTask.mutateAsync(taskId);
+        // 立即清除 taskId 断开 SSE 连接，避免按钮状态卡死
+        setCurrentTaskId("");
         queryClient.invalidateQueries({ queryKey: ["repositories"] });
       } catch (err) {
         if (err instanceof APIError) {
@@ -117,11 +145,24 @@ export function RepoCard({ repository }: RepoCardProps) {
   };
 
   const statusConfig = getAnalysisStatusConfig(repository.status);
-  const progress = sseData?.progress || { percent: 0, filesProcessed: 0, filesTotal: 0, currentStep: "pending" as TaskStatus, knowledgePointsFound: 0 };
+  const progress = sseData?.progress || { percent: 0, filesProcessed: 0, filesTotal: 0, currentStep: "pending" as TaskStatus, knowledgePointsFound: 0, totalLines: 0 };
   const currentStep = progress.currentStep ? taskStepLabels[progress.currentStep] : "";
+  // 进度条显示条件：有 taskId 且 SSE 未完成
+  // （isAnalyzing 依赖仓库列表 refetch，分析期间无 refetchInterval，导致状态卡顿）
+  const showProgress = !!taskId && !isComplete;
+
+  // 检查部分失败：如果状态是 completed 但有 incomplete agent results（通过 error_message 或其他方式指示）
+  const isPartialFailure = repository.status === "completed" && repository.errorMessage;
 
   return (
     <div className="group relative rounded-2xl overflow-hidden bg-[var(--bg-card)] transition-all duration-500 hover:-translate-y-1 hover:shadow-[var(--glow-brand-light)]">
+      {isPartialFailure && (
+        <div className="absolute top-0 right-0 z-10">
+          <div className="bg-status-warning/90 text-status-warning px-3 py-1 text-xs font-medium rounded-bl-full">
+            ⚠️ AI 分析部分完成
+          </div>
+        </div>
+      )}
       {/* 渐变边框层 — hover 时显现 */}
       <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-brand/20 via-brand/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
       {/* 顶部光条 */}
@@ -151,7 +192,7 @@ export function RepoCard({ repository }: RepoCardProps) {
           </span>
         </div>
 
-        {isAnalyzing && (
+        {showProgress && (
           <div className="mb-4 space-y-1.5">
             <div className="flex justify-between text-[11px]">
               <span className="text-[var(--text-muted)]">{currentStep || "分析中"}</span>
@@ -170,9 +211,9 @@ export function RepoCard({ repository }: RepoCardProps) {
         )}
 
         <div className="grid grid-cols-3 gap-4 mb-5 divide-x divide-[var(--border)]/50">
-          <StatItem value={repository.fileCount} label="FILES" />
-          <StatItem value={repository.lineCount} label="LINES" />
-          <StatItem value={repository.knowledgePointsCount} label="INSIGHTS" />
+          <StatItem value={showProgress ? progress.filesTotal || repository.fileCount : repository.fileCount} label="FILES" />
+          <StatItem value={showProgress ? progress.totalLines || repository.lineCount : repository.lineCount} label="LINES" />
+          <StatItem value={showProgress ? progress.knowledgePointsFound || repository.knowledgePointsCount : repository.knowledgePointsCount} label="INSIGHTS" />
         </div>
 
         {submitError && (
@@ -189,20 +230,20 @@ export function RepoCard({ repository }: RepoCardProps) {
         )}
 
         <div className="flex gap-2">
-          {!isAnalyzing && (
+          {!showProgress && (
             <Link
               href={`/repositories/${repository.id}/files`}
-              className="flex-1 px-4 py-2 rounded-md text-xs font-medium text-center transition-colors bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
+              className="flex-1 px-3 py-2 rounded-md text-xs font-medium text-center transition-colors bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
             >
-              查看文件
+              文件
             </Link>
           )}
-          {!isAnalyzing && (
+          {!showProgress && (
             <button
               onClick={handleSubmitAnalysis}
               disabled={submitAnalysis.isPending}
               className={cn(
-                "flex-1 px-4 py-2 rounded-md text-xs font-medium transition-colors",
+                "flex-1 px-3 py-2 rounded-md text-xs font-medium transition-colors",
                 submitAnalysis.isPending
                   ? "bg-brand/60 cursor-not-allowed text-white/80"
                   : "bg-brand text-white hover:opacity-90 shadow-sm"
@@ -211,7 +252,7 @@ export function RepoCard({ repository }: RepoCardProps) {
               {submitAnalysis.isPending ? "提交中..." : "开始分析"}
             </button>
           )}
-          {isAnalyzing && (
+          {showProgress && (
             <button
               onClick={handleCancelTask}
               disabled={cancelTask.isPending}

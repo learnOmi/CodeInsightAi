@@ -278,4 +278,5 @@ class AnalysisGraph:
             "enable_chunking": enable_chunking,
             "chunk_progress": {},
             "chunk_results": [],
+            "agent_results": {},
         }

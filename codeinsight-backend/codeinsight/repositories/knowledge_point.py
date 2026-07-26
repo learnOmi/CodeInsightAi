@@ -53,6 +53,27 @@ class KnowledgePointDAO:
         await db.refresh(kp)
         return kp
 
+    async def batch_create(self, db: AsyncSession, data_list: list[dict]) -> list[KnowledgePointModel]:
+        """
+        批量创建知识点
+
+        Args:
+            db: 异步数据库会话
+            data_list: 知识点字典列表
+
+        Returns:
+            创建的 KnowledgePointModel 实例列表
+        """
+        if not data_list:
+            return []
+        models = [KnowledgePointModel(**data) for data in data_list]
+        db.add_all(models)
+        await db.flush()
+        for m in models:
+            await db.refresh(m)
+        logger.info("批量创建知识点完成: count=%d", len(models))
+        return models
+
     async def get_by_id(self, db: AsyncSession, point_id: UUID) -> KnowledgePointModel | None:
         """
         根据 ID 获取知识点
@@ -73,7 +94,7 @@ class KnowledgePointDAO:
     async def list(
         self,
         db: AsyncSession,
-        repository_id: UUID,
+        repository_id: UUID | None,
         version: str | None = None,
         category: str | None = None,
         tag: str | None = None,
@@ -87,7 +108,7 @@ class KnowledgePointDAO:
 
         Args:
             db: 异步数据库会话
-            repository_id: 仓库 ID（必填）
+            repository_id: 仓库 ID（可选，不传则查询所有仓库）
             version: 分析版本号筛选
             category: 分类筛选（DP-/AD-/AL-/ET-/DK-）
             tag: 标签筛选
@@ -99,7 +120,9 @@ class KnowledgePointDAO:
         Returns:
             KnowledgePointModel 列表
         """
-        query = select(KnowledgePointModel).where(KnowledgePointModel.repository_id == repository_id)
+        query = select(KnowledgePointModel)
+        if repository_id is not None:
+            query = query.where(KnowledgePointModel.repository_id == repository_id)
 
         if version is not None:
             query = query.where(KnowledgePointModel.version == version)
@@ -128,7 +151,7 @@ class KnowledgePointDAO:
     async def count(
         self,
         db: AsyncSession,
-        repository_id: UUID,
+        repository_id: UUID | None,
         version: str | None = None,
         category: str | None = None,
     ) -> int:
@@ -137,14 +160,16 @@ class KnowledgePointDAO:
 
         Args:
             db: 异步数据库会话
-            repository_id: 仓库 ID
+            repository_id: 仓库 ID（可选，不传则统计所有仓库）
             version: 版本号筛选
             category: 分类筛选
 
         Returns:
             符合条件的记录数
         """
-        query = select(func.count()).where(KnowledgePointModel.repository_id == repository_id)
+        query = select(func.count())
+        if repository_id is not None:
+            query = query.where(KnowledgePointModel.repository_id == repository_id)
 
         if version is not None:
             query = query.where(KnowledgePointModel.version == version)

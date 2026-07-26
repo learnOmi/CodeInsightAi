@@ -11,7 +11,7 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_serializer
@@ -63,6 +63,7 @@ class AnalysisProgress(BaseModel):
     files_processed: int
     files_total: int
     knowledge_points_found: int
+    total_lines: int = 0
 
 
 class AnalyzeRequest(BaseModel):
@@ -127,6 +128,8 @@ class AnalysisVersion(BaseModel):
     completed_at: datetime | None = None
     error_message: str | None = None
     created_at: datetime
+    # A-D6: 记录每个 Agent 的执行状态（用于部分重试）
+    agent_status: dict[str, Any] | None = None
 
     @field_serializer("started_at", "completed_at", "created_at")
     def serialize_datetime(self, value: datetime | None, _info) -> str | None:

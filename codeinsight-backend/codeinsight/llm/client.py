@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from codeinsight.config import settings
 from codeinsight.llm.cost import get_cost_tracker
 from codeinsight.llm.errors import LLMError, OllamaUnavailableError
+from codeinsight.llm.limiter import get_llm_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +107,6 @@ class LLMClient:
         self._model_name: str = self._resolve_model_name()
         self._semaphore = asyncio.Semaphore(self.config.max_concurrency)
         self._config_lock = asyncio.Lock()
-        # 全局限流退避计数器：所有并发调用共享，避免并发重试风暴
-        self._rate_limit_hits: int = 0
-        self._rate_limit_lock = asyncio.Lock()
         logger.info(
             "LLMClient 初始化: provider=%s, model=%s",
             self.config.provider,
@@ -193,10 +191,12 @@ class LLMClient:
         max_retries: int = 3,
     ) -> Any:
         """
-        带指数退避重试的 acompletion 调用
+        带限流和重试的 acompletion 调用
 
-        所有并发调用共享限流退避计数器，避免并发重试风暴。
-        免费用户限流窗口通常 60s+，退避时间 = max(2^(attempt+1), 60s) 起步。
+        使用 LLM Limiter 中间件：
+        - Token Bucket: 精确控制 QPS，平滑突发流量
+        - Circuit Breaker: 上游故障时快速失败，避免无限等待
+        - 指数退避: 限流时指数退避，最大 60 秒
 
         Args:
             messages: 对话消息列表
@@ -210,33 +210,54 @@ class LLMClient:
             RateLimitError: 重试耗尽后仍触发频率限制
             LLMError: 其他 LLM 调用错误
         """
+        limiter = get_llm_limiter()
+
         for attempt in range(max_retries + 1):
-            # 被限流时，所有并发调用统一等待，避免并发重试风暴
-            async with self._rate_limit_lock:
-                if self._rate_limit_hits > 0:
-                    wait = min(2**self._rate_limit_hits, 60)
-                    logger.warning(
-                        "LLM 全局退避，等待 %ds（rate_limit_hits=%d）",
-                        wait,
-                        self._rate_limit_hits,
-                    )
-                    await asyncio.sleep(wait)
+            try:
+                # 尝试获取限流令牌
+                granted = await limiter.acquire("llm_global")
+                if not granted:
+                    if attempt < max_retries:
+                        await asyncio.sleep(1)
+                        continue
+                    raise RuntimeError("LLM rate limited: unable to acquire token after retries")
+            except RuntimeError as e:
+                if "Circuit breaker is OPEN" in str(e):
+                    # 熔断器已打开：自适应退避，等待恢复时间后再重试
+                    # 分析场景（ExpansionNode）有大量请求，不应被直接抛弃
+                    backoff = limiter.circuit_breaker_timeout + 2  # +2s 缓冲
+                    if attempt < max_retries:
+                        logger.warning(
+                            "LLM 熔断器 OPEN，自适应退避 %ds 后重试: attempt=%d/%d",
+                            backoff,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                    # 重试耗尽，抛出最终错误
+                    logger.error("LLM 熔断器退避重试耗尽: %s", e)
+                    raise
+                if attempt < max_retries:
+                    logger.warning("LLM 限流令牌不足，等待后重试: %s", e)
+                    await asyncio.sleep(min(2**attempt, 60))
+                    continue
+                raise
 
             try:
-                # 成功：降低全局限流计数器
-                async with self._rate_limit_lock:
-                    if self._rate_limit_hits > 0:
-                        self._rate_limit_hits -= 1
-                return await litellm.acompletion(messages=messages, **api_kwargs)
+                # 实际 API 调用
+                response = await litellm.acompletion(messages=messages, **api_kwargs)
+                # 调用成功后才记录成功并重置熔断器
+                await limiter.record_success("llm_global")
+                return response
             except litellm.exceptions.RateLimitError as e:
+                # 记录失败，可能触发熔断
+                await limiter.record_failure("llm_global")
                 if attempt < max_retries:
-                    # 累加全局限流计数器，所有并发调用统一退避
-                    async with self._rate_limit_lock:
-                        self._rate_limit_hits += 1
-                    wait = min(2**self._rate_limit_hits, 60)
+                    # 限流：指数退避
+                    wait = min(2**attempt, 60)
                     logger.warning(
-                        "LLM 频率限制，全局限流计数器=%d，等待 %ds: %s",
-                        self._rate_limit_hits,
+                        "LLM 频率限制，等待 %ds 后重试: %s",
                         wait,
                         e,
                     )
@@ -245,13 +266,12 @@ class LLMClient:
                     logger.error("LLM 频率限制重试耗尽: %s", e)
                     raise
             except litellm.exceptions.InternalServerError as e:
+                # 记录失败，可能触发熔断
+                await limiter.record_failure("llm_global")
                 if attempt < max_retries:
-                    async with self._rate_limit_lock:
-                        self._rate_limit_hits += 1
-                    wait = min(2**self._rate_limit_hits, 60)
+                    wait = min(2**attempt, 60)
                     logger.warning(
-                        "LLM 上游内部错误，全局限流计数器=%d，等待 %ds: %s",
-                        self._rate_limit_hits,
+                        "LLM 上游内部错误，等待 %ds 后重试: %s",
                         wait,
                         e,
                     )
@@ -435,6 +455,17 @@ class LLMClient:
         try:
             api_kwargs = self._get_api_kwargs()
             api_kwargs["stream"] = True
+
+            # 使用限流器
+            limiter = get_llm_limiter()
+            granted = await limiter.acquire("llm_global")
+            if not granted:
+                raise LLMError(
+                    "LLM rate limited, try again later",
+                    provider=self.config.provider,
+                    model=self._model_name,
+                )
+            await limiter.record_success("llm_global")
 
             async with self._semaphore:
                 response = await litellm.acompletion(
@@ -757,7 +788,7 @@ class LLMClient:
             redis_client = await get_async_redis_client()
             cached = await redis_client.get(f"llm_cache:{fingerprint}")
             if cached:
-                cached_data = json.loads(cached)
+                cached_data: dict = json.loads(cached)
                 logger.debug("LLM 缓存命中: fingerprint=%s", fingerprint[:8])
                 if response_model:
                     return response_model.model_validate_json(cached_data.get("content", ""))

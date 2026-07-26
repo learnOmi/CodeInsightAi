@@ -29,6 +29,7 @@ class KnowledgeCategory(StrEnum):
     DK: 领域知识 (Domain Knowledge)
     TT: 开发模板 (Template/Technique)
     TK: 技术栈 (Technology/Toolkit)
+    DS: 设计结构 (Design Structure)
     """
 
     DESIGN_PATTERN = "DP"
@@ -38,6 +39,7 @@ class KnowledgeCategory(StrEnum):
     DOMAIN_KNOWLEDGE = "DK"
     TEMPLATE_TECHNIQUE = "TT"
     TECHNOLOGY_STACK = "TK"
+    DESIGN_STRUCTURE = "DS"
 
 
 class CodeSnippet(BaseModel):
@@ -273,8 +275,8 @@ class KnowledgePointExtraction(BaseModel):
     - code_snippets 和 call_chain 使用简化版模型
     """
 
-    category: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK|TT|TK)$")  # DP, AD, AL, ET, DK, TT, TK
-    prefix: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK|TT|TK)-.+$")  # DP-Factory, AD-MVC, TT-CRUD, TK-REACT, etc.
+    category: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK|TT|TK|DS)$")  # DP, AD, AL, ET, DK, TT, TK, DS
+    prefix: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK|TT|TK|DS)-.+$")  # DP-Factory, AD-MVC, TT-CRUD, TK-REACT, etc.
     title: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)

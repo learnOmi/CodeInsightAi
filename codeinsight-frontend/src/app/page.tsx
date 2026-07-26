@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CellAnimation } from "@/components/CellAnimation";
 
 export default function Home() {
   return (
@@ -106,6 +107,11 @@ export default function Home() {
             </li>
           </ol>
         </section>
+
+        {/* 生物细胞动画 */}
+        <div className="mt-16">
+          <CellAnimation />
+        </div>
       </div>
     </main>
   );

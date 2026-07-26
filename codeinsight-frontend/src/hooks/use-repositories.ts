@@ -41,8 +41,12 @@ export function useCreateRepository() {
 
   return useMutation({
     mutationFn: (data: RepositoryCreate) => createRepository(data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      // 如果有 taskId（自动分析场景），存储到 localStorage 供 RepoCard 使用
+      if (data.taskId) {
+        localStorage.setItem("pending_task_id", data.taskId);
+      }
     },
   });
 }

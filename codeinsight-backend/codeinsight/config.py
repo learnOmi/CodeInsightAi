@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
     cors_allowed_methods: list[str] = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
-    cors_allowed_headers: list[str] = ["Authorization", "Content-Type", "X-API-Key"]
+    cors_allowed_headers: list[str] = ["Authorization", "Content-Type", "X-API-Key", "Accept", "Cache-Control"]
 
     @field_validator("cors_origins", "cors_allowed_methods", "cors_allowed_headers", mode="before")
     @classmethod

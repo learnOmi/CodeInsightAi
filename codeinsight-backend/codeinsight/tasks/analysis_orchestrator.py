@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +42,6 @@ from codeinsight.analyzers import (
 from codeinsight.constants.redis_keys import repo_active_task_key, task_cancel_key
 from codeinsight.db.redis_client import get_async_redis_client
 from codeinsight.db.session import async_session_factory
-from codeinsight.embedding.client import EmbeddingClient
 from codeinsight.exceptions import CancelledError
 from codeinsight.llm.client import LLMClient
 from codeinsight.models import AstNodeModel, FileModel
@@ -94,6 +94,13 @@ class ProgressManager:
 
     def __init__(self, task_instance: Any | None) -> None:
         self.task_instance = task_instance
+        self.task_id: str | None = None
+        if task_instance is not None:
+            # Celery bound task: self.id 即为 task_id（最可靠）
+            self.task_id = getattr(task_instance, "id", None) or getattr(task_instance, "task_id", None)
+            # 兜底：从 request.id 获取
+            if self.task_id is None:
+                self.task_id = getattr(getattr(task_instance, "request", None), "id", None)
 
     def update(
         self,
@@ -102,6 +109,7 @@ class ProgressManager:
         files_processed: int = 0,
         files_total: int = 0,
         knowledge_points_found: int = 0,
+        total_lines: int = 0,
     ) -> None:
         """更新进度"""
         if self.task_instance is None:
@@ -116,6 +124,7 @@ class ProgressManager:
         elif status == TaskStatus.CANCELLED:
             celery_state = "REVOKED"
         self.task_instance.update_state(
+            task_id=self.task_id,
             state=celery_state,
             meta={
                 "current_step": status.value,
@@ -123,8 +132,54 @@ class ProgressManager:
                 "files_processed": files_processed,
                 "files_total": files_total,
                 "knowledge_points_found": knowledge_points_found,
+                "total_lines": total_lines,
             },
         )
+
+
+class RedisProgressManager:
+    """Redis 进度管理器（eager 后台任务使用）"""
+
+    def __init__(self, task_id: str) -> None:
+        self.task_id = task_id
+        self._redis: Any | None = None
+        try:
+            from codeinsight.db.redis_client import get_redis_client as _get_redis
+
+            self._redis = _get_redis()
+            logger.info("RedisProgressManager 初始化成功: task_id=%s", task_id)
+        except Exception as e:
+            logger.error("RedisProgressManager 初始化失败: task_id=%s, error=%s", task_id, e)
+            raise  # 不静默吞掉异常，让调用方知道 Redis 不可用
+
+    def update(
+        self,
+        status: TaskStatus,
+        percent: float,
+        files_processed: int = 0,
+        files_total: int = 0,
+        knowledge_points_found: int = 0,
+        total_lines: int = 0,
+    ) -> None:
+        """更新进度到 Redis"""
+        if self._redis is None:
+            logger.warning("RedisProgressManager._redis 为 None，跳过进度更新: task_id=%s", self.task_id)
+            return
+        try:
+            self._redis.hset(
+                f"task:{self.task_id}:progress",
+                mapping={
+                    "current_step": status.value,
+                    "percent": str(percent),
+                    "files_processed": str(files_processed),
+                    "files_total": str(files_total),
+                    "knowledge_points_found": str(knowledge_points_found),
+                    "total_lines": str(total_lines),
+                },
+            )
+            logger.info("进度已写入 Redis: task_id=%s, step=%s, percent=%s", self.task_id, status.value, percent)
+        except redis.RedisError as e:
+            logger.error("Redis 进度写入失败: task_id=%s, step=%s, error=%s", self.task_id, status.value, e)
 
 
 class AnalysisOrchestrator:
@@ -138,11 +193,14 @@ class AnalysisOrchestrator:
     - 不传入时，自行创建 session 并 commit（向后兼容）
     """
 
+    progress_manager: ProgressManager | RedisProgressManager
+
     def __init__(
         self,
         repo_uuid: UUID,
         mode: str = AnalysisMode.FULL.value,
         task_instance: Any | None = None,
+        task_id: str | None = None,
         repository_dao: RepositoryDAO | None = None,
         file_dao: FileDAO | None = None,
         version_dao: AnalysisVersionDAO | None = None,
@@ -153,8 +211,25 @@ class AnalysisOrchestrator:
         self.repo_uuid = repo_uuid
         self.mode = mode
         self.task_instance = task_instance
-        self.task_id = getattr(getattr(task_instance, "request", None), "id", None) if task_instance else None
-        self.progress_manager = ProgressManager(task_instance)
+        # 优先使用显式传入的 task_id（eager 后台任务），否则从 task_instance 获取
+        self.task_id: str | None = None
+        if task_id:
+            self.task_id = task_id
+        elif task_instance is not None:
+            self.task_id = getattr(task_instance, "id", None) or getattr(task_instance, "task_id", None)
+            if self.task_id is None:
+                self.task_id = getattr(getattr(task_instance, "request", None), "id", None)
+        else:
+            self.task_id = None
+        # 选择进度管理器：eager 后台任务使用 Redis，Celery 任务使用 ProgressManager
+        if task_instance is None and self.task_id:
+            self.progress_manager = RedisProgressManager(self.task_id)
+            logger.info("进度管理器: RedisProgressManager (eager 后台任务), task_id=%s", self.task_id)
+        else:
+            self.progress_manager = ProgressManager(task_instance)
+            logger.info(
+                "进度管理器: ProgressManager (Celery 任务), task_instance=%s, task_id=%s", task_instance, self.task_id
+            )
         self.cancel_checker = CancelChecker()
         self.version_tag = f"v{datetime.now(UTC).strftime('%Y%m%d')}-{uuid.uuid4().hex}"
         self.version_id: UUID | None = None
@@ -237,6 +312,7 @@ class AnalysisOrchestrator:
         completed_at: datetime | None = None,
         error_message: str | None = None,
         version: str | None = None,
+        agent_status: dict[str, Any] | None = None,
     ) -> None:
         """更新分析版本状态"""
         if self.version_id is None:
@@ -255,6 +331,8 @@ class AnalysisOrchestrator:
             update_data["error_message"] = error_message
         if version is not None:
             update_data["version"] = version
+        if agent_status is not None:
+            update_data["agent_status"] = agent_status
 
         if db is not None:
             await self.version_dao.update(db, self.version_id, update_data)
@@ -1265,12 +1343,18 @@ class AnalysisOrchestrator:
                 with contextlib.suppress(Exception):
                     await db.rollback()
 
-    async def complete(self, db: AsyncSession | None, knowledge_points_count: int = 0) -> None:
+    async def complete(
+        self,
+        db: AsyncSession | None,
+        knowledge_points_count: int = 0,
+        agent_results: dict | None = None,
+        total_lines: int = 0,
+    ) -> None:
         """标记任务完成"""
         completed_at = datetime.now(UTC)
 
         self.progress_manager.update(
-            TaskStatus.COMPLETED, 100.0, self.total_files, self.total_files, knowledge_points_count
+            TaskStatus.COMPLETED, 100.0, self.total_files, self.total_files, knowledge_points_count, total_lines
         )
         await self._update_analysis_version(
             db,
@@ -1279,15 +1363,27 @@ class AnalysisOrchestrator:
             analyzed_files=self.total_files,
             knowledge_points_count=knowledge_points_count,
             completed_at=completed_at,
+            agent_status=agent_results,
         )
         await self._set_repo_status(db, TaskStatus.COMPLETED.value)
+        # 同时更新仓库的 knowledge_points_count，使仓库列表/卡片能正确显示 insights 数量
+        if db is not None:
+            repo = await self.repository_dao.get_by_id(db, self.repo_uuid)
+            if repo is not None:
+                repo.knowledge_points_count = knowledge_points_count
         self._cleanup_redis_task_key()
 
-        logger.info("分析任务完成: version=%s, mode=%s", self.version_tag, self.mode)
+        logger.info(
+            "分析任务完成: version=%s, mode=%s, knowledge_points=%d, agents=%s",
+            self.version_tag,
+            self.mode,
+            knowledge_points_count,
+            agent_results,
+        )
 
-    async def fail(self, db: AsyncSession | None, error_message: str) -> None:
+    async def fail(self, db: AsyncSession | None, error_message: str, total_lines: int = 0) -> None:
         """标记任务失败"""
-        self.progress_manager.update(TaskStatus.FAILED, 100.0, self.total_files, self.total_files, 0)
+        self.progress_manager.update(TaskStatus.FAILED, 100.0, self.total_files, self.total_files, 0, total_lines)
         if self.version_id is not None:
             try:
                 await self._update_analysis_version(
@@ -1311,12 +1407,21 @@ class AnalysisOrchestrator:
         if self.version_id is None:
             return
 
-        await self._update_analysis_version(
-            db,
-            TaskStatus.CANCELLED,
-            completed_at=datetime.now(UTC),
-        )
-        await self._set_repo_status(db, TaskStatus.CANCELLED.value)
+        try:
+            await self._update_analysis_version(
+                db,
+                TaskStatus.CANCELLED,
+                completed_at=datetime.now(UTC),
+            )
+        except Exception:
+            logger.warning("更新分析版本失败（版本可能未提交），继续更新仓库状态", exc_info=True)
+
+        try:
+            await self._set_repo_status(db, TaskStatus.CANCELLED.value)
+        except Exception:
+            logger.warning("更新仓库状态失败", exc_info=True)
+
+        self._cleanup_redis_task_key()
 
     async def get_in_progress_version(self, db: AsyncSession | None = None) -> tuple[Any, str | None]:
         """检查是否有未终态的分析版本"""
@@ -1439,6 +1544,11 @@ class AnalysisOrchestrator:
         使用单一 session 上下文贯穿整个分析流程，避免每个步骤独立创建数据库连接。
         仅在需要独立事务的边界操作（如断点续跑恢复）时使用独立 session。
         """
+        logger.info(
+            "AnalysisOrchestrator._run_async 开始执行: repo=%s, progress_manager=%s",
+            self.repo_uuid,
+            type(self.progress_manager).__name__,
+        )
         existing_version, skip_to_step = await self.get_in_progress_version()
 
         if existing_version is not None:
@@ -1466,6 +1576,7 @@ class AnalysisOrchestrator:
             # 初始化：创建版本记录（首次）
             if self.version_id is None:
                 await self._do_analysis_setup(shared_db)
+                await self.cancel_checker.check(self.task_id)
 
             # 断点续跑恢复
             if skip_to_step == "scan":
@@ -1476,24 +1587,34 @@ class AnalysisOrchestrator:
             elif skip_to_step != "scan":
                 # Step 2: 扫描文件
                 self.progress_manager.update(TaskStatus.SCANNING, 10.0, 0, self.total_files)
+                await self.cancel_checker.check(self.task_id)
                 if not await self.scan_files(shared_db):
                     raise ValueError(f"Repository {self.repo_uuid} not found for scanning")
+                # 扫描完成后 total_files 已更新，再次推送进度让 filesTotal 从 0 跳变到真实值
+                scan_result = self.scan_result
+                assert scan_result is not None  # scan_files 成功则 scan_result 必不为 None
+                total_lines = scan_result.total_lines
+                self.progress_manager.update(TaskStatus.SCANNING, 10.0, 0, self.total_files, 0, total_lines)
 
             # 增量判断
             do_full_analysis = self.mode == AnalysisMode.FULL.value
             if not do_full_analysis:
                 do_full_analysis = not await self.compute_incremental_diff(shared_db)
+            await self.cancel_checker.check(self.task_id)
 
             # Step 3: AST 解析
             if skip_to_step != "ast":
-                self.progress_manager.update(TaskStatus.PARSING, 25.0, 0, self.total_files)
+                self.progress_manager.update(TaskStatus.PARSING, 25.0, 0, self.total_files, 0, total_lines)
                 await self._update_analysis_version(shared_db, TaskStatus.PARSING)
 
                 if self.task_id:
-
+                    # 文件级进度估算：避免将 AST 节点数误报为文件数
+                    # current/total 是内部批量进度（AST 节点数），按比例估算已解析文件数
                     def _parsing_progress(current: int, total: int, stage: str) -> None:
+                        pct = 25.0 + (current / max(total, 1)) * 10
+                        estimated_files = int((current / max(total, 1)) * self.total_files)
                         self.progress_manager.update(
-                            TaskStatus.PARSING, 25.0 + (current / max(total, 1)) * 10, current, total
+                            TaskStatus.PARSING, pct, estimated_files, self.total_files, 0, total_lines
                         )
 
                     parsing_progress = _parsing_progress
@@ -1507,19 +1628,26 @@ class AnalysisOrchestrator:
 
             # Step 4: 结构分析
             if skip_to_step != "structures":
-                self.progress_manager.update(TaskStatus.ANALYZING_STRUCTURES, 50.0, self.total_files, self.total_files)
+                self.progress_manager.update(
+                    TaskStatus.ANALYZING_STRUCTURES, 50.0, self.total_files, self.total_files, 0, total_lines
+                )
                 await self._update_analysis_version(
                     shared_db, TaskStatus.ANALYZING_STRUCTURES, analyzed_files=self.total_files
                 )
 
                 if self.task_id:
-
+                    # 文件级进度估算：避免将结构数量误报为文件数
+                    # current/total 是内部批量进度（call edges / module deps），按比例估算
                     def _structures_progress(current: int, total: int, stage: str) -> None:
+                        pct = 50.0 + (current / max(total, 1)) * 10
+                        estimated_files = int((current / max(total, 1)) * self.total_files)
                         self.progress_manager.update(
                             TaskStatus.ANALYZING_STRUCTURES,
-                            50.0 + (current / max(total, 1)) * 10,
-                            current,
-                            total,
+                            pct,
+                            estimated_files,
+                            self.total_files,
+                            0,
+                            total_lines,
                         )
 
                     structures_progress = _structures_progress
@@ -1538,12 +1666,16 @@ class AnalysisOrchestrator:
 
             # Step 4.5: 框架检测 + API 路由提取 + 中间件链分析
             if skip_to_step != "frameworks":
-                self.progress_manager.update(TaskStatus.ANALYZING_STRUCTURES, 55.0, self.total_files, self.total_files)
+                self.progress_manager.update(
+                    TaskStatus.ANALYZING_STRUCTURES, 55.0, self.total_files, self.total_files, 0, total_lines
+                )
                 await self.detect_frameworks_and_routes(shared_db)
 
             # Step 5: AI 分析（Phase 3）
             if skip_to_step != "ai":
-                self.progress_manager.update(TaskStatus.ANALYZING_MODULES, 60.0, self.total_files, self.total_files)
+                self.progress_manager.update(
+                    TaskStatus.ANALYZING_MODULES, 60.0, self.total_files, self.total_files, 0, total_lines
+                )
                 await self._update_analysis_version(
                     shared_db, TaskStatus.ANALYZING_MODULES, analyzed_files=self.total_files
                 )
@@ -1691,17 +1823,28 @@ class AnalysisOrchestrator:
                     enable_chunking=enable_chunking,
                 )
 
-                # AI 阶段子进度：定期推送进度给 Celery
+                # 检查是否被取消（AI 分析前）
+                await self.cancel_checker.check(self.task_id)
+
+                # AI 阶段子进度：定期推送进度给 Celery/Redis
+                # 覆盖从 60% 到 98%，确保整个 AI 阶段（含 expansion）前端都有进度更新
                 if self.task_id:
                     # O-B9: 使用 asyncio.Event 替代函数属性突变，消除竞态条件
                     stop_event = asyncio.Event()
 
                     async def _ai_progress_pusher():
-                        for pct in range(62, 80, 2):
+                        pct = 62
+                        while pct < 98:
                             self.progress_manager.update(
-                                TaskStatus.ANALYZING_MODULES, float(pct), self.total_files, self.total_files, 0
+                                TaskStatus.ANALYZING_MODULES,
+                                float(pct),
+                                self.total_files,
+                                self.total_files,
+                                0,
+                                total_lines,
                             )
-                            await asyncio.sleep(2)
+                            pct += 3
+                            await asyncio.sleep(5)  # 每 5 秒推送一次
                             if stop_event.is_set():
                                 break
 
@@ -1720,55 +1863,54 @@ class AnalysisOrchestrator:
                         with contextlib.suppress(asyncio.CancelledError):
                             await pusher_task
 
-                # 保存知识点到数据库
-                embedding_client = EmbeddingClient()
-                knowledge_points_count = 0
-                for kp in final_state["knowledge_points"]:
-                    try:
-                        # 使用 savepoint 隔离每个知识点的保存，失败时回滚 savepoint 不影响外层事务
-                        async with shared_db.begin_nested():
-                            # 生成嵌入向量
-                            embed_text = f"{kp['title']}\n{kp['description']}"
-                            embedding = await embedding_client.embed_single(embed_text)
+                # 检查是否被取消（AI 分析后，保存前）
+                await self.cancel_checker.check(self.task_id)
 
-                            kp_data = {
-                                "id": uuid.uuid4(),
-                                "version": self.version_tag,
-                                "repository_id": self.repo_uuid,
-                                "category": kp["category"],
-                                "category_name": kp["category_name"],
-                                "title": kp["title"],
-                                "description": kp["description"],
-                                "confidence": kp["confidence"],
-                                "tags": kp.get("tags", []),
-                                "code_snippets": kp.get("code_snippets", []),
-                                "call_chain": kp.get("call_chain", []),
-                                "expansion": kp.get("expansion", {}),
-                                "knowledge_metadata": kp.get("metadata", {}),
-                                "embedding": embedding,
-                            }
-                            await kp_dao.create(shared_db, kp_data)
-                            knowledge_points_count += 1
-                    except Exception as exc:
-                        logger.warning("知识点保存失败: %s", exc)
-
-                await shared_db.commit()
-                logger.info("AI 分析完成: knowledge_points=%d", knowledge_points_count)
+                # 从 final_state 提取知识点数量
+                knowledge_points = final_state.get("knowledge_points", [])
+                knowledge_points_count = len(knowledge_points)
 
                 # 同步知识点到 Meilisearch 索引（异步安全）
                 if knowledge_points_count > 0:
                     try:
                         meili_client = MeiliSearchClient()
-                        meili_client.add_documents(final_state["knowledge_points"])
+                        meili_client.add_documents(knowledge_points)
                         logger.info("知识点已同步到 Meilisearch: count=%d", knowledge_points_count)
                     except Exception as exc:
                         logger.warning("知识点同步到 Meilisearch 失败: %s", exc)
+
+                    # 持久化知识点到数据库（knowledge_points 表）
+                    try:
+                        kp_records = []
+                        for kp in knowledge_points:
+                            record = {
+                                "repository_id": self.repo_uuid,
+                                "version": self.version_tag,
+                                "category": kp.get("category", ""),
+                                "category_name": kp.get("category_name", ""),
+                                "title": kp.get("title", ""),
+                                "description": kp.get("description", ""),
+                                "confidence": kp.get("confidence", 0.8),
+                                "tags": kp.get("tags", []),
+                                "code_snippets": kp.get("code_snippets", []),
+                                "call_chain": kp.get("call_chain", []),
+                                "expansion": kp.get("expansion", {}),
+                                "knowledge_metadata": kp.get("metadata", {}),
+                            }
+                            kp_records.append(record)
+                        await kp_dao.batch_create(shared_db, kp_records)
+                        logger.info("知识点已持久化到数据库: count=%d", knowledge_points_count)
+                    except Exception as exc:
+                        logger.warning("知识点持久化到数据库失败: %s", exc)
+                # Extract agent results for partial retry support
+                agent_results = final_state.get("agent_results") if "final_state" in locals() else None
             else:
                 knowledge_points_count = 0
+                agent_results = None
 
             # Step 6: 存储结果
             self.progress_manager.update(
-                TaskStatus.STORING, 80.0, self.total_files, self.total_files, knowledge_points_count
+                TaskStatus.STORING, 80.0, self.total_files, self.total_files, knowledge_points_count, total_lines
             )
             await self._update_analysis_version(
                 shared_db,
@@ -1781,7 +1923,12 @@ class AnalysisOrchestrator:
             await self.save_snapshot(shared_db)
 
             # Step 7: 完成
-            await self.complete(shared_db, knowledge_points_count=knowledge_points_count)
+            await self.complete(
+                shared_db,
+                knowledge_points_count=knowledge_points_count,
+                agent_results=agent_results,
+                total_lines=total_lines,
+            )
 
             # 提交 save_snapshot 和 complete 的变更（版本状态、仓库状态、快照记录）
             await shared_db.commit()
@@ -1793,4 +1940,5 @@ class AnalysisOrchestrator:
             # O-B6: 补充 eager 模式需要的字段
             "files_processed": self.total_files,
             "knowledge_points_count": knowledge_points_count,
+            "total_lines": total_lines,
         }

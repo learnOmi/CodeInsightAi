@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   BookOpen,
@@ -18,6 +19,7 @@ import NextLink from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { getKnowledgePoints, getKnowledgeStats } from "@/api/knowledge";
 import { useRepositories } from "@/hooks/use-repositories";
+import { GlobalNav } from "@/components/GlobalNav";
 import { KNOWLEDGE_CATEGORY_COLORS } from "@codeinsight/shared";
 import type { components } from "@codeinsight/shared";
 
@@ -329,7 +331,7 @@ function KnowledgeDetailModal({
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 
-export default function KnowledgePage() {
+function KnowledgePageContent() {
   const CATEGORIES = [
     { key: "all", label: "全部" },
     { key: "DP", label: "设计模式" },
@@ -337,34 +339,51 @@ export default function KnowledgePage() {
     { key: "AL", label: "算法实现" },
     { key: "ET", label: "工程技巧" },
     { key: "DK", label: "领域知识" },
+    { key: "TT", label: "开发模板" },
+    { key: "TK", label: "技术栈" },
   ];
 
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const selectedRepoId = searchParams.get("repositoryId") ?? "all";
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [selectedRepoId, setSelectedRepoId] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [selectedKp, setSelectedKp] = useState<KnowledgePoint | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
+  // 仓库切换：更新 URL 参数
+  const handleRepoChange = (newRepoId: string) => {
+    setPage(1);
+    const params = new URLSearchParams(searchParams);
+    if (newRepoId === "all") {
+      params.delete("repositoryId");
+    } else {
+      params.set("repositoryId", newRepoId);
+    }
+    const query = params.toString();
+    router.push(query ? `/knowledge?${query}` : "/knowledge");
+  };
+
   const { data: repos } = useRepositories();
-  const activeRepoId = selectedRepoId !== "all" ? selectedRepoId : (repos?.[0]?.id ?? "");
+  const queryRepoId = selectedRepoId === "all" ? "" : selectedRepoId;
 
   const { data: statsData } = useQuery({
-    queryKey: ["knowledge-stats", activeRepoId],
-    queryFn: () => getKnowledgeStats(activeRepoId),
-    enabled: !!activeRepoId,
+    queryKey: ["knowledge-stats", selectedRepoId],
+    queryFn: () => getKnowledgeStats(selectedRepoId === "all" ? "" : selectedRepoId),
+    enabled: true,
   });
 
   const { data: kpData, isLoading } = useQuery({
-    queryKey: ["knowledge-points", activeRepoId, selectedCategory, page],
+    queryKey: ["knowledge-points", selectedRepoId, selectedCategory, page],
     queryFn: () =>
       getKnowledgePoints({
-        repositoryId: activeRepoId,
+        repositoryId: queryRepoId,
         category: selectedCategory !== "all" ? selectedCategory : undefined,
         page,
         pageSize: 12,
       }),
-    enabled: !!activeRepoId,
+    enabled: true,
   });
 
   const filteredKps = useMemo(() => {
@@ -390,18 +409,12 @@ export default function KnowledgePage() {
         <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-purple-500/[0.04] blur-[120px]" />
       </div>
 
-      {/* 返回按钮 */}
-      <div className="fixed top-4 left-6 z-50">
-        <NextLink
-          href="/"
-          className="flex items-center gap-2 p-2 bg-[var(--bg-card)]/70 backdrop-blur-xl border border-white/[0.06] rounded-lg hover:bg-[var(--bg-hover)] transition-colors shadow-sm"
-        >
-          <ArrowLeft className="w-4 h-4 text-[var(--text-secondary)]" />
-          <span className="text-sm text-[var(--text-primary)]">返回</span>
-        </NextLink>
+      {/* 全局导航栏 */}
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        <GlobalNav />
       </div>
 
-      <main className="mx-auto max-w-7xl px-6 py-16">
+      <main className="mx-auto max-w-7xl px-6 py-8">
         {/* 标题区 */}
         <header className="mb-10">
           <div className="flex items-center gap-3 mb-3">
@@ -444,7 +457,7 @@ export default function KnowledgePage() {
             <div className="relative flex-1 max-w-xs">
               <select
                 value={selectedRepoId}
-                onChange={(e) => { setSelectedRepoId(e.target.value); setPage(1); }}
+                onChange={(e) => handleRepoChange(e.target.value)}
                 className="w-full appearance-none rounded-xl border border-white/[0.06] bg-[var(--bg-card)]/50 backdrop-blur px-4 py-2.5 pr-10 text-sm text-[var(--text-primary)] focus:outline-none focus:border-brand/40 transition-colors"
               >
                 <option value="all">所有仓库</option>
@@ -582,5 +595,18 @@ export default function KnowledgePage() {
         <KnowledgeDetailModal kp={selectedKp} onClose={() => setSelectedKp(null)} />
       )}
     </>
+  );
+}
+
+export default function KnowledgePage() {
+  return (
+    <Suspense fallback={
+      <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] rounded-full bg-brand/[0.04] blur-[120px]" />
+        <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-purple-500/[0.04] blur-[120px]" />
+      </div>
+    }>
+      <KnowledgePageContent />
+    </Suspense>
   );
 }

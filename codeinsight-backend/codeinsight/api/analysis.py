@@ -4,9 +4,11 @@
 提供分析任务的提交、查询、取消接口，以及实时进度推送（SSE）。
 
 依赖 Celery 异步执行，任务状态通过 Redis result_backend 存储。
+Eager 模式下使用 asyncio.create_task 在后台执行，避免阻塞 HTTP 响应。
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -99,7 +101,7 @@ def _lookup_task_mode(task_id: str) -> AnalysisMode:
     从 Redis 中读取 task_id → mode 映射。
 
     Args:
-        task_id: Celery 任务 ID
+        task_id: Celery 任务 ID 或 eager 任务 ID
 
     Returns:
         AnalysisMode，读取失败时降级为 FULL
@@ -112,6 +114,131 @@ def _lookup_task_mode(task_id: str) -> AnalysisMode:
     except redis.RedisError:
         logger.warning("Redis 查询任务模式失败，使用默认 FULL: task_id=%s", task_id)
     return AnalysisMode.FULL
+
+
+def _is_eager_task(task_id: str) -> bool:
+    """判断是否为 eager 后台任务（非 Celery 任务）"""
+    return task_id.startswith("eager-")
+
+
+# 跟踪正在运行的 eager 后台任务，使 cancel_task 可以主动终止它们
+_active_eager_tasks: dict[str, "asyncio.Task"] = {}
+
+
+async def _trigger_eager_analysis_background(
+    task_id: str,
+    repository_id: UUID,
+    mode: AnalysisMode,
+    agents: list[AgentType] | None,
+) -> None:
+    """
+    在后台异步执行 eager 模式分析（fire-and-forget）
+
+    使用 asyncio.create_task 在后台运行，HTTP 响应不等待其完成。
+    任务进度通过 Redis 持久化，供 get_task_status 和 stream_task_progress 查询。
+
+    任务引用存储在 _active_eager_tasks 中，cancel_task 可以通过它来取消运行中的任务。
+    """
+    from codeinsight.tasks.analysis_orchestrator import AnalysisOrchestrator
+
+    async def _run() -> None:
+        client = get_redis_client()
+        orchestrator = AnalysisOrchestrator(
+            repo_uuid=repository_id,
+            mode=mode.value,
+            task_instance=None,
+            task_id=task_id,  # 显式传入 task_id，确保 __init__ 中正确初始化 RedisProgressManager
+        )
+        logger.info("eager 后台任务开始: repo=%s, task_id=%s, mode=%s", repository_id, task_id, mode.value)
+        try:
+            result = await asyncio.wait_for(
+                orchestrator._run_async(),
+                timeout=600.0,
+            )
+            logger.info(
+                "eager 后台任务完成: repo=%s, task_id=%s, knowledge_points=%d",
+                repository_id,
+                task_id,
+                result.get("knowledge_points_count", 0),
+            )
+            # 持久化完成进度到 Redis
+            with contextlib.suppress(redis.RedisError):
+                client.hset(
+                    f"task:{task_id}:progress",
+                    mapping={
+                        "current_step": TaskStatus.COMPLETED.value,
+                        "percent": "100.0",
+                        "files_processed": str(result.get("files_processed", 0)),
+                        "files_total": str(result.get("files_processed", 0)),
+                        "knowledge_points_found": str(result.get("knowledge_points_count", 0)),
+                        "total_lines": str(result.get("total_lines", 0)),
+                    },
+                )
+            # 清理活跃任务标记
+            with contextlib.suppress(redis.RedisError):
+                client.delete(repo_active_task_key(str(repository_id)))
+        except TimeoutError:
+            error_msg = "Analysis timeout (600s)"
+            logger.error("eager 后台任务超时: repo=%s, task_id=%s", repository_id, task_id)
+            try:
+                await orchestrator.fail(None, error_msg)
+                with contextlib.suppress(redis.RedisError):
+                    client.hset(
+                        f"task:{task_id}:progress", mapping={"current_step": TaskStatus.FAILED, "error": error_msg}
+                    )
+            except Exception:
+                logger.warning("orchestrator.fail() 失败", exc_info=True)
+        except asyncio.CancelledError:
+            logger.info("eager 后台任务被用户取消: repo=%s, task_id=%s", repository_id, task_id)
+            try:
+                await orchestrator.cancel(None)
+            except Exception:
+                logger.warning("orchestrator.cancel() 失败", exc_info=True)
+            finally:
+                with contextlib.suppress(redis.RedisError):
+                    client.hset(
+                        f"task:{task_id}:progress",
+                        mapping={"current_step": TaskStatus.CANCELLED.value},
+                    )
+                with contextlib.suppress(redis.RedisError):
+                    client.delete(repo_active_task_key(str(repository_id)))
+            raise  # Re-raise to mark task as cancelled
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            logger.error(
+                "eager 后台任务失败: repo=%s, task_id=%s, error=%s", repository_id, task_id, error_msg, exc_info=True
+            )
+            try:
+                await orchestrator.fail(None, error_msg)
+                with contextlib.suppress(redis.RedisError):
+                    client.hset(
+                        f"task:{task_id}:progress", mapping={"current_step": TaskStatus.FAILED, "error": error_msg}
+                    )
+            except Exception:
+                logger.warning("orchestrator.fail() 失败", exc_info=True)
+        finally:
+            _active_eager_tasks.pop(task_id, None)
+
+    task = asyncio.create_task(_run())
+    _active_eager_tasks[task_id] = task
+
+
+def _get_eager_task_progress(task_id: str) -> dict | None:
+    """从 Redis 读取 eager 后台任务的进度信息"""
+    try:
+        client = get_redis_client()
+        raw = client.hgetall(f"task:{task_id}:progress")
+        # MyPy: 使用 type guard 确保 raw 是 dict（同步 Redis 客户端返回 dict）
+        if isinstance(raw, dict) and raw:
+            result = {}
+            for k, v in raw.items():
+                key = k.decode("utf-8") if isinstance(k, bytes) else str(k)
+                val = v.decode("utf-8") if isinstance(v, bytes) else str(v)
+                result[key] = val
+            return result
+    except Exception as e:
+        logger.warning("读取 eager 任务进度失败: task_id=%s, error=%s", task_id, e)
+    return None
 
 
 def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = AnalysisMode.FULL) -> AnalysisTask:
@@ -156,6 +283,7 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
         files_processed=meta.get("files_processed", 0),
         files_total=meta.get("files_total", 0),
         knowledge_points_found=meta.get("knowledge_points_found", 0),
+        total_lines=meta.get("total_lines", 0),
     )
 
     # O-D2: 从 Redis 读取实际提交时间（由 submit_analysis 写入），而非始终使用当前时间
@@ -200,6 +328,7 @@ async def _trigger_analysis(
     repo: Any,
     mode: AnalysisMode = AnalysisMode.FULL,
     agents: list[AgentType] | None = None,
+    eager_task_id: str | None = None,
 ) -> AnalysisTask:
     """
     提交分析任务的共享逻辑（供 submit_analysis 和 create_repository 复用）
@@ -213,6 +342,9 @@ async def _trigger_analysis(
         repo: 仓库模型实例
         mode: 分析模式
         agents: 启用的 Agent 列表
+        eager_task_id: 预先生成的 eager task_id（与 X-Task-Id 响应头一致）。
+                       仅在 eager 模式且由 create_repository 触发时传入。
+                       如果为 None，则自动生成。
 
     Returns:
         AnalysisTask: 包含 task_id、初始状态的响应
@@ -247,8 +379,17 @@ async def _trigger_analysis(
                         detail=f"Repository {repository_id} already has an active task: {task_id_str}",
                     )
             else:
-                # eager 模式：任务同步执行完毕，key 残留即为过期，直接清理
-                logger.info("eager 模式：清理残留任务 key: repo=%s", repository_id)
+                # eager 模式：检查任务是否仍在运行
+                progress_data = _get_eager_task_progress(task_id_str)
+                if progress_data:
+                    step = progress_data.get("current_step", TaskStatus.PENDING.value)
+                    if step not in (TaskStatus.COMPLETED.value, TaskStatus.FAILED.value, TaskStatus.CANCELLED.value):
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"Repository {repository_id} already has an active task: {task_id_str}",
+                        )
+                # 任务已结束或无可查进度，key 残留即为过期，直接清理
+                logger.info("eager 模式：清理已结束任务 key: repo=%s", repository_id)
                 client.delete(repo_active_task_key(str(repository_id)))
     except TimeoutError:
         logger.warning("Redis 检查超时(5s)，允许继续: repo=%s", repository_id)
@@ -260,73 +401,38 @@ async def _trigger_analysis(
     logger.info("触发分析: repo=%s, mode=%s, eager=%s", repository_id, mode.value, settings.celery_task_always_eager)
 
     if settings.celery_task_always_eager:
-        # Eager 模式：直接在当前事件循环中运行 orchestrator
-        from codeinsight.tasks.analysis_orchestrator import AnalysisOrchestrator
+        # Eager 模式：使用后台任务执行，HTTP 立即返回
+        # 避免阻塞 HTTP 响应，前端可通过 X-Task-Id 轮询进度
 
-        logger.info("eager 模式：直接执行分析: repo=%s, mode=%s", repository_id, mode.value)
-        # O-B14: 传递 task_id 给 orchestrator，使 CancelChecker 能正常工作
-        eager_task_id = f"eager-{uuid.uuid4()}"
-        orchestrator = AnalysisOrchestrator(
-            repo_uuid=repository_id,
-            mode=mode.value,
-            task_instance=None,
-        )
-        # 设置 task_id 以便 CancelChecker 能检查取消标志
-        orchestrator.task_id = eager_task_id
-        logger.info("eager 模式 orchestrator 创建完成: repo=%s", repository_id)
+        eager_task_id = eager_task_id or f"eager-{uuid.uuid4()}"
+        logger.info("eager 模式：提交后台分析任务: repo=%s, task_id=%s", repository_id, eager_task_id)
+
+        # 注册到 Redis，使 get_task_status 和 stream_task_progress 能查到
         try:
-            # Eager 模式也设置超时，避免 LLM 卡住时 HTTP 请求无限期挂起
-            result = await asyncio.wait_for(
-                orchestrator._run_async(),
-                timeout=600.0,  # 10 分钟超时
-            )
-            final_status = TaskStatus.COMPLETED
-            error_msg = None
-        except TimeoutError:
-            logger.error(
-                "eager 模式分析超时: repo=%s, timeout=600s",
-                repository_id,
-            )
-            final_status = TaskStatus.FAILED
-            error_msg = "Analysis timeout (600s)"
-            result = {}
-            # 通知 orchestrator 标记失败，确保数据库状态更新
-            try:
-                await orchestrator.fail(None, error_msg)
-            except Exception:
-                logger.warning("orchestrator.fail() 失败", exc_info=True)
-        except Exception as exc:
-            logger.error(
-                "eager 模式分析失败: repo=%s, type=%s, error=%s",
-                repository_id,
-                type(exc).__name__,
-                exc,
-                exc_info=True,
-            )
-            final_status = TaskStatus.FAILED
-            error_msg = f"{type(exc).__name__}: {exc}"
-            result = {}
-            # 通知 orchestrator 标记失败，确保数据库状态更新
-            try:
-                await orchestrator.fail(None, error_msg)
-            except Exception:
-                logger.warning("orchestrator.fail() 失败", exc_info=True)
+            client = get_redis_client()
+            client.set(task_repo_key(eager_task_id), str(repository_id), ex=settings.redis_task_mapping_ttl)
+            client.set(task_mode_key(eager_task_id), mode.value, ex=settings.redis_task_mapping_ttl)
+            client.set(repo_active_task_key(str(repository_id)), eager_task_id, ex=settings.redis_task_mapping_ttl)
+            client.set(f"task:{eager_task_id}:submitted_at", _utcnow().isoformat(), ex=settings.redis_task_mapping_ttl)
+        except redis.RedisError as exc:
+            logger.warning("Redis 写入 eager 任务映射失败: %s", exc)
+
+        # 启动后台任务（fire-and-forget）
+        asyncio.create_task(_trigger_eager_analysis_background(eager_task_id, repository_id, mode, agents))
 
         return AnalysisTask(
             task_id=eager_task_id,
             repository_id=repository_id,
-            status=final_status,
+            status=TaskStatus.PENDING,
             mode=mode,
             progress=AnalysisProgress(
-                current_step=final_status,
-                percent=100.0 if final_status == TaskStatus.COMPLETED else 0.0,
-                files_processed=result.get("files_processed", 0) if isinstance(result, dict) else 0,
+                current_step=TaskStatus.PENDING,
+                percent=0.0,
+                files_processed=0,
                 files_total=int(repo.file_count),
-                knowledge_points_found=result.get("knowledge_points_count", 0) if isinstance(result, dict) else 0,
+                knowledge_points_found=0,
             ),
             submitted_at=_utcnow(),
-            completed_at=_utcnow(),
-            error_message=error_msg,
         )
 
     # 非 eager 模式：提交到 Celery 队列
@@ -419,6 +525,11 @@ async def submit_analysis(
                 detail=f"Repository {repository_id} has no content changes since version {latest_completed.version}",
             )
 
+    # 在 HTTP 请求中立即将仓库状态设为分析中，使前端 cache invalidation 能获得最新状态
+    # 后续后台任务中的 _do_analysis_setup 也会再次设置，此处为提前更新
+    repo.status = "analyzing"
+    await db.flush()
+
     return await _trigger_analysis(repository_id, repo, mode=mode, agents=agents)
 
 
@@ -427,10 +538,12 @@ async def get_task_status(task_id: str):
     """
     查询任务状态
 
-    从 Celery result_backend 读取任务进度。
+    支持 Celery 任务和 eager 后台任务。
+    Celery 任务从 result_backend 读取进度。
+    Eager 后台任务从 Redis 读取进度。
 
     Args:
-        task_id: Celery 任务 ID
+        task_id: Celery 任务 ID 或 eager 任务 ID
 
     Returns:
         AnalysisTask: 包含当前状态和进度的响应
@@ -438,21 +551,57 @@ async def get_task_status(task_id: str):
     Raises:
         HTTPException 404: 任务不存在或无法检索
     """
-    result: AsyncResult = AsyncResult(task_id, app=celery_app)
+    # 查找关联的 repository_id 和分析模式
+    repo_id = _lookup_repository(task_id)
+    mode = _lookup_task_mode(task_id)
+    if repo_id is None:
+        repo_id = UUID("00000000-0000-0000-0000-000000000000")
 
-    # 检查任务是否存在（通过尝试获取状态）
+    # Eager 后台任务：从 Redis 读取进度
+    if _is_eager_task(task_id):
+        progress_data = _get_eager_task_progress(task_id)
+        if progress_data:
+            step = progress_data.get("current_step", TaskStatus.PENDING)
+            status = TaskStatus(step) if step in [s.value for s in TaskStatus] else TaskStatus.PENDING
+            error_msg = progress_data.get("error")
+            return AnalysisTask(
+                task_id=task_id,
+                repository_id=repo_id,
+                status=status,
+                mode=mode,
+                progress=AnalysisProgress(
+                    current_step=status,
+                    percent=float(progress_data.get("percent", 0.0)),
+                    files_processed=int(progress_data.get("files_processed", 0)),
+                    files_total=int(progress_data.get("files_total", 0)),
+                    knowledge_points_found=int(progress_data.get("knowledge_points_found", 0)),
+                ),
+                submitted_at=_utcnow(),
+                completed_at=_utcnow() if status == TaskStatus.COMPLETED else None,
+                error_message=error_msg,
+            )
+        # 任务刚启动，尚未有进度
+        return AnalysisTask(
+            task_id=task_id,
+            repository_id=repo_id,
+            status=TaskStatus.PENDING,
+            mode=mode,
+            progress=AnalysisProgress(
+                current_step=TaskStatus.PENDING,
+                percent=0.0,
+                files_processed=0,
+                files_total=0,
+                knowledge_points_found=0,
+            ),
+            submitted_at=_utcnow(),
+        )
+
+    # Celery 任务
+    result: AsyncResult = AsyncResult(task_id, app=celery_app)
     try:
         _ = result.state
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Task {task_id} not found") from exc
-
-    # 查找关联的 repository_id 和分析模式
-    repo_id = _lookup_repository(task_id)
-    mode = _lookup_task_mode(task_id)
-
-    if repo_id is None:
-        logger.info("任务 %s 未关联仓库信息，使用占位值", task_id)
-        repo_id = UUID("00000000-0000-0000-0000-000000000000")
 
     return _celery_result_to_task(task_id, repo_id, mode)
 
@@ -463,79 +612,144 @@ async def cancel_task(task_id: str):
     取消分析任务
 
     通过 Celery control.revoke 终止正在执行的 Worker 任务。
-    如果任务已完成或不存在（eager 模式），返回相应提示。
-
-    Args:
-        task_id: Celery 任务 ID
-
-    Returns:
-        包含成功消息的字典
-
-    Raises:
-        HTTPException 404: 任务不存在
+    对于 eager 后台任务，设置取消标志并主动取消 asyncio task。
     """
-    result: AsyncResult = AsyncResult(task_id, app=celery_app)
-
-    # 检查任务是否存在
-    try:
-        state = result.state
-    except Exception as exc:
-        logger.warning("任务不存在或无法查询: task_id=%s, error=%s", task_id, exc)
-        # 尝试从 Redis 查找关联仓库，直接更新仓库状态
-        try:
-            client = get_redis_client()
-            repo_id_raw = client.get(task_repo_key(task_id))
-            if repo_id_raw:
-                repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else str(repo_id_raw)
-                client.delete(repo_active_task_key(repo_id_str))
-                logger.info("任务不存在，已清理 Redis: task_id=%s, repo=%s", task_id, repo_id_str)
-        except redis.RedisError:
-            pass
-        raise HTTPException(status_code=404, detail=f"Task {task_id} not found or already completed") from exc
-
-    # 如果已经完成或失败，无需取消
-    if state in ("SUCCESS", "FAILURE"):
-        return {"message": f"Task {task_id} already {state.lower()}"}
-
-    # O-B5: celery_app.control.revoke() 返回 None（fire-and-forget），始终视为成功
-    celery_app.control.revoke(task_id, terminate=True)
-
-    logger.info("任务取消请求已发送: task_id=%s", task_id)
-    # 清理 Redis 中的活跃任务标记和取消标志
+    repo_id_str = None
     try:
         client = get_redis_client()
         repo_id_raw = client.get(task_repo_key(task_id))
         if repo_id_raw:
             repo_id_str = repo_id_raw.decode("utf-8") if isinstance(repo_id_raw, bytes) else str(repo_id_raw)
+    except redis.RedisError:
+        logger.warning("Redis 查询失败，无法获取仓库信息: task_id=%s", task_id)
+        client = None
+
+    # Eager 后台任务：设置取消标志并主动取消 asyncio task
+    if _is_eager_task(task_id):
+        # 从 _active_eager_tasks 中获取 asyncio task 并取消
+        task = _active_eager_tasks.pop(task_id, None)
+        if task:
+            with contextlib.suppress(Exception):
+                task.cancel()
+        # 同时保留 Redis 取消标志作为兜底（检查点会读取这个标志）
+        if client:
+            client.set(task_cancel_key(task_id), "1", ex=settings.redis_cancel_flag_ttl)
+        if repo_id_str:
+            client.delete(repo_active_task_key(repo_id_str)) if client else None
+        return {"message": f"Task {task_id} cancellation requested"}
+
+    # Celery 任务
+    result: AsyncResult = AsyncResult(task_id, app=celery_app)
+    try:
+        state = result.state
+    except Exception as exc:
+        logger.warning("任务不存在或无法查询: task_id=%s, error=%s", task_id, exc)
+        if client and repo_id_str:
             client.delete(repo_active_task_key(repo_id_str))
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found or already completed") from exc
+
+    if state in ("SUCCESS", "FAILURE"):
+        return {"message": f"Task {task_id} already {state.lower()}"}
+
+    celery_app.control.revoke(task_id, terminate=True)
+    logger.info("任务取消请求已发送: task_id=%s", task_id)
+    if client and repo_id_str:
+        client.delete(repo_active_task_key(repo_id_str))
+    if client:
         client.set(task_cancel_key(task_id), "1", ex=settings.redis_cancel_flag_ttl)
-    except redis.RedisError as exc:
-        logger.warning("Redis 清理失败: %s", exc)
     return {"message": f"Task {task_id} cancellation requested"}
 
 
+@router.options("/tasks/{task_id}/stream")
 @router.get("/tasks/{task_id}/stream")
 async def stream_task_progress(task_id: str):
     """
     实时推送任务进度（SSE）
 
     通过 Server-Sent Events 推送任务进度更新，前端可使用 EventSource 消费。
+    支持 Celery 任务和 eager 后台任务。
+
     推送事件类型：
     - progress: 进度更新，data 包含 current_step、percent 等字段
     - complete: 任务完成，data 包含 task_id、status
     - error: 任务失败，data 包含 task_id、status、error
 
     Args:
-        task_id: Celery 任务 ID
+        task_id: Celery 任务 ID 或 eager 任务 ID
 
     Returns:
         StreamingResponse (text/event-stream)
     """
+    # Eager 后台任务：从 Redis 读取进度
+    if _is_eager_task(task_id):
+
+        async def eager_event_generator():
+            last_percent = -1.0
+            last_step = ""
+            has_sent_initial = False
+            while True:
+                progress_data = _get_eager_task_progress(task_id)
+                if progress_data:
+                    step = progress_data.get("current_step", TaskStatus.PENDING)
+                    percent = float(progress_data.get("percent", 0.0))
+                    files_processed = int(progress_data.get("files_processed", 0))
+                    files_total = int(progress_data.get("files_total", 0))
+                    knowledge_points_found = int(progress_data.get("knowledge_points_found", 0))
+                    total_lines = int(progress_data.get("total_lines", 0))
+
+                    # Skip duplicate events
+                    if percent != last_percent or step != last_step:
+                        logger.info("SSE 发送进度事件: task_id=%s, step=%s, percent=%.1f", task_id, step, percent)
+                        last_percent = percent
+                        last_step = step
+
+                        # Only send initial PENDING event if we haven't sent anything yet
+                        # AND there's meaningful data (files_total > 0 means scan completed)
+                        if not has_sent_initial:
+                            if files_total > 0:
+                                # First meaningful update — skip the 0/0 placeholder
+                                has_sent_initial = True
+                                yield f"event: progress\ndata: {json.dumps({'current_step': step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found, 'total_lines': total_lines})}\n\n"
+                            else:
+                                # Still no meaningful data, don't spam 0/0
+                                pass
+                        else:
+                            yield f"event: progress\ndata: {json.dumps({'current_step': step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found, 'total_lines': total_lines})}\n\n"
+
+                    if step == TaskStatus.COMPLETED:
+                        logger.info("SSE 发送完成事件: task_id=%s", task_id)
+                        yield f"event: complete\ndata: {json.dumps({'task_id': task_id, 'status': 'COMPLETED'})}\n\n"
+                        break
+                    if step == TaskStatus.FAILED:
+                        error = progress_data.get("error", "Unknown")
+                        logger.info("SSE 发送错误事件: task_id=%s, error=%s", task_id, error)
+                        yield f"event: error\ndata: {json.dumps({'task_id': task_id, 'status': 'FAILED', 'error': str(error)})}\n\n"
+                        break
+                else:
+                    # 任务尚未有进度，初始状态
+                    if last_percent != 0.0:
+                        logger.info("SSE 发送初始进度事件（无进度数据）: task_id=%s", task_id)
+                        last_percent = 0.0
+                        yield f"event: progress\ndata: {json.dumps({'current_step': 'PENDING', 'percent': 0.0, 'files_processed': 0, 'files_total': 0, 'knowledge_points_found': 0, 'total_lines': 0})}\n\n"
+                await asyncio.sleep(1)
+
+        return StreamingResponse(
+            eager_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # Celery 任务
     result: AsyncResult = AsyncResult(task_id, app=celery_app)
 
-    async def event_generator():
+    async def celery_event_generator():
         last_percent = -1.0
         last_step = ""
+        has_sent_initial = False
         while True:
             try:
                 state = result.state
@@ -544,9 +758,10 @@ async def stream_task_progress(task_id: str):
                 break
 
             if state == "PENDING":
-                if last_percent != 0.0:
+                if last_percent != 0.0 and not has_sent_initial:
                     last_percent = 0.0
-                    yield f"event: progress\ndata: {json.dumps({'current_step': 'PENDING', 'percent': 0.0, 'files_processed': 0, 'files_total': 0, 'knowledge_points_found': 0})}\n\n"
+                    has_sent_initial = True
+                    yield f"event: progress\ndata: {json.dumps({'current_step': 'PENDING', 'percent': 0.0, 'files_processed': 0, 'files_total': 0, 'knowledge_points_found': 0, 'total_lines': 0})}\n\n"
                 await asyncio.sleep(1)
                 continue
 
@@ -568,17 +783,19 @@ async def stream_task_progress(task_id: str):
             files_processed = meta.get("files_processed", 0)
             files_total = meta.get("files_total", 0)
             knowledge_points_found = meta.get("knowledge_points_found", 0)
+            total_lines = meta.get("total_lines", 0)
 
-            if percent != last_percent or current_step != last_step:
+            if (percent != last_percent or current_step != last_step) and (has_sent_initial or files_total > 0):
                 last_percent = percent
                 last_step = current_step
-                yield f"event: progress\ndata: {json.dumps({'current_step': current_step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found})}\n\n"
+                has_sent_initial = True
+                yield f"event: progress\ndata: {json.dumps({'current_step': current_step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found, 'total_lines': total_lines})}\n\n"
 
             # O-B13: 移除 percent >= 100.0 的提前退出条件，确保 SUCCESS 状态时发送 complete 事件
             await asyncio.sleep(1)
 
     return StreamingResponse(
-        event_generator(),
+        celery_event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

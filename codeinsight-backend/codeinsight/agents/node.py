@@ -428,9 +428,25 @@ class AnalysisNode:
                 else:
                     parsed = [parsed]
 
-            # 用 Pydantic TypeAdapter 校验
-            validated = _kp_adapter.validate_python(parsed)
-            return self._normalize_knowledge_points(validated, category)
+            # 用 Pydantic TypeAdapter 校验整个列表
+            try:
+                validated = _kp_adapter.validate_python(parsed)
+                return self._normalize_knowledge_points(validated, category)
+            except ValidationError as ve:
+                # 部分项目校验失败：逐项过滤，保留有效项
+                logger.warning("LLM 响应部分解析失败 (%s)，尝试逐项过滤", ve)
+                valid_items = []
+                for i, item in enumerate(parsed):
+                    try:
+                        validated_item = KnowledgePointExtraction.model_validate(item)
+                        valid_items.append(validated_item)
+                    except ValidationError:
+                        logger.warning("跳过第 %d 个无效知识点: %s", i + 1, str(item)[:100])
+                if valid_items:
+                    logger.info("逐项过滤完成: 有效 %d / 总数 %d", len(valid_items), len(parsed))
+                    return self._normalize_knowledge_points(valid_items, category)
+                # 全部无效，降级到 fallback
+                raise
 
         except (json.JSONDecodeError, TypeError, ValidationError) as exc:
             logger.warning("LLM 响应解析失败: %s, 原始内容: %s...", exc, content[:200])
@@ -461,8 +477,83 @@ class AnalysisNode:
         except json.JSONDecodeError:
             pass
 
-        # 1. 如果响应被截断，尝试找到最后一个完整 JSON 对象
-        # 在末尾补上缺失的 ] 和 }
+        # 0. 处理 Extra data 错误（LLM 在 JSON 对象后附加了额外文本）
+        # 例如: {"a":1,"b":2}extra text → 提取 {"a":1,"b":2}
+        try:
+            # 找第一个 { 或 [ 和对应的最后一个 } 或 ]
+            first_brace = content.find("{")
+            first_bracket = content.find("[")
+            start_idx = -1
+            if first_brace != -1 and first_bracket != -1:
+                start_idx = min(first_brace, first_bracket)
+            elif first_brace != -1:
+                start_idx = first_brace
+            elif first_bracket != -1:
+                start_idx = first_bracket
+
+            if start_idx != -1:
+                # 跳过起始符前的所有内容
+                after_start = content[start_idx:]
+                # 找匹配的结束符
+                open_depth = 0
+                end_idx = -1
+                for i, ch in enumerate(after_start):
+                    if ch in ("{", "["):
+                        open_depth += 1
+                    elif ch in ("}", "]"):
+                        open_depth -= 1
+                        if open_depth == 0:
+                            end_idx = start_idx + i + 1
+                            break
+                if end_idx != -1:
+                    candidate = content[start_idx:end_idx]
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except json.JSONDecodeError:
+                        pass
+        except Exception:
+            pass
+
+        # 1. 修复字符串值中未转义的双引号（LLM 最常见的问题）
+        # 使用逐字符解析的方式修复
+        repaired = []
+        in_string = False
+        i = 0
+        while i < len(content):
+            ch = content[i]
+            if ch == "\\":
+                repaired.append(ch)
+                if i + 1 < len(content):
+                    i += 1
+                    repaired.append(content[i])
+                i += 1
+                continue
+            if ch == '"':
+                if in_string:
+                    # 在字符串内部，检查是否真的是结束引号
+                    # 查看前后的字符上下文
+                    if i + 1 < len(content) and content[i + 1] in " \t\n\r,]}":
+                        # 后面是合法的结束符，视为结束引号
+                        in_string = False
+                        repaired.append(ch)
+                    elif i + 1 < len(content) and content[i + 1] == ":":
+                        # 这是 key 的结束引号
+                        in_string = False
+                        repaired.append(ch)
+                    else:
+                        # 字符串内容中的未转义引号，转义
+                        repaired.append('\\"')
+                else:
+                    in_string = True
+                    repaired.append(ch)
+            else:
+                repaired.append(ch)
+            i += 1
+
+        content = "".join(repaired)
+
+        # 2. 如果响应被截断，尝试找到最后一个完整 JSON 对象
         stripped = content.rstrip()
         open_brackets = stripped.count("[") - stripped.count("]")
         open_braces = stripped.count("{") - stripped.count("}")
@@ -477,13 +568,19 @@ class AnalysisNode:
         except json.JSONDecodeError:
             content = stripped
 
-        # 2. 如果 JSON 数组末尾有截断的对象，去掉最后一个不完整的对象
+        # 3. 提取最后一个完整 JSON 对象（支持 { 和 [ 两种格式）
         try:
-            idx = content.rfind("}")
-            if idx != -1:
-                candidate = content[: idx + 1]
-                # 确保有匹配的 [
-                if candidate.rfind("[") < candidate.rfind("]"):
+            brace_idx = content.rfind("}")
+            bracket_idx = content.rfind("]")
+            # 优先取更靠后的结束符
+            end_idx = max(brace_idx, bracket_idx)
+            if end_idx != -1:
+                candidate = content[: end_idx + 1]
+                # 找到对应的起始符
+                start_char = "{" if end_idx == brace_idx else "["
+                start_idx = candidate.rfind(start_char)
+                if start_idx != -1:
+                    candidate = candidate[start_idx : end_idx + 1]
                     try:
                         json.loads(candidate)
                         return candidate
@@ -492,12 +589,29 @@ class AnalysisNode:
         except Exception:
             pass
 
-        # 3. 尝试提取 JSON 数组（找到第一个 [ 和最后一个 ]）
+        # 4. 尝试提取 JSON 数组（找到第一个 [ 和最后一个 ]）
         try:
             start = content.find("[")
             end = content.rfind("]")
             if start != -1 and end != -1 and end > start:
                 candidate = content[start : end + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    pass
+        except Exception:
+            pass
+
+        # 5. 最后手段：尝试去掉所有非 JSON 字符前后的内容
+        try:
+            start = content.find("[")
+            end = content.rfind("]")
+            if start != -1 and end != -1 and end > start:
+                candidate = content[start : end + 1]
+                # 使用正则替换所有非 JSON 兼容的字符
+                # 移除控制字符（除了 \t \n）
+                candidate = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", candidate)
                 try:
                     json.loads(candidate)
                     return candidate
@@ -549,6 +663,7 @@ class AnalysisNode:
                 call_chain.append(chain_dict)
             normalized.append(
                 {
+                    "id": point.prefix,  # Meilisearch 需要唯一 id，使用 prefix 作为标识
                     "category": category,
                     "category_name": CATEGORY_NAMES.get(category, "未知"),
                     "prefix": point.prefix,
@@ -590,15 +705,20 @@ class DesignPatternNode(AnalysisNode):
             )
 
             # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {  # type: ignore[typeddict-item]
+            result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.2,
+                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
             }
+            return result  # type: ignore[return-value]
 
         except LLMError as exc:
             logger.error("设计模式分析失败: %s", exc)
-            return {"error": str(exc)}  # type: ignore[typeddict-item]
+            return {  # type: ignore[typeddict-item]
+                "error": str(exc),
+                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+            }
 
 
 class ArchitectureNode(AnalysisNode):
@@ -625,16 +745,20 @@ class ArchitectureNode(AnalysisNode):
                 len(knowledge_points),
             )
 
-            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {  # type: ignore[typeddict-item]
+            result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.4,
+                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
             }
+            return result  # type: ignore[return-value]
 
         except LLMError as exc:
             logger.error("架构设计分析失败: %s", exc)
-            return {"error": str(exc)}  # type: ignore[typeddict-item]
+            return {  # type: ignore[typeddict-item]
+                "error": str(exc),
+                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+            }
 
 
 class AlgorithmNode(AnalysisNode):
@@ -661,16 +785,20 @@ class AlgorithmNode(AnalysisNode):
                 len(knowledge_points),
             )
 
-            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {  # type: ignore[typeddict-item]
+            result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.6,
+                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
             }
+            return result  # type: ignore[return-value]
 
         except LLMError as exc:
             logger.error("算法实现分析失败: %s", exc)
-            return {"error": str(exc)}  # type: ignore[typeddict-item]
+            return {  # type: ignore[typeddict-item]
+                "error": str(exc),
+                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+            }
 
 
 class EngineeringNode(AnalysisNode):
@@ -698,15 +826,20 @@ class EngineeringNode(AnalysisNode):
             )
 
             # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {  # type: ignore[typeddict-item]
+            result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.8,
+                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
             }
+            return result  # type: ignore[return-value]
 
         except LLMError as exc:
             logger.error("工程技术分析失败: %s", exc)
-            return {"error": str(exc)}  # type: ignore[typeddict-item]
+            return {  # type: ignore[typeddict-item]
+                "error": str(exc),
+                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+            }
 
 
 class DomainKnowledgeNode(AnalysisNode):
@@ -734,15 +867,20 @@ class DomainKnowledgeNode(AnalysisNode):
             )
 
             # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
-            return {  # type: ignore[typeddict-item]
+            result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 1.0,
+                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
             }
+            return result  # type: ignore[return-value]
 
         except LLMError as exc:
             logger.error("领域知识分析失败: %s", exc)
-            return {"error": str(exc)}  # type: ignore[typeddict-item]
+            return {  # type: ignore[typeddict-item]
+                "error": str(exc),
+                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+            }
 
 
 class TemplateTechniqueNode(AnalysisNode):
@@ -773,11 +911,15 @@ class TemplateTechniqueNode(AnalysisNode):
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 1.0,
+                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
             }
 
         except LLMError as exc:
             logger.error("开发模板分析失败: %s", exc)
-            return {"error": str(exc)}  # type: ignore[typeddict-item]
+            return {  # type: ignore[typeddict-item]
+                "error": str(exc),
+                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+            }
 
 
 class TechnologyStackNode(AnalysisNode):
@@ -808,11 +950,15 @@ class TechnologyStackNode(AnalysisNode):
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 1.0,
+                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
             }
 
         except LLMError as exc:
             logger.error("技术栈分析失败: %s", exc)
-            return {"error": str(exc)}  # type: ignore[typeddict-item]
+            return {  # type: ignore[typeddict-item]
+                "error": str(exc),
+                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+            }
 
 
 class MergeNode:
