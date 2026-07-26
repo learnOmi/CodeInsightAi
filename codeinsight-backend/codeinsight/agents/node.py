@@ -383,41 +383,42 @@ class AnalysisNode:
         context_parts.append("\n\n".join(snippets_list))
         return "\n\n".join(context_parts)
 
+    # ── JSON 解析辅助方法 ────────────────────────────────────────────────
+
+    def _parse_json_with_repair(self, raw: str) -> str:
+        """提取代码块（如有）并运行 _repair_json，尝试解析
+
+        统一 LLM 响应的 JSON 解析入口：先尝试从 ```json 代码块提取，
+        然后运行修复算法，最后尝试解析。
+        """
+        content = raw.strip()
+        if content.startswith("```"):
+            first_newline = content.find("\n")
+            if first_newline != -1:
+                content = content[first_newline + 1 :]
+            if content.endswith("```"):
+                content = content[:-3].strip()
+            elif content.rstrip().endswith("```"):
+                content = content.rstrip()[:-3].strip()
+
+        # 始终返回修复后的内容，即使 json.loads 仍失败
+        # 修复后的内容比原始内容更干净，后续备用修复步骤依赖它
+        repaired = self._repair_json(content)
+        return repaired
+
     def _parse_response(self, response: Any, category: str) -> list[dict[str, Any]]:
         """
         解析 LLM 响应
-
-        使用 Pydantic TypeAdapter 对 LLM 返回的 JSON 进行结构化校验，
-        确保输出符合 KnowledgePointExtraction 格式。
-
-        Args:
-            response: LLM 响应（dict 或原始字符串）
-            category: 知识点分类
-
-        Returns:
-            知识点列表（dict 格式，供 state 使用）
         """
         content = response.get("content", "") if isinstance(response, dict) else str(response)
 
         if not content:
             return []
 
-        # 清理 markdown 代码块标记（如 ```json ... ```），只保留纯 JSON 内容
-        content = content.strip()
-        if content.startswith("```"):
-            # 去掉开头的 ```json 或 ``` 等标记
-            first_newline = content.find("\n")
-            if first_newline != -1:
-                content = content[first_newline + 1 :]
-            # 去掉结尾的 ```
-            if content.endswith("```"):
-                content = content[:-3].strip()
-            elif content.rstrip().endswith("```"):
-                content = content.rstrip()[:-3].strip()
+        # 清理 markdown 代码块并修复 JSON
+        content = self._parse_json_with_repair(content)
 
         try:
-            # 尝试修复常见 JSON 格式问题
-            content = self._repair_json(content)
             parsed = json.loads(content)
             if not isinstance(parsed, list):
                 # 尝试从包装对象中提取列表
@@ -429,6 +430,15 @@ class AnalysisNode:
                     parsed = [parsed]
 
             # 用 Pydantic TypeAdapter 校验整个列表
+            # 先标准化所有 prefix：在验证之前修复缺少类别前缀的项
+            for item in parsed if isinstance(parsed, list) else []:
+                if (
+                    isinstance(item, dict)
+                    and "prefix" in item
+                    and "category" in item
+                    and not re.match(r"^(DP|AD|AL|ET|DK|TT|TK|DS)-", item["prefix"])
+                ):
+                    item["prefix"] = f"{item['category']}-{item['prefix']}"
             try:
                 validated = _kp_adapter.validate_python(parsed)
                 return self._normalize_knowledge_points(validated, category)
@@ -437,6 +447,14 @@ class AnalysisNode:
                 logger.warning("LLM 响应部分解析失败 (%s)，尝试逐项过滤", ve)
                 valid_items = []
                 for i, item in enumerate(parsed):
+                    # 再次对每个单项应用 prefix 标准化（确保修复后的 prefix 生效）
+                    if (
+                        isinstance(item, dict)
+                        and "prefix" in item
+                        and "category" in item
+                        and not re.match(r"^(DP|AD|AL|ET|DK|TT|TK|DS)-", item["prefix"])
+                    ):
+                        item["prefix"] = f"{item['category']}-{item['prefix']}"
                     try:
                         validated_item = KnowledgePointExtraction.model_validate(item)
                         valid_items.append(validated_item)
@@ -448,24 +466,139 @@ class AnalysisNode:
                 # 全部无效，降级到 fallback
                 raise
 
-        except (json.JSONDecodeError, TypeError, ValidationError) as exc:
-            logger.warning("LLM 响应解析失败: %s, 原始内容: %s...", exc, content[:200])
-            # Fallback: treat raw content as a single knowledge point
-            return [
-                {
-                    "category": category,
-                    "category_name": CATEGORY_NAMES.get(category, "未知"),
-                    "prefix": f"{category}-Unknown",
-                    "title": f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
-                    "description": content,
-                    "confidence": 0.8,
-                    "tags": [],
-                    "code_snippets": [],
-                    "call_chain": [],
-                    "expansion": {},
-                    "metadata": {},
-                }
-            ]
+        except (json.JSONDecodeError, TypeError) as parse_exc:
+            # JSON 解析失败，尝试使用剩余的修复步骤（step 2-5）进行补救
+            logger.debug("JSON 直接解析失败，尝试备用修复路径: %s", parse_exc)
+            remaining_content = content
+
+            # Step 2: 如果响应被截断，尝试找到最后一个完整 JSON 对象
+            stripped = remaining_content.rstrip()
+            open_brackets = stripped.count("[") - stripped.count("]")
+            open_braces = stripped.count("{") - stripped.count("}")
+            if open_brackets > 0 or open_braces > 0:
+                in_str = False
+                count_brackets = 0
+                count_braces = 0
+                for ch in stripped:
+                    if ch == '"':
+                        in_str = not in_str
+                        continue
+                    if in_str:
+                        continue
+                    if ch == "[":
+                        count_brackets += 1
+                    elif ch == "]":
+                        count_brackets -= 1
+                    elif ch == "{":
+                        count_braces += 1
+                    elif ch == "}":
+                        count_braces -= 1
+                # 补全缺失的括号
+                while count_brackets < 0:
+                    stripped += "]"
+                    count_brackets += 1
+                while open_brackets > 0:
+                    stripped += "]"
+                    open_brackets -= 1
+                while count_braces < 0:
+                    stripped += "}"
+                    count_braces += 1
+                while open_braces > 0:
+                    stripped += "}"
+                    open_braces -= 1
+
+                try:
+                    json.loads(stripped)
+                    remaining_content = stripped
+                except json.JSONDecodeError:
+                    pass
+
+            # Step 3: 提取最后一个完整 JSON 对象（支持 { 和 [ 两种格式）
+            try:
+                brace_idx = remaining_content.rfind("}")
+                bracket_idx = remaining_content.rfind("]")
+                end_idx = max(brace_idx, bracket_idx)
+                if end_idx != -1:
+                    start_char = "{" if end_idx == brace_idx else "["
+                    start_idx = remaining_content.rfind(start_char, 0, end_idx + 1)
+                    if start_idx != -1:
+                        candidate = remaining_content[start_idx : end_idx + 1]
+                        try:
+                            json.loads(candidate)
+                            remaining_content = candidate
+                        except json.JSONDecodeError:
+                            pass
+            except Exception:
+                pass
+
+            # Step 4: 尝试提取 JSON 数组（找到第一个 [ 和最后一个 ]）
+            try:
+                start = remaining_content.find("[")
+                end = remaining_content.rfind("]")
+                if start != -1 and end != -1 and end > start:
+                    candidate = remaining_content[start : end + 1]
+                    try:
+                        json.loads(candidate)
+                        remaining_content = candidate
+                    except json.JSONDecodeError:
+                        pass
+            except Exception:
+                pass
+
+            # Step 5: 最后手段——去掉所有非 JSON 兼容的字符
+            try:
+                start = remaining_content.find("[")
+                end = remaining_content.rfind("]")
+                if start != -1 and end != -1 and end > start:
+                    candidate = remaining_content[start : end + 1]
+                    candidate = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", candidate)
+                    try:
+                        json.loads(candidate)
+                        remaining_content = candidate
+                    except json.JSONDecodeError:
+                        pass
+            except Exception:
+                pass
+
+            # 用剩余内容进行尝试解析
+            try:
+                parsed = json.loads(remaining_content)
+                if not isinstance(parsed, list):
+                    if isinstance(parsed, dict) and "knowledge_points" in parsed:
+                        parsed = parsed["knowledge_points"]
+                    elif isinstance(parsed, dict) and "items" in parsed:
+                        parsed = parsed["items"]
+                    else:
+                        parsed = [parsed]
+                # 标准化 prefix：在验证之前修复缺少类别前缀的项
+                for item in parsed if isinstance(parsed, list) else []:
+                    if (
+                        isinstance(item, dict)
+                        and "prefix" in item
+                        and "category" in item
+                        and not re.match(r"^(DP|AD|AL|ET|DK|TT|TK|DS)-", item["prefix"])
+                    ):
+                        item["prefix"] = f"{item['category']}-{item['prefix']}"
+                validated = _kp_adapter.validate_python(parsed)
+                return self._normalize_knowledge_points(validated, category)
+            except Exception:
+                # 所有修复都失败，使用 fallback
+                logger.warning("LLM 响应解析失败: %s, 原始内容: %s...", parse_exc, content[:200])
+                return [
+                    {
+                        "category": category,
+                        "category_name": CATEGORY_NAMES.get(category, "未知"),
+                        "prefix": f"{category}-Unknown",
+                        "title": f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
+                        "description": content,
+                        "confidence": 0.8,
+                        "tags": [],
+                        "code_snippets": [],
+                        "call_chain": [],
+                        "expansion": {},
+                        "metadata": {},
+                    }
+                ]
 
     @staticmethod
     def _repair_json(content: str) -> str:
@@ -478,9 +611,8 @@ class AnalysisNode:
             pass
 
         # 0. 处理 Extra data 错误（LLM 在 JSON 对象后附加了额外文本）
-        # 例如: {"a":1,"b":2}extra text → 提取 {"a":1,"b":2}
+        # 使用字符串感知的括号匹配，避免引号内的括号被误计数
         try:
-            # 找第一个 { 或 [ 和对应的最后一个 } 或 ]
             first_brace = content.find("{")
             first_bracket = content.find("[")
             start_idx = -1
@@ -492,12 +624,19 @@ class AnalysisNode:
                 start_idx = first_bracket
 
             if start_idx != -1:
-                # 跳过起始符前的所有内容
                 after_start = content[start_idx:]
-                # 找匹配的结束符
                 open_depth = 0
                 end_idx = -1
+                in_str = False
                 for i, ch in enumerate(after_start):
+                    if ch == "\\" and in_str and i + 1 < len(after_start):
+                        i += 1  # 跳过转义字符
+                        continue
+                    if ch == '"':
+                        in_str = not in_str
+                        continue
+                    if in_str:
+                        continue
                     if ch in ("{", "["):
                         open_depth += 1
                     elif ch in ("}", "]"):
@@ -515,14 +654,33 @@ class AnalysisNode:
         except Exception:
             pass
 
-        # 1. 修复字符串值中未转义的双引号（LLM 最常见的问题）
+        # 1. 修复字符串值中未转义的双引号和无效转义序列（LLM 最常见的问题）
         # 使用逐字符解析的方式修复
+        valid_json_escapes = set('"\\/bfnrtu')
+        hex_chars = set("0123456789abcdefABCDEF")
         repaired = []
         in_string = False
         i = 0
         while i < len(content):
             ch = content[i]
             if ch == "\\":
+                if in_string and i + 1 < len(content):
+                    next_ch = content[i + 1]
+                    if next_ch not in valid_json_escapes:
+                        # 字符串内部的无效转义序列（如 \j, \s, \x），去掉反斜杠
+                        i += 1
+                        repaired.append(content[i])
+                        i += 1
+                        continue
+                    elif next_ch == "u":
+                        # 验证 \uXXXX 的 4 位十六进制数字
+                        if i + 5 >= len(content) or not all(c in hex_chars for c in content[i + 2 : i + 6]):
+                            # 无效的 \u 转义（如 \uXXXX 字面量、\u002 缺位），去掉反斜杠
+                            i += 1
+                            repaired.append(content[i])
+                            i += 1
+                            continue
+                # 有效的转义序列，保持原样
                 repaired.append(ch)
                 if i + 1 < len(content):
                     i += 1
@@ -553,20 +711,55 @@ class AnalysisNode:
 
         content = "".join(repaired)
 
+        # 1b. 清理 JSON 结构中的常见 LLM 格式问题
+        # 移除拖尾逗号（在 ] 或 } 之前的逗号）
+        content = re.sub(r",\s*([\]}])", r"\1", content)
+        # 如果整个 JSON 没有双引号但使用单引号，全局替换为双引号
+        if '"' not in content and "'" in content:
+            content = content.replace("'", '"')
+
         # 2. 如果响应被截断，尝试找到最后一个完整 JSON 对象
         stripped = content.rstrip()
         open_brackets = stripped.count("[") - stripped.count("]")
         open_braces = stripped.count("{") - stripped.count("}")
-        if open_brackets > 0:
-            stripped += "]" * open_brackets
-        if open_braces > 0:
-            stripped += "}" * open_braces
+        if open_brackets > 0 or open_braces > 0:
+            # 使用字符串感知的计数补全括号
+            in_str = False
+            count_brackets = 0
+            count_braces = 0
+            for ch in stripped:
+                if ch == '"':
+                    in_str = not in_str
+                    continue
+                if in_str:
+                    continue
+                if ch == "[":
+                    count_brackets += 1
+                elif ch == "]":
+                    count_brackets -= 1
+                elif ch == "{":
+                    count_braces += 1
+                elif ch == "}":
+                    count_braces -= 1
+            # 补全缺失的括号
+            while count_brackets < 0:
+                stripped += "]"
+                count_brackets += 1
+            while open_brackets > 0:
+                stripped += "]"
+                open_brackets -= 1
+            while count_braces < 0:
+                stripped += "}"
+                count_braces += 1
+            while open_braces > 0:
+                stripped += "}"
+                open_braces -= 1
 
-        try:
-            json.loads(stripped)
-            return stripped
-        except json.JSONDecodeError:
-            content = stripped
+            try:
+                json.loads(stripped)
+                return stripped
+            except json.JSONDecodeError:
+                content = stripped
 
         # 3. 提取最后一个完整 JSON 对象（支持 { 和 [ 两种格式）
         try:
@@ -639,18 +832,32 @@ class AnalysisNode:
         """
         normalized = []
         for point in points:
-            expansion = point.expansion.model_dump() if point.expansion else {}
+            # Copy to avoid mutating the original pydantic model
+            point_data = point.model_dump()
+
+            # 自动修复 prefix：如果 LLM 生成的 prefix 缺少类别前缀（如 "WS-LIB" 而非 "TK-WS-LIB"）
+            if not re.match(r"^(DP|AD|AL|ET|DK|TT|TK|DS)-", point_data["prefix"]):
+                original_prefix = point_data["prefix"]
+                point_data["prefix"] = f"{category}-{point_data['prefix']}"
+                logger.debug("自动修复 prefix: %s → %s", original_prefix, point_data["prefix"])
+
+            expansion = point_data.get("expansion", {}) or {}
             # 将 CodeSnippetExtraction 转换为 dict，确保 content 字段传递
             snippets = []
-            for s in point.code_snippets:
-                snippet_dict = s.model_dump()
+            for s in point_data.get("code_snippets", []):
+                snippet_dict = s.copy() if isinstance(s, dict) else s.model_dump()
+                # 将 extraction 的 file 字段映射为 file_path
+                snippet_dict["file_path"] = snippet_dict.pop("file", "")
+                snippets.append(snippet_dict)
+            for s in point_data.get("code_snippets", []):
+                snippet_dict = s.copy() if isinstance(s, dict) else s.model_dump()
                 # 将 extraction 的 file 字段映射为 file_path
                 snippet_dict["file_path"] = snippet_dict.pop("file", "")
                 snippets.append(snippet_dict)
             # 将 CallChainExtraction 转换为 dict，确保 name→signature 映射
             call_chain = []
-            for c in point.call_chain:
-                chain_dict = c.model_dump()
+            for c in point_data.get("call_chain", []):
+                chain_dict = c.copy() if isinstance(c, dict) else c.model_dump()
                 # 将 extraction 的 name 字段映射为 signature
                 chain_dict["signature"] = chain_dict.get("name", "")
                 # 将 extraction 的 lines 转换为 tuple
@@ -661,22 +868,23 @@ class AnalysisNode:
                     elif len(lines) == 1:
                         chain_dict["lines"] = (lines[0], lines[0])
                 call_chain.append(chain_dict)
-            normalized.append(
-                {
-                    "id": point.prefix,  # Meilisearch 需要唯一 id，使用 prefix 作为标识
-                    "category": category,
-                    "category_name": CATEGORY_NAMES.get(category, "未知"),
-                    "prefix": point.prefix,
-                    "title": point.title or f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
-                    "description": point.description,
-                    "confidence": point.confidence,
-                    "tags": point.tags,
-                    "code_snippets": snippets,
-                    "call_chain": call_chain,
-                    "expansion": expansion,
-                    "metadata": {},
-                }
-            )
+            # Ensure all required fields exist in the normalized dict
+            # We must ensure that each point has all required keys from AnalysisState
+            final_point = {
+                "id": point_data.get("prefix", ""),  # Meilisearch 需要唯一 id，使用 prefix 作为标识
+                "category": category,
+                "category_name": CATEGORY_NAMES.get(category, "未知"),
+                "prefix": point_data.get("prefix", ""),
+                "title": point_data.get("title", f"{CATEGORY_NAMES.get(category, '未知')}分析结果"),
+                "description": point_data.get("description", ""),
+                "confidence": point_data.get("confidence", 0.8),
+                "tags": point_data.get("tags", []),
+                "code_snippets": snippets,
+                "call_chain": call_chain,
+                "expansion": expansion,
+                "metadata": {},
+            }
+            normalized.append(final_point)
         return normalized
 
 
@@ -988,18 +1196,19 @@ class MergeNode:
         """
         kps = state.get("knowledge_points", [])
 
-        # 1. 去重（按 title，保留置信度高的）
-        seen: dict[str, dict] = {}
+        # 1. 去重（按 title + category 合并相似知识点）
+        seen: dict[tuple[str, str], dict] = {}
         for kp in kps:
             title = kp.get("title", "")
             if not title:
                 continue
-            if title in seen:
+            key = (title, kp.get("category", ""))
+            if key in seen:
                 # 保留置信度高的
                 if kp.get("confidence", 0) > seen[title].get("confidence", 0):
-                    seen[title] = kp
+                    seen[key] = kp
             else:
-                seen[title] = kp
+                seen[key] = kp
 
         # 2. 排序（按 confidence 降序）
         merged = sorted(seen.values(), key=lambda x: x.get("confidence", 0), reverse=True)
@@ -1045,16 +1254,15 @@ class ExpansionNode:
         logger.info("开始生成拓展内容: %d 个知识点", len(kps))
 
         # 低置信度过滤：confidence < 0.7 的知识点跳过拓展生成
-        filtered_kps = []
+        processed_kps = []
         skipped_count = 0
         for kp in kps:
             confidence = kp.get("confidence", 0.5)
             if confidence < 0.7:
                 skipped_count += 1
-                # 保留知识点但不生成拓展内容
-                filtered_kps.append(kp)
+                processed_kps.append(kp)  # 直接保留，不生成 expansion
             else:
-                filtered_kps.append(kp)
+                processed_kps.append(kp)
 
         if skipped_count > 0:
             logger.info("低置信度知识点跳过拓展生成: %d 个 (confidence < 0.7)", skipped_count)
@@ -1074,17 +1282,22 @@ class ExpansionNode:
                 )
                 return None
 
-        # 并发处理所有知识点，生成新列表而非原地修改
-        results = await asyncio.gather(*[_process_expansion(kp) for kp in filtered_kps])
+        # 并发处理所有高置信度知识点
+        high_conf_kp_indices = [i for i, kp in enumerate(processed_kps) if kp.get("confidence", 0.5) >= 0.7]
+        high_conf_kps = [processed_kps[i] for i in high_conf_kp_indices]
+        results = await asyncio.gather(*(_process_expansion(kp) for kp in high_conf_kps), return_exceptions=False)
 
         # 用生成结果更新 knowledge_points（保留未变更的条目）
-        updated_kps = []
-        for original, result in zip(filtered_kps, results, strict=True):
-            updated_kps.append(result if result is not None else original)
+        updated_kps = list(processed_kps)
+        for idx, result in zip(high_conf_kp_indices, results, strict=True):
+            if isinstance(result, Exception):
+                logger.error("Unexpected exception in _process_expansion: %s", result)
+                continue
+            updated_kps[idx] = result if result is not None else processed_kps[idx]
 
         state["knowledge_points"] = updated_kps
         state["progress"] = 1.0
-        logger.info("拓展内容生成完成: %d 个知识点已更新", len(updated_kps))
+        logger.info("拓展内容生成完成: %d 个知识点已更新 / %d 个跳过", len(updated_kps) - skipped_count, skipped_count)
         return state
 
     async def _generate_expansion(self, kp: dict) -> dict | None:

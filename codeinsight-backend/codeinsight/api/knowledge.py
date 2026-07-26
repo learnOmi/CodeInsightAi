@@ -45,6 +45,7 @@ async def list_knowledge_points(
     version: Annotated[str | None, Query(description="分析版本号，不传则使用当前版本")] = None,
     category: Annotated[str | None, Query(description="按分类筛选：DP/AD/AL/ET/DK")] = None,
     tag: Annotated[str | None, Query(description="按标签筛选")] = None,
+    search: Annotated[str | None, Query(description="搜索关键词（在 title/description 中模糊匹配）")] = None,
     page: Annotated[int, Query(ge=1, description="页码")] = 1,
     page_size: Annotated[int, Query(ge=1, le=100, description="每页数量")] = 20,
     sort_by: Annotated[str, Query(description="排序字段：created_at/title/confidence")] = "created_at",
@@ -53,7 +54,7 @@ async def list_knowledge_points(
     """
     获取知识点列表
 
-    分页返回知识点列表，支持按仓库、版本、分类、标签筛选。
+    分页返回知识点列表，支持按仓库、版本、分类、标签、搜索关键词筛选。
     不传 repository_id 时返回所有仓库的知识点。
     """
     skip = (page - 1) * page_size
@@ -64,6 +65,7 @@ async def list_knowledge_points(
         version=version,
         category=category,
         tag=tag,
+        search=search,
         skip=skip,
         limit=page_size,
         sort_by=sort_by,
@@ -75,6 +77,8 @@ async def list_knowledge_points(
         repository_id=repository_id,
         version=version,
         category=category,
+        tag=tag,
+        search=search,
     )
 
     total_pages = max(1, (total + page_size - 1) // page_size)
@@ -146,6 +150,8 @@ async def get_all_knowledge_stats(
         KnowledgeCategory.ALGORITHM.value: KnowledgeCategory.ALGORITHM,
         KnowledgeCategory.ENGINEERING_TIP.value: KnowledgeCategory.ENGINEERING_TIP,
         KnowledgeCategory.DOMAIN_KNOWLEDGE.value: KnowledgeCategory.DOMAIN_KNOWLEDGE,
+        KnowledgeCategory.TEMPLATE_TECHNIQUE.value: KnowledgeCategory.TEMPLATE_TECHNIQUE,
+        KnowledgeCategory.TECHNOLOGY_STACK.value: KnowledgeCategory.TECHNOLOGY_STACK,
     }
 
     by_category: dict[KnowledgeCategory, int] = {}
@@ -222,6 +228,8 @@ async def get_knowledge_stats(
         KnowledgeCategory.ALGORITHM.value: KnowledgeCategory.ALGORITHM,
         KnowledgeCategory.ENGINEERING_TIP.value: KnowledgeCategory.ENGINEERING_TIP,
         KnowledgeCategory.DOMAIN_KNOWLEDGE.value: KnowledgeCategory.DOMAIN_KNOWLEDGE,
+        KnowledgeCategory.TEMPLATE_TECHNIQUE.value: KnowledgeCategory.TEMPLATE_TECHNIQUE,
+        KnowledgeCategory.TECHNOLOGY_STACK.value: KnowledgeCategory.TECHNOLOGY_STACK,
     }
 
     by_category: dict[KnowledgeCategory, int] = {}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, Suspense } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -352,6 +352,11 @@ function KnowledgePageContent() {
   const [selectedKp, setSelectedKp] = useState<KnowledgePoint | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
+  // 搜索关键词变化时重置页码
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
+
   // 仓库切换：更新 URL 参数
   const handleRepoChange = (newRepoId: string) => {
     setPage(1);
@@ -375,11 +380,12 @@ function KnowledgePageContent() {
   });
 
   const { data: kpData, isLoading } = useQuery({
-    queryKey: ["knowledge-points", selectedRepoId, selectedCategory, page],
+    queryKey: ["knowledge-points", selectedRepoId, selectedCategory, searchQuery, page],
     queryFn: () =>
       getKnowledgePoints({
         repositoryId: queryRepoId,
         category: selectedCategory !== "all" ? selectedCategory : undefined,
+        search: searchQuery.trim() || undefined,
         page,
         pageSize: 12,
       }),
@@ -387,16 +393,8 @@ function KnowledgePageContent() {
   });
 
   const filteredKps = useMemo(() => {
-    if (!kpData?.items) return [];
-    if (!searchQuery.trim()) return kpData.items;
-    const q = searchQuery.toLowerCase();
-    return kpData.items.filter(
-      (kp) =>
-        kp.title.toLowerCase().includes(q) ||
-        kp.description.toLowerCase().includes(q) ||
-        kp.tags?.some((t) => t.toLowerCase().includes(q))
-    );
-  }, [kpData, searchQuery]);
+    return kpData?.items ?? [];
+  }, [kpData]);
 
   const points = useMemo(() => filteredKps, [filteredKps]);
   const totalPages = kpData ? Math.max(1, Math.ceil(kpData.total / kpData.pageSize)) : 1;

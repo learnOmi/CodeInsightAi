@@ -98,6 +98,7 @@ class KnowledgePointDAO:
         version: str | None = None,
         category: str | None = None,
         tag: str | None = None,
+        search: str | None = None,
         skip: int = 0,
         limit: int = 100,
         sort_by: str = "created_at",
@@ -112,6 +113,7 @@ class KnowledgePointDAO:
             version: 分析版本号筛选
             category: 分类筛选（DP-/AD-/AL-/ET-/DK-）
             tag: 标签筛选
+            search: 搜索关键词（在 title/description/tags 中模糊匹配）
             skip: 跳过的记录数
             limit: 返回的记录数上限
             sort_by: 排序字段（受白名单限制）
@@ -135,6 +137,12 @@ class KnowledgePointDAO:
             # PostgreSQL ARRAY 类型支持 contains([tag])，其他数据库后端需要适配
             query = query.where(KnowledgePointModel.tags.contains([tag]))
 
+        if search is not None and search.strip():
+            pattern = f"%{search.strip()}%"
+            query = query.where(
+                KnowledgePointModel.title.ilike(pattern) | KnowledgePointModel.description.ilike(pattern)
+            )
+
         # R-6: 排序字段白名单验证，防止任意属性注入
         if sort_by not in self._ALLOWED_SORT_FIELDS:
             sort_by = "created_at"
@@ -154,6 +162,8 @@ class KnowledgePointDAO:
         repository_id: UUID | None,
         version: str | None = None,
         category: str | None = None,
+        tag: str | None = None,
+        search: str | None = None,
     ) -> int:
         """
         统计知识点数量
@@ -163,11 +173,13 @@ class KnowledgePointDAO:
             repository_id: 仓库 ID（可选，不传则统计所有仓库）
             version: 版本号筛选
             category: 分类筛选
+            tag: 标签筛选
+            search: 搜索关键词
 
         Returns:
             符合条件的记录数
         """
-        query = select(func.count())
+        query = select(func.count()).select_from(KnowledgePointModel)
         if repository_id is not None:
             query = query.where(KnowledgePointModel.repository_id == repository_id)
 
@@ -176,6 +188,15 @@ class KnowledgePointDAO:
 
         if category is not None:
             query = query.where(KnowledgePointModel.category == category)
+
+        if tag is not None:
+            query = query.where(KnowledgePointModel.tags.contains([tag]))
+
+        if search is not None and search.strip():
+            pattern = f"%{search.strip()}%"
+            query = query.where(
+                KnowledgePointModel.title.ilike(pattern) | KnowledgePointModel.description.ilike(pattern)
+            )
 
         result = await db.execute(query)
         return result.scalar() or 0

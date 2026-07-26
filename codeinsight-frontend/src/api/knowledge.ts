@@ -10,6 +10,7 @@ export interface ListKnowledgePointsParams {
   version?: string;
   category?: string;
   tag?: string;
+  search?: string;
   page?: number;
   pageSize?: number;
   sortBy?: string;
@@ -33,6 +34,7 @@ export async function getKnowledgePoints(
   if (params.version) searchParams.set("version", params.version);
   if (params.category) searchParams.set("category", params.category);
   if (params.tag) searchParams.set("tag", params.tag);
+  if (params.search) searchParams.set("search", params.search);
 
   return apiFetch(`/api/v1/knowledge-points?${searchParams.toString()}`);
 }
