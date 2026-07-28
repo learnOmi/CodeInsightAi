@@ -1,329 +1,360 @@
 # CodeInsight AI
 
-> AI 驱动的代码知识提取与可视化分析平台
+> AI-powered code knowledge extraction and visual analysis platform
 
 ![Project Architecture](doc/code-analysis-dev-roadmap/architecture-overview.png)
 
-CodeInsight AI 是一个全栈的智能代码分析平台，利用大语言模型（LLM）和图神经网络技术，从代码仓库中自动提取结构化知识、构建 AST 树、生成调用关系图，并提供强大的搜索与分析功能。
+CodeInsight AI is a full-stack intelligent code analysis platform that leverages Large Language Models (LLM) and graph-based algorithms to automatically extract structured knowledge from code repositories, build AST trees, generate call graphs, and provide powerful search and analysis capabilities.
 
-## 🚀 快速开始
+---
 
-### 前置要求
+## 🚀 Quick Start
 
-| 工具 | 版本 |
-|------|------|
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
 | Python | 3.12+ |
-| Node.js | 18+ / 20+ (推荐 LTS) |
+| Node.js | 18+ / 20+ (LTS recommended) |
 | npm | 9+ |
-| Docker | 24+ (用于依赖服务) |
+| Docker | 24+ (for infrastructure services) |
 | PostgreSQL | 16+ |
 | Redis | 7+ |
 | Meilisearch | 0.30+ |
 
-### 一键启动（Docker Compose）
+### One-Click Start (Docker Compose)
 
 ```bash
-# 克隆仓库
+# Clone the repository
 git clone <repo-url>
 cd CodeInsightAi
 
-# 配置环境变量
+# Configure environment variables
 cp .env.example .env
-# 编辑 .env 填入 SECRET_KEY、数据库密码等生产配置
+# Edit .env to set SECRET_KEY, database passwords, etc.
 
-# 启动所有基础设施服务
+# Start all infrastructure services
 docker compose up -d postgres redis meilisearch
 
-# 初始化数据库并运行迁移
+# Initialize the database and run migrations
 cd codeinsight-backend && uv run alembic upgrade head && cd ..
 
-# 启动前端和后端开发服务器
+# Start frontend and backend development servers
 npm run dev
 ```
 
-访问：http://localhost:3000
+Visit: http://localhost:3000
 
-### 本地开发模式
+### Local Development Mode
 
 ```bash
-# 1. 安装依赖
+# 1. Install dependencies
 npm install
 
-# 2. 安装后端依赖
+# 2. Install backend dependencies
 cd codeinsight-backend
 uv sync
 
-# 3. 配置后端环境
+# 3. Configure backend environment
 cp .env.example .env
-# 编辑 .env 填入 LLM API Key、数据库连接等信息
+# Edit .env to set LLM API Key, database connection, etc.
 
-# 4. 运行后端
+# 4. Run the backend
 uv run uvicorn codeinsight.main:app --reload --host 0.0.0.0 --port 8000
 
-# 5. 在另一个终端运行前端
+# 5. In another terminal, run the frontend
 cd codeinsight-frontend
 npm run dev
 ```
 
 ---
 
-## 🔍 核心功能
+## 🔍 Core Features
 
-### 1. 仓库管理
-- 导入本地 Git 仓库或远程仓库路径
-- 自动识别分支、提交历史和文件结构
-- 支持多仓库并发分析
+### 1. Repository Management
+- **Import repositories** — Clone local Git repositories or connect to remote repository paths
+- **Multi-repository support** — Manage and analyze multiple repositories concurrently with status tracking
+- **Automatic scanning** — Automatically identify branches, commit history, and file structures
+- **Real-time progress** — SSE-based live progress tracking for analysis tasks with step-by-step status updates
 
-### 2. 智能分析引擎
-| 功能 | 技术实现 |
-|------|---------|
-| **AST 解析** | Tree-sitter (支持 Python, JS/TS, Java, Go, Rust 等 40+ 语言) |
-| **代码扫描** | GitPython + Tree-sitter 增量扫描 |
-| **调用图构建** | 自定义图算法，解析函数/方法调用关系 |
-| **模块依赖分析** | 静态分析 import/require 语句 |
-| **框架检测** | 识别项目中使用的 Web 框架、库和中间件 |
+### 2. Intelligent Analysis Engine
 
-### 3. AI 知识提取
-基于 LangGraph 的多 Agent 协作流水线：
-- **规划 Agent**：制定分析策略和步骤
-- **解析 Agent**：提取 AST 节点和语义信息
-- **推理 Agent**：结合上下文进行深度分析
-- **综合 Agent**：聚合所有结果生成结构化知识卡片
+| Feature | Technology |
+|---------|-----------|
+| **AST Parsing** | Tree-sitter (supports 40+ languages including Python, JS/TS, Java, Go, Rust) |
+| **Code Scanning** | GitPython + Tree-sitter incremental scanning |
+| **Call Graph Construction** | Custom graph algorithms to resolve function/method call relationships |
+| **Module Dependency Analysis** | Static analysis of import/require statements with interactive dependency graph |
+| **Framework Detection** | Identify web frameworks, libraries, and middleware used in the project |
+| **API Route Extraction** | Discover and catalog HTTP API endpoints and middleware chains |
+| **Language Distribution** | Visual breakdown of languages used across the repository |
 
-### 4. 可视化展示
-- **交互式调用图**：使用 XFlow 节点图展示函数调用关系
-- **AST 树视图**：语法树的分层折叠展示
-- **知识卡片网格**：自动标记的关键概念、类和方法
-- **依赖关系图谱**：模块间依赖关系的环形图
+### 3. AI Knowledge Extraction
 
-### 5. 高级搜索
-- **全文搜索**：Meilisearch 实时检索代码和历史分析结果
-- **语义搜索**：基于 pgvector 的向量相似度匹配
-- **组合查询**：支持条件过滤和排序
+A multi-agent collaboration pipeline powered by LangGraph:
 
-### 6. 增量分析
-- 自动检测代码变更
-- 仅重新分析受影响的文件和模块
-- 支持回溯到历史快照版本
+- **Planning Agent** — Formulates analysis strategies and step-by-step plans
+- **Parsing Agent** — Extracts AST nodes, semantic information, and code structure
+- **Reasoning Agent** — Performs deep contextual analysis, identifying design patterns, architectural decisions, and domain knowledge
+- **Synthesis Agent** — Aggregates all results into structured, categorized knowledge cards
 
-### 7. 版本控制
-- 每次分析保存为独立快照
-- 可对比不同版本的差异
-- 支持版本回滚和数据恢复
+**Knowledge Categories**:
+| Category | Description |
+|----------|-------------|
+| Design Patterns | Recognized GoF patterns, architectural patterns, and anti-patterns |
+| Architecture Decisions | Key architectural choices, trade-offs, and rationale |
+| Algorithm Implementations | Notable algorithms, data structures, and optimization techniques |
+| Engineering Tips | Best practices, code idioms, and performance insights |
+| Domain Knowledge | Business logic, domain rules, and specialized terminology |
+| Development Templates | Boilerplate code, project scaffolding, and reusable patterns |
+| Tech Stack | Detected technologies, libraries, and their versions |
+
+### 4. Visual Analysis & Exploration
+
+- **Interactive Call Graph** — XFlow-based node graph displaying function call relationships with expand/collapse and focus mode
+- **AST Tree View** — Hierarchical syntax tree with collapsible nodes and detailed annotations
+- **Knowledge Card Grid** — Auto-tagged cards for key concepts, classes, methods, and design insights
+- **Module Dependency Graph** — Circular dependency visualization with import/export relationships
+- **Code Structure Tree** — File-level and symbol-level structure browser with navigation
+- **Call Chain Explorer** — Follow forward and backward call chains interactively through the graph
+
+### 5. Advanced Search
+
+- **Full-Text Search** — Meilisearch-powered real-time search across code and historical analysis results
+- **Semantic Search** — pgvector-based vector similarity matching for intent-aware code lookup
+- **Combined Queries** — Filter by repository, language, knowledge category, or analysis version
+- **Knowledge Search** — Search across extracted knowledge cards with category filtering
+
+### 6. Incremental Analysis
+
+- Automatically detects code changes since the last analysis
+- Re-analyzes only affected files and modules for efficiency
+- Supports rollback to historical snapshot versions
+- Parallel processing of independent analysis stages
+
+### 7. Version Management & Rollback
+
+- Each analysis is saved as an independent snapshot with full metadata
+- Compare knowledge point counts and analysis results across versions
+- One-click version switching and rollback with confirmation workflow
+- Agent status tracking per version showing individual category analysis results
+
+### 8. i18n Internationalization
+
+- Full support for **English** and **Simplified Chinese (中文)**
+- Language switcher with persistent preference storage
+- All UI components, analysis status labels, and data displays are translated
+- Easily extensible for additional languages
 
 ---
 
-## 📦 技术栈
+## 📦 Technology Stack
 
-### 前端 (Next.js 15)
-- **框架**：Next.js 15 App Router
-- **样式**：Tailwind CSS 4
-- **状态管理**：Zustand
-- **数据获取**：React Query
-- **流程图库**：XFlow
-- **代码高亮**：Shiki
-- **图标库**：lucide-react
-- **动画**：Framer Motion
+### Frontend (Next.js 15)
 
-### 后端 (Python 3.12+)
-- **Web 框架**：FastAPI
-- **异步任务**：Celery + Redis
-- **ORM**：SQLAlchemy 2.0 (Async)
-- **Agent 编排**：LangGraph
-- **代码解析**：Tree-sitter
-- **搜索**：Meilisearch (全文) + pgvector (向量)
-- **认证**：JWT / API Key
+| Category | Technology |
+|----------|-----------|
+| **Framework** | Next.js 15 App Router |
+| **Styling** | Tailwind CSS 4 |
+| **State Management** | Zustand |
+| **Data Fetching** | React Query (TanStack Query) |
+| **Graph Visualization** | XFlow (AntV) |
+| **Code Highlighting** | Shiki |
+| **Icons** | lucide-react |
+| **Internationalization** | react-i18next |
+| **Animations** | Framer Motion |
+
+### Backend (Python 3.12+)
+
+| Category | Technology |
+|----------|-----------|
+| **Web Framework** | FastAPI |
+| **Async Tasks** | Celery + Redis |
+| **ORM** | SQLAlchemy 2.0 (Async) |
+| **Agent Orchestration** | LangGraph |
+| **Code Parsing** | Tree-sitter |
+| **Full-Text Search** | Meilisearch |
+| **Vector Search** | pgvector |
+| **Authentication** | API Key |
 
 ### AI & LLM
-| 组件 | 用途 |
-|------|------|
-| LangChain/LangGraph | Agent 工作流编排 |
-| LiteLLM | 统一多模型接口 (OpenAI, Anthropic, Ollama) |
-| Sentence Transformers | 文本向量化嵌入 |
-| pgvector | 向量存储与相似度搜索 |
 
-### 基础设施
-| 服务 | 端口 | 用途 |
-|------|------|------|
-| PostgreSQL | 5432 | 关系型数据存储 + pgvector |
-| Redis | 6379 | Celery 任务队列 + 缓存 |
-| Meilisearch | 7700 | 全文搜索引擎 |
-| Celery Worker | - | 异步任务处理 |
-| FastAPI | 8000 | REST API 服务 |
-| Next.js | 3000 | 前端应用 |
+| Component | Purpose |
+|-----------|---------|
+| LangChain / LangGraph | Agent workflow orchestration and state management |
+| LiteLLM | Unified multi-model interface (OpenAI, Anthropic, Ollama) |
+| Sentence Transformers | Text embedding and vectorization |
+| pgvector | Vector storage and similarity search |
+
+### Infrastructure
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| PostgreSQL | 5432 | Relational data storage + pgvector extension |
+| Redis | 6379 | Celery task queue + caching |
+| Meilisearch | 7700 | Full-text search engine |
+| Celery Worker | - | Async task processing |
+| FastAPI | 8000 | REST API service |
+| Next.js | 3000 | Frontend application |
 
 ---
 
-## 🏗️ 项目结构
+## 🏗️ Project Structure
 
 ```
 CodeInsightAi/
-├── codeinsight-backend/               # Python FastAPI 后端服务
-│   ├── codeinsight/                   # 主应用包
-│   │   ├── __init__.py
-│   │   ├── main.py                    # FastAPI 应用入口
-│   │   ├── config.py                  # 配置管理（Pydantic Settings）
-│   │   ├── exceptions.py              # 自定义异常
-│   │   ├── dependencies.py            # DI 依赖注入
-│   │   ├── api/                       # API 路由模块
-│   │   │   ├── repositories.py        # 仓库管理
-│   │   │   ├── analysis.py            # 分析任务
-│   │   │   ├── knowledge.py           # 知识点
-│   │   │   ├── search.py              # 搜索
-│   │   │   ├── ast_nodes.py           # AST 节点
-│   │   │   ├── call_edges.py          # 调用边
-│   │   │   └── ...                    # 共 14 个 API 端点
-│   │   ├── models/                    # SQLAlchemy 模型
-│   │   ├── schemas/                   # Pydantic Schema
-│   │   ├── services/                  # 业务服务
-│   │   │   ├── llm/                   # LLM 客户端
-│   │   │   ├── scanners/              # 代码扫描器
-│   │   │   ├── parsers/               # 解析器
-│   │   │   ├── engines/               # 核心引擎
-│   │   │   │   ├── call_graph.py      # 调用图生成
-│   │   │   │   ├── module_graph.py    # 模块依赖图
+├── codeinsight-backend/                # Python FastAPI backend
+│   ├── codeinsight/                    # Main application package
+│   │   ├── main.py                     # FastAPI application entry point
+│   │   ├── config.py                   # Configuration (Pydantic Settings)
+│   │   ├── exceptions.py               # Custom exceptions
+│   │   ├── dependencies.py             # DI dependency injection
+│   │   ├── api/                        # API route modules (14 endpoints)
+│   │   │   ├── repositories.py         # Repository management
+│   │   │   ├── analysis.py             # Analysis tasks
+│   │   │   ├── knowledge.py            # Knowledge points
+│   │   │   ├── search.py               # Search
+│   │   │   ├── ast_nodes.py            # AST nodes
+│   │   │   ├── call_edges.py           # Call graph edges
+│   │   │   ├── versions.py             # Version management
+│   │   │   └── ...
+│   │   ├── models/                     # SQLAlchemy models
+│   │   ├── schemas/                    # Pydantic schemas
+│   │   ├── services/                   # Business logic services
+│   │   │   ├── llm/                    # LLM client
+│   │   │   ├── scanners/              # Code scanners
+│   │   │   ├── parsers/               # Parsers
+│   │   │   ├── engines/               # Core engines
+│   │   │   │   ├── call_graph.py      # Call graph generation
+│   │   │   │   ├── module_graph.py    # Module dependency graph
 │   │   │   │   └── framework_detector.py
 │   │   │   └── services.py
-│   │   ├── agents/                    # AI Agent (LangGraph)
+│   │   ├── agents/                     # AI Agents (LangGraph)
 │   │   │   ├── planning_agent.py
 │   │   │   ├── parsing_agent.py
 │   │   │   ├── reasoning_agent.py
 │   │   │   └── synthesis_agent.py
-│   │   ├── tasks/                     # Celery 任务
-│   │   │   ├── analysis_tasks.py
-│   │   │   └── __init__.py
-│   │   ├── pipelines/                 # 分析流水线
-│   │   ├── evaluation/                # 评估框架
-│   │   ├── db/                        # 数据库会话
-│   │   ├── embedding/                 # 向量化
-│   │   └── utils/                     # 工具函数
-│   ├── alembic/                       # 数据库迁移 (含多个版本迁移文件)
-│   ├── tests/                         # pytest 测试套件 (>30 个测试文件)
-│   │   ├── test_*.py
-│   │   └── conftest.py
-│   ├── scripts/                       # 辅助脚本
-│   │   ├── export_openapi.py          # 导出 OpenAPI 规范供前端同步类型
-│   │   └── seed_test_data.py          # 测试数据填充
-│   ├── pyproject.toml                 # 依赖管理 (Uv/Poetry)
+│   │   ├── tasks/                      # Celery tasks
+│   │   ├── pipelines/                  # Analysis pipelines
+│   │   ├── evaluation/                 # Evaluation framework
+│   │   ├── db/                         # Database session management
+│   │   ├── embedding/                  # Vector embedding
+│   │   └── utils/                      # Utility functions
+│   ├── alembic/                        # Database migrations
+│   ├── tests/                          # pytest test suite (30+ test files)
+│   ├── scripts/                        # Utility scripts
+│   │   ├── export_openapi.py           # OpenAPI spec export for frontend types
+│   │   └── seed_test_data.py           # Test data seeding
+│   ├── pyproject.toml                  # Dependency management (Uv)
 │   └── README.md
 │
-├── codeinsight-frontend/              # Next.js 前端应用
-│   ├── app/                           # App Router 页面
-│   │   ├── page.tsx                   # 首页
-│   │   ├── layout.tsx               # 全局布局
-│   │   └── components/              # UI 组件
-│   ├── src/                           # 源代码
-│   │   ├── lib/                     # 工具库
-│   │   ├── types/                   # TypeScript 类型
-│   │   └── store/                   # Zustand 状态管理
-│   ├── next.config.ts                 # Next.js 配置
-│   ├── tsconfig.json                  # TypeScript 配置
-│   ├── package.json                   # 前端依赖
-│   └── tailwind.config.ts             # Tailwind 配置
-│
-├── packages/shared/                   # 共享类型定义 (TypeScript)
+├── codeinsight-frontend/               # Next.js frontend application
 │   ├── src/
-│   │   ├── repository.ts            # 仓库类型
-│   │   ├── knowledge.ts             # 知识类型
-│   │   ├── analysis.ts              # 分析类型
-│   │   ├── search.ts                # 搜索类型
-│   │   └── generated.ts             # 自动生成自 OpenAPI
+│   │   ├── app/                        # App Router pages
+│   │   │   ├── page.tsx                # Home page (dashboard)
+│   │   │   ├── layout.tsx              # Global layout
+│   │   │   ├── repositories/           # Repository management pages
+│   │   │   ├── knowledge/              # Knowledge base pages
+│   │   │   └── search/                 # Search page
+│   │   ├── components/                 # UI components
+│   │   │   ├── analysis/              # Analysis visualization components
+│   │   │   ├── call-graph/            # Call graph components
+│   │   │   ├── structure/             # AST structure components
+│   │   │   └── ...
+│   │   ├── i18n/                       # Internationalization (en-US, zh-CN)
+│   │   ├── hooks/                      # React hooks
+│   │   ├── api/                        # API client
+│   │   └── utils/                      # Utility functions
+│   ├── next.config.ts
 │   ├── tsconfig.json
 │   └── package.json
 │
-├── doc/                               # 开发文档
-│   ├── code-analysis-dev-roadmap/   # 开发路线图文档
-│   │   ├── BUSINESS-FLOW-DIAGRAM.md
-│   │   ├── DEVELOPMENT-STANDARDS.md
-│   │   ├── API-REFERENCE.md
-│   │   └── CODEINSIGHT-AI-DEVELOPMENT-PLAN.md
-│   └── dev-analysis/                # 功能分析报告
-│       ├── comprehensive-functionality-analysis.md
-│       └── ...
+├── packages/shared/                    # Shared TypeScript types
+│   ├── src/
+│   │   ├── constants.ts               # UI constants and config mappings
+│   │   └── generated.ts               # Auto-generated from OpenAPI
+│   ├── tsconfig.json
+│   └── package.json
 │
-├── dev-report/                        # 开发过程报告 (P1-P3 阶段)
-│   ├── P1-*.md                      # 第一阶段完成报告
-│   ├── P2-*.md                      # 第二阶段增强报告
-│   └── ...
+├── doc/                                # Documentation
+│   ├── code-analysis-dev-roadmap/      # Development roadmap
+│   └── dev-analysis/                   # Feature analysis reports
 │
-├── .env.example                       # 环境变量模板 (含详细注释)
-├ .gitignore                           # Git 忽略规则
-├ docker-compose.yml                   # 服务编排 (postgres, redis, meilisearch)
-├ package.json                         # 根 package (工作空间管理 + Conforrrently)
-├ README.md                            # 本文档
-└ scripts/                             # 根级脚本
-    ├── cleanup.ps1                  # 清理脚本
-    ├── evaluate.py                  # 性能评估
-    └── validate_eval_data.py        # 数据验证
+├── dev-report/                         # Development progress reports
+├── docker-compose.yml                  # Service orchestration
+├── package.json                        # Root workspace management
+└── README.md
 ```
 
 ---
 
-## 🧪 测试与质量保证
+## 🧪 Testing & Quality Assurance
 
-### 测试命令
+### Test Commands
 
 ```bash
-# 运行全部测试
+# Run all tests
 npm run test
 
-# 仅后端测试
+# Backend tests only
 cd codeinsight-backend && pytest
 
-# 仅前端测试
+# Frontend tests only
 cd codeinsight-frontend && npm test
 
-# 带覆盖率报告
+# With coverage report
 pytest --cov=codeinsight --cov-report=html
 
-# 运行 linter
+# Run linter
 npm run lint
 
-# 格式化代码
+# Format code
 npm run format
 ```
 
-### 代码质量检查
+### Code Quality
 
-| 工具 | 配置 |
-|------|------|
-| Ruff | 代码 linting (fast)，行宽 120，目标 Python 3.12 |
-| Mypy | 静态类型检查，启用严格的类型检查规则 |
-| ESLint | 前端 TypeScript 检查，集成 Next.js 插件 |
-| Prettier | 代码格式化 |
+| Tool | Configuration |
+|------|---------------|
+| Ruff | Code linting (fast), line width 120, target Python 3.12 |
+| Mypy | Static type checking with strict mode |
+| ESLint | TypeScript linting with Next.js plugin |
+| Prettier | Code formatting |
 
 ---
 
-## 🤝 贡献指南
+## 🤝 Contributing
 
-欢迎贡献！请阅读 [DEVELOPMENT-STANDARDS.md](doc/code-analysis-dev-roadmap/DEVELOPMENT-STANDARDS.md) 了解代码规范和开发流程。
+Contributions are welcome! Please read [DEVELOPMENT-STANDARDS.md](doc/code-analysis-dev-roadmap/DEVELOPMENT-STANDARDS.md) for code style guidelines and development workflow.
 
-### 开发工作流
+### Development Workflow
 
 ```bash
-# 1. 创建特性分支
+# 1. Create a feature branch
 git checkout -b feat/new-feature
 
-# 2. 开发和提交
+# 2. Develop and commit
 git add .
 git commit -m "feat: implement new feature"
 
-# 3. 推送并创建 PR
+# 3. Push and create a PR
 git push origin feat/new-feature
 
-# 4. 运行 CI 测试
-# 确保所有检查通过后合并
+# 4. Run CI tests
+# Ensure all checks pass before merging
 ```
 
 ---
 
-## 📄 许可证
+## 📄 License
 
-MIT © [您的组织名称](https://github.com/your-org)
+MIT © [Your Organization](https://github.com/your-org)
 
-## 🙌 致谢
+## 🙌 Acknowledgements
 
-- 感谢 [LangChain](https://langchain.ai/) 和 [LangGraph](https://langchain-langgraph.github.io/langgraph/) 提供强大的 Agent 编排框架
-- 感谢 [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) 提供跨语言的语法解析能力
-- 感谢 [Meilisearch](https://meilisearch.com/) 提供快速的全文搜索
-- 感谢 [FastAPI](https://fastapi.tiangolo.com/) 提供现代化的 Python Web 框架
+- [LangChain](https://langchain.ai/) and [LangGraph](https://langchain-langgraph.github.io/langgraph/) for powerful Agent orchestration frameworks
+- [Tree-sitter](https://tree-sitter.github.io/tree-sitter/) for cross-language syntax parsing
+- [Meilisearch](https://meilisearch.com/) for fast full-text search
+- [FastAPI](https://fastapi.tiangolo.com/) for the modern Python web framework
+- [XFlow](https://xflow.antv.vision/) for graph visualization
+- [Next.js](https://nextjs.org/) for the React framework

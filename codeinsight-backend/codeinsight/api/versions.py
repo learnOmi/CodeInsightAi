@@ -33,7 +33,8 @@ def _parse_agent_status(value: Any) -> dict[str, Any] | None:
         return value
     if isinstance(value, str):
         try:
-            return json.loads(value)
+            parsed: Any = json.loads(value)
+            return parsed if isinstance(parsed, dict) else None
         except (json.JSONDecodeError, TypeError):
             return None
     return None
