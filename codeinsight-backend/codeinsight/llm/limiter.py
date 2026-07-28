@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import redis
+import redis.asyncio as aioredis
 
 from codeinsight.config import settings
 from codeinsight.db.redis_client import get_redis_client
@@ -50,12 +51,14 @@ class LLMLimiter:
     def __init__(
         self,
         redis_client: redis.Redis | None = None,
+        async_redis_client: aioredis.Redis | None = None,
         rate_limit_qps: int = 0,
         burst_size: int = 5,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: int = 30,
     ) -> None:
         self._redis = redis_client or get_redis_client()
+        self._async_redis = async_redis_client
         self.rate_limit_qps = rate_limit_qps
         self.burst_size = burst_size
         self.circuit_breaker_threshold = circuit_breaker_threshold
@@ -71,28 +74,105 @@ class LLMLimiter:
         return f"rate_limit:bucket:{key}"
 
     def _circuit_key(self, key: str = "llm_global") -> str:
-        return f"rate_limit:circuit:{key}"
+        return f"circuit_breaker:{key}"
 
-    async def acquire(self, key: str = "llm_global") -> bool:
-        """
-        尝试获取限流令牌
+    async def _load_circuit_state_from_redis(self, key: str) -> None:
+        """从 Redis 加载熔断器状态到本地"""
+        # Determine async Redis client
+        redis_client = self._async_redis
+        if redis_client is None:
+            try:
+                redis_client = await aioredis.from_url("redis://localhost:6379")
+            except Exception as e:
+                logger.warning("无法创建 Redis 客户端以加载熔断器状态: %s", e)
+                return
+        try:
+            # redis-py async stubs 将 hgetall 返回类型标记为 Any | Awaitable[dict] | dict，
+            # 实际使用 decode_responses=True 时始终返回 dict
+            data = await redis_client.hgetall(self._circuit_key(key))  # type: ignore[misc]
+            if data:
+                # Convert bytes to strings
+                data_dict = {k.decode("utf-8"): v.decode("utf-8") for k, v in data.items()}
+                state = data_dict.get("state", CircuitState.CLOSED.value)
+                self._circuit_state = CircuitState(state)
+                failure_str = data_dict.get("failure_count", "0")
+                try:
+                    self._failure_count = int(failure_str)
+                except ValueError:
+                    self._failure_count = 0
+                last_ts = data_dict.get("last_failure_time")
+                if last_ts and last_ts.strip():
+                    self._last_failure_time = datetime.fromisoformat(last_ts)
+                elif self._circuit_state == CircuitState.OPEN:
+                    # 状态为 OPEN 但 last_failure_time 为空，使用当前时间
+                    logger.warning("Redis 熔断器状态 OPEN 但 last_failure_time 为空，使用当前时间: key=%s", key)
+                    self._last_failure_time = datetime.now(UTC)
+                logger.info(
+                    "已从 Redis 加载熔断器状态: %s, 状态=%s, 失败次数=%d",
+                    key,
+                    self._circuit_state.value,
+                    self._failure_count,
+                )
+        except Exception as e:
+            logger.warning("Redis 加载熔断器状态失败: %s", e)
+
+    async def _save_circuit_state_to_redis(self, key: str) -> None:
+        """将本地熔断器状态保存到 Redis"""
+        # Determine async Redis client
+        redis_client = self._async_redis
+        if redis_client is None:
+            try:
+                redis_client = await aioredis.from_url("redis://localhost:6379")
+            except Exception as e:
+                logger.warning("无法创建 Redis 客户端以保存熔断器状态: %s", e)
+                return
+        try:
+            now_str = self._last_failure_time.isoformat() if self._last_failure_time else ""
+            # 如果状态为 OPEN 但 last_failure_time 为空，使用当前时间
+            if self._circuit_state == CircuitState.OPEN and not self._last_failure_time:
+                now_str = datetime.now(UTC).isoformat()
+                self._last_failure_time = datetime.now(UTC)
+            # redis-py async stubs 返回类型有误，hset 是 awaitable
+            await redis_client.hset(  # type: ignore[misc]
+                self._circuit_key(key),
+                mapping={
+                    "state": self._circuit_state.value,
+                    "failure_count": str(self._failure_count),
+                    "last_failure_time": now_str,
+                },
+            )
+            await redis_client.expire(self._circuit_key(key), 3600)  # TTL 1 hour
+            logger.debug("已保存熔断器状态到 Redis: %s", key)
+        except Exception as e:
+            logger.warning("Redis 保存熔断器状态失败: %s", e)
+
+    async def acquire(
+        self, key: str = "llm_global", skip_breaker: bool = False, skip_bucket: bool = False
+    ) -> bool | float:
+        """尝试获取限流令牌或检查熔断器状态。
 
         Args:
             key: 限流键（区分不同 API）
+            skip_breaker: 如果为 True，跳过熔断器检查，仅执行 Token Bucket 限流
+            skip_bucket: 如果为 True，跳过 Token Bucket 限流，仅检查熔断器状态
 
         Returns:
-            True 表示获得令牌，可以请求
-            False 表示被限流，需要等待
+            True 表示获得令牌
+            False 表示 Token Bucket 限流，需要等待重试
+            浮点数（秒数）表示熔断器 OPEN 时的退避时间
 
         Raises:
-            RuntimeError: 熔断器处于 OPEN 状态
+            RuntimeError: 熔断器处于 OPEN 状态且未设置 skip_breaker
         """
-        # 1. 检查熔断器
-        if not await self._check_circuit(key):
-            raise RuntimeError(f"Circuit breaker is OPEN for {key}, requests rejected")
-
-        # 2. Token Bucket 限流
-        if self.rate_limit_qps > 0:
+        # 1. 检查熔断器状态（除非跳过）
+        if not skip_breaker:
+            await self._load_circuit_state_from_redis(key)
+            backoff = await self._check_circuit_with_backoff(key)
+            if isinstance(backoff, float):
+                # 熔断器 OPEN，返回退避时间
+                return backoff
+        # 2. Token Bucket 限流（除非跳过）
+        if not skip_bucket and self.rate_limit_qps > 0:
             try:
                 granted = self._token_bucket_acquire(key)
                 if not granted:
@@ -101,6 +181,33 @@ class LLMLimiter:
                 logger.warning("Redis 限流检查失败，降级为允许请求: key=%s", key)
 
         return True
+
+    async def _check_circuit_with_backoff(self, key: str) -> bool | float:
+        """检查熔断器状态，若OPEN则返回退避时间，否则返回True"""
+        async with self._lock:
+            if self._circuit_state == CircuitState.CLOSED:
+                return True
+
+            if self._circuit_state == CircuitState.OPEN:
+                # 如果 _last_failure_time 为 None（状态损坏或并发重置导致），
+                # 以当前时间作为熔断起点，确保熔断器生效
+                failure_time = self._last_failure_time
+                if failure_time is None:
+                    logger.warning("熔断器 OPEN 但 last_failure_time 为空，使用当前时间作为熔断起点: key=%s", key)
+                    failure_time = datetime.now(UTC)
+                    self._last_failure_time = failure_time
+
+                elapsed = (datetime.now(UTC) - failure_time.replace(tzinfo=UTC)).total_seconds()
+                if elapsed >= self.circuit_breaker_timeout:
+                    self._circuit_state = CircuitState.HALF_OPEN
+                    logger.info("熔断器从 OPEN → HALF_OPEN: key=%s", key)
+                    return True
+                # 仍在熔断期内，返回退避时间
+                remaining = self.circuit_breaker_timeout - int(elapsed)
+                return max(remaining, 1)  # 最少1秒
+
+            # HALF_OPEN: 允许一次探测请求
+            return True
 
     def _token_bucket_acquire(self, key: str) -> bool:
         """
@@ -173,12 +280,20 @@ class LLMLimiter:
             key: 限流键
         """
         async with self._lock:
+            # 只在 CLOSED 或 HALF_OPEN 状态重置统计
+            # 如果当前是 OPEN 状态，说明是并发请求绕过了熔断检查，
+            # 此时不应重置失败计数和时间，否则会破坏熔断器的状态
             if self._circuit_state == CircuitState.HALF_OPEN:
                 logger.info("熔断器 HALF_OPEN 探测成功，恢复 CLOSED: key=%s", key)
                 self._circuit_state = CircuitState.CLOSED
-
-            self._failure_count = 0
-            self._last_failure_time = None
+                self._failure_count = 0
+                self._last_failure_time = None
+                await self._save_circuit_state_to_redis(key)
+            elif self._circuit_state == CircuitState.CLOSED:
+                self._failure_count = 0
+                self._last_failure_time = None
+                await self._save_circuit_state_to_redis(key)
+            # OPEN 状态：不做任何操作，保持熔断状态
 
     async def record_failure(self, key: str = "llm_global") -> None:
         """
@@ -200,6 +315,9 @@ class LLMLimiter:
                     key,
                     self.circuit_breaker_timeout,
                 )
+
+            # 保存至 Redis
+            await self._save_circuit_state_to_redis(key)
 
     async def get_status(self, key: str = "llm_global") -> dict[str, Any]:
         """获取限流器状态"""

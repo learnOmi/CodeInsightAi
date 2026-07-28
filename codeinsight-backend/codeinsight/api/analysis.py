@@ -169,9 +169,8 @@ async def _trigger_eager_analysis_background(
                         "current_step": TaskStatus.COMPLETED.value,
                         "percent": "100.0",
                         "files_processed": str(result.get("files_processed", 0)),
-                        "files_total": str(result.get("files_processed", 0)),
+                        "files_total": str(result.get("files_total", result.get("files_processed", 0))),
                         "knowledge_points_found": str(result.get("knowledge_points_count", 0)),
-                        "total_lines": str(result.get("total_lines", 0)),
                     },
                 )
             # 清理活跃任务标记
@@ -283,7 +282,6 @@ def _celery_result_to_task(task_id: str, repo_id: UUID, mode: AnalysisMode = Ana
         files_processed=meta.get("files_processed", 0),
         files_total=meta.get("files_total", 0),
         knowledge_points_found=meta.get("knowledge_points_found", 0),
-        total_lines=meta.get("total_lines", 0),
     )
 
     # O-D2: 从 Redis 读取实际提交时间（由 submit_analysis 写入），而非始终使用当前时间
@@ -505,30 +503,44 @@ async def submit_analysis(
     mode = request.mode if request and request.mode else AnalysisMode.FULL
     agents = request.agents if request and request.agents else None
 
-    # 内容变化检测：对比最新完成版本的快照与当前文件
+    # 内容变化检测：对比最新版本的快照与当前文件
+    # P3-修复1：如果最新版本状态为 FAILED，即使内容无变化也允许重新分析
     version_dao = AnalysisVersionDAO()
     snapshot_dao = FileAnalysisSnapshotDAO()
     file_dao = FileDAO()
 
+    # 获取最新的无论什么状态的版本（用于判断是否需要强制重分析）
+    _latest_version = await version_dao.get_latest_by_repository(db, repository_id)
+
+    # 仅当存在 COMPLETED 版本时才进行内容变化比较
+    # 如果存在 FAILED 的最新版本，跳过内容检查，允许用户重试
     latest_completed = await version_dao.get_latest_completed(db, repository_id)
     if latest_completed is not None:
-        old_snapshots = await snapshot_dao.get_by_version(db, repository_id, latest_completed.version)
-        old_hash_map = {s.file_id: s.content_hash for s in old_snapshots if s.file_id is not None}
+        # 检查是否有 FAILED 版本覆盖了此 COMPLETED 版本
+        has_failed_version = False
+        try:
+            latest_failed = await version_dao.get_latest_failed(db, repository_id)
+            if latest_failed is not None:
+                has_failed_version = True
+        except Exception:
+            pass  # 忽略查询失败，继续正常逻辑
 
-        current_files = await file_dao.get_by_repository(db, repository_id)
-        current_hash_map = {f.id: f.content_hash for f in current_files}
+        if not has_failed_version:
+            old_snapshots = await snapshot_dao.get_by_version(db, repository_id, latest_completed.version)
+            old_hash_map = {s.file_id: s.content_hash for s in old_snapshots if s.file_id is not None}
 
-        if old_hash_map == current_hash_map:
-            logger.info("内容无变化，跳过重复分析: repo=%s, version=%s", repository_id, latest_completed.version)
-            raise HTTPException(
-                status_code=304,
-                detail=f"Repository {repository_id} has no content changes since version {latest_completed.version}",
-            )
+            current_files = await file_dao.get_by_repository(db, repository_id)
+            current_hash_map = {f.id: f.content_hash for f in current_files}
 
-    # 在 HTTP 请求中立即将仓库状态设为分析中，使前端 cache invalidation 能获得最新状态
-    # 后续后台任务中的 _do_analysis_setup 也会再次设置，此处为提前更新
-    repo.status = "analyzing"
-    await db.flush()
+            if old_hash_map == current_hash_map:
+                logger.info("内容无变化，跳过重复分析: repo=%s, version=%s", repository_id, latest_completed.version)
+                raise HTTPException(
+                    status_code=304,
+                    detail=f"Repository {repository_id} has no content changes since version {latest_completed.version}",
+                )
+    else:
+        # 没有 COMPLETED 版本，但有 FAILED 版本的情况，直接允许分析
+        pass
 
     return await _trigger_analysis(repository_id, repo, mode=mode, agents=agents)
 
@@ -695,7 +707,6 @@ async def stream_task_progress(task_id: str):
                     files_processed = int(progress_data.get("files_processed", 0))
                     files_total = int(progress_data.get("files_total", 0))
                     knowledge_points_found = int(progress_data.get("knowledge_points_found", 0))
-                    total_lines = int(progress_data.get("total_lines", 0))
 
                     # Skip duplicate events
                     if percent != last_percent or step != last_step:
@@ -709,12 +720,12 @@ async def stream_task_progress(task_id: str):
                             if files_total > 0:
                                 # First meaningful update — skip the 0/0 placeholder
                                 has_sent_initial = True
-                                yield f"event: progress\ndata: {json.dumps({'current_step': step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found, 'total_lines': total_lines})}\n\n"
+                                yield f"event: progress\ndata: {json.dumps({'current_step': step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found, 'total_lines': int(progress_data.get('total_lines', 0))})}\n\n"
                             else:
                                 # Still no meaningful data, don't spam 0/0
                                 pass
                         else:
-                            yield f"event: progress\ndata: {json.dumps({'current_step': step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found, 'total_lines': total_lines})}\n\n"
+                            yield f"event: progress\ndata: {json.dumps({'current_step': step, 'percent': percent, 'files_processed': files_processed, 'files_total': files_total, 'knowledge_points_found': knowledge_points_found, 'total_lines': int(progress_data.get('total_lines', 0))})}\n\n"
 
                     if step == TaskStatus.COMPLETED:
                         logger.info("SSE 发送完成事件: task_id=%s", task_id)
@@ -730,7 +741,7 @@ async def stream_task_progress(task_id: str):
                     if last_percent != 0.0:
                         logger.info("SSE 发送初始进度事件（无进度数据）: task_id=%s", task_id)
                         last_percent = 0.0
-                        yield f"event: progress\ndata: {json.dumps({'current_step': 'PENDING', 'percent': 0.0, 'files_processed': 0, 'files_total': 0, 'knowledge_points_found': 0, 'total_lines': 0})}\n\n"
+                        yield f"event: progress\ndata: {json.dumps({'current_step': 'PENDING', 'percent': 0.0, 'files_processed': 0, 'files_total': 0, 'knowledge_points_found': 0})}\n\n"
                 await asyncio.sleep(1)
 
         return StreamingResponse(
@@ -761,7 +772,7 @@ async def stream_task_progress(task_id: str):
                 if last_percent != 0.0 and not has_sent_initial:
                     last_percent = 0.0
                     has_sent_initial = True
-                    yield f"event: progress\ndata: {json.dumps({'current_step': 'PENDING', 'percent': 0.0, 'files_processed': 0, 'files_total': 0, 'knowledge_points_found': 0, 'total_lines': 0})}\n\n"
+                    yield f"event: progress\ndata: {json.dumps({'current_step': 'PENDING', 'percent': 0.0, 'files_processed': 0, 'files_total': 0, 'knowledge_points_found': 0})}\n\n"
                 await asyncio.sleep(1)
                 continue
 

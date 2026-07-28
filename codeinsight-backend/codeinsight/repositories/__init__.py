@@ -10,6 +10,7 @@ from codeinsight.repositories.ast_node import AstNodeDAO
 from codeinsight.repositories.call_edge import CallEdgeDAO
 from codeinsight.repositories.external_dependency import ExternalDependencyDAO
 from codeinsight.repositories.file import FileDAO
+from codeinsight.repositories.file_analysis_progress import FileAnalysisProgressDAO  # R-R4
 from codeinsight.repositories.file_analysis_snapshot import FileAnalysisSnapshotDAO
 from codeinsight.repositories.framework_pattern import FrameworkPatternDAO
 from codeinsight.repositories.knowledge_point import KnowledgePointDAO
@@ -20,6 +21,7 @@ __all__ = [
     "RepositoryDAO",
     "FileDAO",
     "FileAnalysisSnapshotDAO",
+    "FileAnalysisProgressDAO",  # R-R4
     "AstNodeDAO",
     "CallEdgeDAO",
     "ModuleDependencyDAO",

@@ -50,7 +50,7 @@ class FileAnalysisSnapshotDAO:
         return snapshot_objects
 
     async def get_by_version(
-        self, db: AsyncSession, repository_id: UUID, analysis_version: str
+        self, db: AsyncSession, repository_id: UUID, analysis_version: str, stage: str | None = None
     ) -> list[FileAnalysisSnapshotModel]:
         """
         获取指定仓库和版本的所有快照
@@ -59,6 +59,31 @@ class FileAnalysisSnapshotDAO:
             db: 异步数据库会话
             repository_id: 仓库 ID
             analysis_version: 分析版本标签
+            stage: 可选的阶段标记（R-R3）
+
+        Returns:
+            FileAnalysisSnapshotModel 列表
+        """
+        query = select(FileAnalysisSnapshotModel).where(
+            FileAnalysisSnapshotModel.repository_id == repository_id,
+            FileAnalysisSnapshotModel.analysis_version == analysis_version,
+        )
+        if stage is not None:
+            query = query.where(FileAnalysisSnapshotModel.stage == stage)
+        result = await db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_by_version_and_stage(
+        self, db: AsyncSession, repository_id: UUID, analysis_version: str, stage: str
+    ) -> list[FileAnalysisSnapshotModel]:
+        """
+        R-R3: 获取指定仓库、版本和阶段的所有快照
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            analysis_version: 分析版本标签
+            stage: 里程碑阶段标记
 
         Returns:
             FileAnalysisSnapshotModel 列表
@@ -67,28 +92,33 @@ class FileAnalysisSnapshotDAO:
             select(FileAnalysisSnapshotModel).where(
                 FileAnalysisSnapshotModel.repository_id == repository_id,
                 FileAnalysisSnapshotModel.analysis_version == analysis_version,
+                FileAnalysisSnapshotModel.stage == stage,
             )
         )
         return list(result.scalars().all())
 
-    async def get_latest_version(self, db: AsyncSession, repository_id: UUID) -> str | None:
+    async def get_latest_version(self, db: AsyncSession, repository_id: UUID, stage: str | None = None) -> str | None:
         """
-        获取指定仓库最新的分析版本标签
+        获取指定仓库最新快照的版本标签
+
+        R-R3: 支持按 stage 获取特定阶段的最新快照版本。
 
         Args:
             db: 异步数据库会话
             repository_id: 仓库 ID
+            stage: 可选的阶段标记
 
         Returns:
             最新的分析版本标签，无快照时返回 None
         """
         from sqlalchemy import func as sa_func
 
-        result = await db.execute(
-            select(sa_func.max(FileAnalysisSnapshotModel.analysis_version)).where(
-                FileAnalysisSnapshotModel.repository_id == repository_id
-            )
+        query = select(sa_func.max(FileAnalysisSnapshotModel.analysis_version)).where(
+            FileAnalysisSnapshotModel.repository_id == repository_id
         )
+        if stage is not None:
+            query = query.where(FileAnalysisSnapshotModel.stage == stage)
+        result = await db.execute(query)
         return result.scalar()
 
     async def get_all_versions(

@@ -69,6 +69,30 @@ class CallEdgeDAO:
         rowcount = getattr(result, "rowcount", 0)
         return cast(int, rowcount) or 0
 
+    async def delete_by_repository_and_version(
+        self, db: AsyncSession, repository_id: UUID, analysis_version_id: UUID
+    ) -> int:
+        """
+        R-R1: 删除指定仓库和分析版本的调用边（版本隔离清理）
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            analysis_version_id: 分析版本 ID
+
+        Returns:
+            删除的记录数
+        """
+        result = await db.execute(
+            delete(CallEdgeModel).where(
+                CallEdgeModel.repository_id == repository_id,
+                CallEdgeModel.analysis_version_id == analysis_version_id,
+            )
+        )
+        await db.flush()
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount) or 0
+
     async def delete_by_file_ids(self, db: AsyncSession, repository_id: UUID, file_ids: list[UUID]) -> int:
         """
         删除与指定文件相关的调用边（增量分析用）

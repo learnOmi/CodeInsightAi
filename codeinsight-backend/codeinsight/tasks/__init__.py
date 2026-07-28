@@ -8,6 +8,8 @@ from celery import Celery
 
 from codeinsight.config import settings
 
+__all__ = ["celery_app", "make_celery"]
+
 
 def make_celery(app_name: str = "codeinsight.tasks") -> Celery:
     """
@@ -50,7 +52,7 @@ def make_celery(app_name: str = "codeinsight.tasks") -> Celery:
         },
     )
 
-    # 发现同包下的所有任务模块
+    # 发现同包下的所有任务模块（包含 retry_tasks 等）
     celery_app.autodiscover_tasks(["codeinsight.tasks"])
 
     return celery_app

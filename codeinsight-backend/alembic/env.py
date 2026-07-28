@@ -12,10 +12,14 @@ from codeinsight.db.base import Base
 # 导入所有模型以注册到 metadata（供 autogenerate 使用）
 from codeinsight.models import (  # noqa: F401
     AnalysisVersionModel,
+    ApiRouteModel,
     AstNodeModel,
     CallEdgeModel,
+    ExternalDependencyModel,
+    FileAnalysisProgressModel,
     FileAnalysisSnapshotModel,
     FileModel,
+    FrameworkPatternModel,
     KnowledgePointModel,
     ModuleDependencyModel,
     RepositoryModel,

@@ -149,6 +149,7 @@ class ScanResult:
             "language_distribution": self.language_distribution,
             "skipped_count": self.skipped_count,
             "errors": self.errors,
+            "commit_hash": self.commit_hash,
         }
 
     def batch_iter(self, batch_size: int = 1000) -> Generator[list[ScannedFile], None, None]:

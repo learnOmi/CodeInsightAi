@@ -46,53 +46,44 @@ export function RepoCard({ repository }: RepoCardProps) {
   const deleteRepository = useDeleteRepository();
 
   // 从 localStorage 读取 pending taskId（创建仓库时自动分析场景）
-  // 使用 initialized flag 确保组件挂载时立即检查，不依赖 repository.currentTaskId 变化
-  const [initialized, setInitialized] = useState(false);
-
+  // 当 repository.currentTaskId 变化时重新检查，解决数据加载时序问题
   useEffect(() => {
-    if (!initialized) {
-      const pendingTaskId = localStorage.getItem("pending_task_id");
-      if (pendingTaskId) {
-        setCurrentTaskId(pendingTaskId);
-        localStorage.removeItem("pending_task_id");
-      }
-      setInitialized(true);
+    const pendingTaskId = localStorage.getItem("pending_task_id");
+    if (pendingTaskId && pendingTaskId === repository.currentTaskId) {
+      setCurrentTaskId(pendingTaskId);
+      localStorage.removeItem("pending_task_id");
     }
-  }, [initialized]);
+  }, [repository.currentTaskId]);
 
   const isAnalyzing = repository.status === "analyzing";
   const taskId = currentTaskId || repository.currentTaskId || "";
 
-  console.log("[RepoCard] isAnalyzing:", isAnalyzing, "currentTaskId:", currentTaskId, "repository.currentTaskId:", repository.currentTaskId, "taskId:", taskId);
-
-  // SSE 实时进度：只要存在 taskId 就连接，不依赖 isAnalyzing 状态
-  // （isAnalyzing 依赖仓库列表 refetch，而分析期间没有 refetchInterval，导致状态卡顿）
+  // SSE 实时进度：仅在仓库处于 analyzing 状态且 taskId 非空时连接
+  // 避免旧任务 ID 残留导致的闪现问题（showProgress 必须同时检查 repository.status）
+  const shouldConnectSSE = isAnalyzing && !!taskId;
   const { data: sseData, error: sseError, isComplete } = useSSE(
     taskId,
-    !!taskId,
+    shouldConnectSSE,
   );
 
   // SSE 连接完成/失败时刷新仓库数据，并清除 currentTaskId 避免重连
   useEffect(() => {
-    if (isComplete) {
+    if (isComplete && shouldConnectSSE) {
       queryClient.invalidateQueries({ queryKey: ["repositories"] });
-      // 清除 currentTaskId，断开 SSE，等待下次分析重新建立连接
       setCurrentTaskId("");
     }
-  }, [isComplete, queryClient]);
+  }, [isComplete, shouldConnectSSE, queryClient]);
 
   const handleSubmitAnalysis = async () => {
     setSubmitError("");
-    console.log("[RepoCard] 提交前 - currentTaskId:", currentTaskId, "repository.currentTaskId:", repository.currentTaskId);
     try {
       const result = await submitAnalysis.mutateAsync({ repositoryId: repository.id });
       console.log("[RepoCard] submitAnalysis result:", result);
       console.log("[RepoCard] 提交后 - result.status:", result.status);
-      // 立即刷新仓库列表，使 status 从 cancelled 更新为 analyzing
-      queryClient.invalidateQueries({ queryKey: ["repositories"] });
       // Eager 模式下分析同步完成，直接刷新仓库列表显示最终状态
       if (result.status === "completed" || result.status === "failed") {
         console.log("[RepoCard] status 是 completed/failed，不设置 taskId");
+        queryClient.invalidateQueries({ queryKey: ["repositories"] });
       } else {
         console.log("[RepoCard] 设置 currentTaskId:", result.taskId);
         setCurrentTaskId(result.taskId);
@@ -117,8 +108,6 @@ export function RepoCard({ repository }: RepoCardProps) {
     if (taskId) {
       try {
         await cancelTask.mutateAsync(taskId);
-        // 立即清除 taskId 断开 SSE 连接，避免按钮状态卡死
-        setCurrentTaskId("");
         queryClient.invalidateQueries({ queryKey: ["repositories"] });
       } catch (err) {
         if (err instanceof APIError) {
@@ -147,12 +136,11 @@ export function RepoCard({ repository }: RepoCardProps) {
   const statusConfig = getAnalysisStatusConfig(repository.status);
   const progress = sseData?.progress || { percent: 0, filesProcessed: 0, filesTotal: 0, currentStep: "pending" as TaskStatus, knowledgePointsFound: 0, totalLines: 0 };
   const currentStep = progress.currentStep ? taskStepLabels[progress.currentStep] : "";
-  // 进度条显示条件：有 taskId 且 SSE 未完成
-  // （isAnalyzing 依赖仓库列表 refetch，分析期间无 refetchInterval，导致状态卡顿）
-  const showProgress = !!taskId && !isComplete;
+  // 进度条显示条件：仓库处于分析中状态且有 taskId 且 SSE 未完成
+  const showProgress = isAnalyzing && !!taskId && !isComplete;
 
-  // 检查部分失败：如果状态是 completed 但有 incomplete agent results（通过 error_message 或其他方式指示）
-  const isPartialFailure = repository.status === "completed" && repository.errorMessage;
+  // 检查部分失败：如果状态是 completed 但有 incomplete agent results
+  const isPartialFailure = repository.status === "completed" && (repository as { errorMessage?: string }).errorMessage;
 
   return (
     <div className="group relative rounded-2xl overflow-hidden bg-[var(--bg-card)] transition-all duration-500 hover:-translate-y-1 hover:shadow-[var(--glow-brand-light)]">

@@ -8,9 +8,17 @@ type AnalysisTask = components["schemas"]["AnalysisTask"];
 type AnalyzeRequest = components["schemas"]["AnalyzeRequest"];
 type AnalysisVersion = components["schemas"]["AnalysisVersion"];
 
-/** 获取仓库列表 */
-export async function getRepositories(): Promise<Repository[]> {
-  return apiFetch("/api/v1/repositories");
+export interface PaginatedRepositories {
+  items: Repository[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+/** 获取仓库列表（分页） */
+export async function getRepositories(page = 1, pageSize = 100): Promise<PaginatedRepositories> {
+  return apiFetch(`/api/v1/repositories?page=${page}&page_size=${pageSize}`);
 }
 
 /** 获取单个仓库 */

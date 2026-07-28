@@ -42,6 +42,7 @@ from codeinsight.analyzers import (
 from codeinsight.constants.redis_keys import repo_active_task_key, task_cancel_key
 from codeinsight.db.redis_client import get_async_redis_client
 from codeinsight.db.session import async_session_factory
+from codeinsight.embedding.client import EmbeddingClient
 from codeinsight.exceptions import CancelledError
 from codeinsight.llm.client import LLMClient
 from codeinsight.models import AstNodeModel, FileModel
@@ -53,6 +54,7 @@ from codeinsight.repositories import (
     AstNodeDAO,
     CallEdgeDAO,
     ExternalDependencyDAO,
+    FileAnalysisProgressDAO,
     FileDAO,
     FrameworkPatternDAO,
     KnowledgePointDAO,
@@ -212,15 +214,14 @@ class AnalysisOrchestrator:
         self.mode = mode
         self.task_instance = task_instance
         # 优先使用显式传入的 task_id（eager 后台任务），否则从 task_instance 获取
-        self.task_id: str | None = None
         if task_id:
             self.task_id = task_id
         elif task_instance is not None:
-            self.task_id = getattr(task_instance, "id", None) or getattr(task_instance, "task_id", None)
+            self.task_id = getattr(task_instance, "id", None) or getattr(task_instance, "task_id", None)  # type: ignore[assignment]
             if self.task_id is None:
-                self.task_id = getattr(getattr(task_instance, "request", None), "id", None)
+                self.task_id = getattr(getattr(task_instance, "request", None), "id", None)  # type: ignore[assignment]
         else:
-            self.task_id = None
+            self.task_id = None  # type: ignore[assignment]
         # 选择进度管理器：eager 后台任务使用 Redis，Celery 任务使用 ProgressManager
         if task_instance is None and self.task_id:
             self.progress_manager = RedisProgressManager(self.task_id)
@@ -254,6 +255,81 @@ class AnalysisOrchestrator:
         self.dependency_parser = DependencyParser()
         self.module_dep_builder = ModuleDependencyBuilder(self.external_dependency_dao)
         self.call_graph_builder = CallGraphBuilder(ext_dep_dao=self.external_dependency_dao)
+        # R-R4: 文件级进度追踪 DAO
+        self.progress_dao = FileAnalysisProgressDAO()
+
+        logger.info(
+            "AnalysisOrchestrator 初始化完成: repo=%s, version=%s, mode=%s", self.repo_uuid, self.version_tag, self.mode
+        )
+
+    # ================================================================
+    # R-R3 / R-R4: 里程碑快照与文件级进度
+    # ================================================================
+
+    async def _save_stage_snapshot(
+        self, db: AsyncSession, stage: str, node_counts: dict[str, int] | None = None
+    ) -> None:
+        """
+        R-R3: 保存指定阶段的里程碑快照
+
+        在每个关键里程碑保存文件快照，支持后续阶段的精确恢复。
+        快照数据不会在 `_cleanup_failed_step_data` 中清理（因为 file_id 随 files 重建会变），
+        但 stages_completed 元数据会在 version 表中被后续阶段覆盖，恢复时以 stages_completed 为准。
+
+        Args:
+            db: 共享数据库会话
+            stage: 里程碑阶段标记（scan/ast/structures/frameworks/ai）
+            node_counts: 每个文件的 AST 节点数（仅 ast 阶段需要）
+        """
+        if self.version_id is None or not self.version_tag:
+            logger.warning("阶段快照: version_id 或 version_tag 为 None，跳过")
+            return
+        if not getattr(self, "scan_result", None):
+            logger.warning("阶段快照: scan_result 为空，跳过")
+            return
+        try:
+            files = await self.file_dao.get_by_repository(db, self.repo_uuid)
+            snapshot_manager = SnapshotManager(db)
+            count = await snapshot_manager.save_snapshot(
+                self.repo_uuid, self.version_tag, files, node_counts=node_counts, stage=stage
+            )
+            logger.info(
+                "里程碑快照保存: repo=%s, version=%s, stage=%s, files=%d",
+                self.repo_uuid,
+                self.version_tag,
+                stage,
+                count,
+            )
+        except Exception:
+            logger.warning("里程碑快照保存失败: stage=%s", stage, exc_info=True)
+
+    async def _track_file_progress(
+        self, db: AsyncSession, file_path: str, stage: str, status: str, progress_data: dict | None = None
+    ) -> None:
+        """
+        R-R4: 记录单个文件的处理进度
+
+        Args:
+            db: 数据库会话
+            file_path: 文件路径
+            stage: 分析阶段
+            status: 处理状态（processing/completed/failed/skipped）
+            progress_data: 附加数据
+        """
+        if self.version_id is None:
+            return
+        try:
+            await self.progress_dao.upsert(
+                db,
+                self.repo_uuid,
+                self.version_id,
+                file_path,
+                stage,
+                status,
+                progress_data or {},
+            )
+        except Exception:
+            logger.warning("文件进度记录失败: file=%s, stage=%s, status=%s", file_path, stage, status, exc_info=True)
 
     # ================================================================
     # 私有数据库辅助方法（共享 session 支持）
@@ -313,6 +389,8 @@ class AnalysisOrchestrator:
         error_message: str | None = None,
         version: str | None = None,
         agent_status: dict[str, Any] | None = None,
+        scan_metadata: dict[str, Any] | None = None,
+        stages_completed: dict[str, Any] | None = None,
     ) -> None:
         """更新分析版本状态"""
         if self.version_id is None:
@@ -333,6 +411,12 @@ class AnalysisOrchestrator:
             update_data["version"] = version
         if agent_status is not None:
             update_data["agent_status"] = agent_status
+        # R-R2: 存储扫描元数据
+        if scan_metadata is not None:
+            update_data["scan_metadata"] = scan_metadata
+        # R-R4: 存储已完成阶段
+        if stages_completed is not None:
+            update_data["stages_completed"] = stages_completed
 
         if db is not None:
             await self.version_dao.update(db, self.version_id, update_data)
@@ -432,17 +516,26 @@ class AnalysisOrchestrator:
                 raise
 
     async def _reconstruct_scan_result(self, db: AsyncSession | None = None) -> bool:
-        """从数据库重建扫描结果（断点续跑用）"""
+        """
+        从数据库重建扫描结果（断点续跑用）
+
+        R-R2: 从扫描元数据中恢复 commit_hash、errors、skipped_count 等原始扫描信息。
+        """
         if db is not None:
             files = await self.file_dao.get_by_repository(db, self.repo_uuid)
+            version = await self.version_dao.get_by_id(db, self.version_id) if self.version_id else None
         else:
             async with async_session_factory() as db:
                 files = await self.file_dao.get_by_repository(db, self.repo_uuid)
+                version = await self.version_dao.get_by_id(db, self.version_id) if self.version_id else None
 
         if not files:
             return False
 
         self.total_files = len(files)
+
+        # R-R2: 从 scan_metadata 中恢复扫描元数据
+        scan_metadata = getattr(version, "scan_metadata", None) if version else None
 
         class _DbScanFile:
             def __init__(self, f: FileModel) -> None:
@@ -454,7 +547,7 @@ class AnalysisOrchestrator:
                 self.content_hash = f.content_hash
 
         class _DbScanResult:
-            def __init__(self, files_list: list[FileModel]) -> None:
+            def __init__(self, files_list: list[FileModel], metadata: dict | None = None) -> None:
                 self.files = [_DbScanFile(f) for f in files_list]
                 self.total_count = len(files_list)
                 # O-B12: line_count 可能为 None，使用 or 0 防止 sum() 崩溃
@@ -462,16 +555,84 @@ class AnalysisOrchestrator:
                 self.language_distribution: dict[str, int] = {}
                 for f in files_list:
                     self.language_distribution[f.language] = self.language_distribution.get(f.language, 0) + 1
-                self.skipped_count = 0
-                self.errors: list[str] = []
+                # R-R2: 优先使用 scan_metadata 中的元数据
+                if metadata:
+                    self.skipped_count = metadata.get("skipped_count", 0)
+                    self.errors = metadata.get("errors", [])  # type: ignore[no-redef]
+                    self.commit_hash = metadata.get("commit_hash")  # type: ignore[no-redef]
+                else:
+                    self.skipped_count = 0
+                    self.errors: list[str] = []  # type: ignore[no-redef]
+                    self.commit_hash: str | None = None  # type: ignore[no-redef]
 
-        self.scan_result = _DbScanResult(files)  # type: ignore[assignment]
-        logger.info("从数据库重建 scan_result: files=%d", self.total_files)
+        self.scan_result = _DbScanResult(files, scan_metadata)  # type: ignore[assignment]
+        logger.info(
+            "从数据库重建 scan_result: files=%d, commit_hash=%s, skipped=%d, errors=%d",
+            self.total_files,
+            getattr(self.scan_result, "commit_hash", None),
+            getattr(self.scan_result, "skipped_count", 0),
+            len(getattr(self.scan_result, "errors", [])),
+        )
         return True
 
     # ================================================================
     # 步骤方法
     # ================================================================
+
+    async def _mark_stage_complete(
+        self,
+        db: AsyncSession,
+        stage: str,
+        total_files: int = 0,
+    ) -> None:
+        """
+        R-R4: 标记某个分析阶段已完成，并保存阶段性快照。
+
+        在 AST 解析、结构分析等阶段完成后调用，记录到 stages_completed 字典中，
+        以便断点续跑时跳过已完成阶段。
+
+        Args:
+            db: 数据库会话
+            stage: 阶段名称（ast / structures / frameworks）
+            total_files: 该阶段完成时已处理的文件数
+        """
+        # 从现有 version 加载 stages_completed
+        version = await self.version_dao.get_by_id(db, self.version_id) if self.version_id else None
+        stages_completed: dict[str, Any] = getattr(version, "stages_completed", None) or {}
+        stages_completed[stage] = {
+            "completed_at": datetime.now(UTC).isoformat(),
+            "total_files": total_files,
+        }
+        # 根据 stage 映射为正确的 TaskStatus，而不是统一写 ANALYZING_MODULES
+        _stage_to_status: dict[str, TaskStatus] = {
+            "ast": TaskStatus.PARSING,
+            "structures": TaskStatus.ANALYZING_STRUCTURES,
+            "frameworks": TaskStatus.ANALYZING_STRUCTURES,
+        }
+        status = _stage_to_status.get(stage, TaskStatus.ANALYZING_MODULES)
+        await self._update_analysis_version(db, status, stages_completed=stages_completed)
+        logger.info(
+            "已标记阶段完成: repo=%s, stage=%s, status=%s, completed_stages=%s",
+            self.repo_uuid,
+            stage,
+            status.value,
+            list(stages_completed.keys()),
+        )
+
+    def _has_stage_completed(self, stage: str) -> bool:
+        """
+        R-R4: 检查某个阶段是否已在 stages_completed 中标记为完成。
+
+        Args:
+            stage: 阶段名称
+
+        Returns:
+            True 如果该阶段已完成
+        """
+        stages_completed = getattr(self, "_stages_completed_cache", None)
+        if stages_completed is None:
+            return False
+        return stage in stages_completed
 
     async def scan_files(self, db: AsyncSession | None = None) -> bool:
         """
@@ -532,6 +693,16 @@ class AnalysisOrchestrator:
                 }
             )
         await self._store_files_to_db(db, files_data)
+
+        # R-R2: 存储扫描元数据，供断点续跑时完整重建 ScanResult
+        scan_metadata = {
+            "total_lines": self.scan_result.total_lines,
+            "language_distribution": self.scan_result.language_distribution,
+            "skipped_count": self.scan_result.skipped_count,
+            "errors": self.scan_result.errors,
+            "commit_hash": self.scan_result.commit_hash,
+        }
+        await self._update_analysis_version(db, TaskStatus.SCANNING, scan_metadata=scan_metadata)
 
         return True
 
@@ -624,8 +795,19 @@ class AnalysisOrchestrator:
                 if db is not None:
                     file_sp = await db.begin_nested()
                 try:
+                    # R-R4: 标记文件开始处理
+                    await self._track_file_progress(db, scanned_file.path, "ast", "processing")
+
                     parser = ParserFactory.get_parser(scanned_file.language)
                     if parser is None:
+                        # R-R4: 跳过（无解析器）
+                        await self._track_file_progress(
+                            db,
+                            scanned_file.path,
+                            "ast",
+                            "skipped",
+                            progress_data={"reason": f"No parser for {scanned_file.language}"},
+                        )
                         continue
 
                     ast_nodes = parser.parse_file(scanned_file.absolute_path)
@@ -633,6 +815,13 @@ class AnalysisOrchestrator:
                     self.framework_tagger.tag_all(ast_nodes)
                     file_id = file_id_map.get(scanned_file.path)
                     if file_id is None:
+                        await self._track_file_progress(
+                            db,
+                            scanned_file.path,
+                            "ast",
+                            "failed",
+                            progress_data={"error": "File not found in repo_files"},
+                        )
                         continue
                     # 显式转换为 uuid.UUID，避免 SQLAlchemy 批量 flush 时 sentinels 匹配失败
                     file_id = uuid.UUID(str(file_id))
@@ -659,6 +848,7 @@ class AnalysisOrchestrator:
                             {
                                 "id": node_uuids_a2[key],
                                 "repository_id": self.repo_uuid,
+                                "analysis_version_id": self.version_id,  # R-R1: 版本隔离
                                 "file_id": file_id,
                                 "node_type": node.node_type,
                                 "name": node.name,
@@ -678,6 +868,10 @@ class AnalysisOrchestrator:
                     if nodes_data:
                         result = await pipeline.ingest_ast_nodes(self.repo_uuid, nodes_data)
                         parsed_count += result.inserted_count
+                    # R-R4: 标记文件处理成功
+                    await self._track_file_progress(
+                        db, scanned_file.path, "ast", "completed", progress_data={"nodes_count": len(ast_nodes)}
+                    )
                     if file_sp is not None:
                         await file_sp.commit()
                 except Exception as exc:
@@ -685,6 +879,10 @@ class AnalysisOrchestrator:
                     if file_sp is not None:
                         with contextlib.suppress(Exception):
                             await file_sp.rollback()
+                    # R-R4: 标记文件处理失败
+                    await self._track_file_progress(
+                        db, scanned_file.path, "ast", "failed", progress_data={"error": str(exc)}
+                    )
                     logger.warning("AST 解析失败: file=%s, error=%s", scanned_file.absolute_path, exc)
                     continue
 
@@ -737,6 +935,7 @@ class AnalysisOrchestrator:
                             {
                                 "id": node_uuids_2[key],
                                 "repository_id": self.repo_uuid,
+                                "analysis_version_id": self.version_id,  # R-R1: 版本隔离
                                 "file_id": file_id,
                                 "node_type": node.node_type,
                                 "name": node.name,
@@ -806,6 +1005,7 @@ class AnalysisOrchestrator:
                         nodes_data.append(
                             {
                                 "repository_id": self.repo_uuid,
+                                "analysis_version_id": self.version_id,  # R-R1: 版本隔离
                                 "file_id": file_obj.id,
                                 "node_type": node.node_type,
                                 "name": node.name,
@@ -1344,17 +1544,13 @@ class AnalysisOrchestrator:
                     await db.rollback()
 
     async def complete(
-        self,
-        db: AsyncSession | None,
-        knowledge_points_count: int = 0,
-        agent_results: dict | None = None,
-        total_lines: int = 0,
+        self, db: AsyncSession | None, knowledge_points_count: int = 0, agent_results: dict | None = None
     ) -> None:
         """标记任务完成"""
         completed_at = datetime.now(UTC)
 
         self.progress_manager.update(
-            TaskStatus.COMPLETED, 100.0, self.total_files, self.total_files, knowledge_points_count, total_lines
+            TaskStatus.COMPLETED, 100.0, self.total_files, self.total_files, knowledge_points_count
         )
         await self._update_analysis_version(
             db,
@@ -1371,6 +1567,24 @@ class AnalysisOrchestrator:
             repo = await self.repository_dao.get_by_id(db, self.repo_uuid)
             if repo is not None:
                 repo.knowledge_points_count = knowledge_points_count
+
+        # P2-b: 记录失败的 AI 分析节点到 Redis
+        if agent_results:
+            for category, status_info in agent_results.items():
+                if isinstance(status_info, dict) and status_info.get("status") == "failed":
+                    error_msg = status_info.get("error", "Unknown error")
+                    try:
+                        from codeinsight.db.redis_failed_nodes import record_failed_node
+
+                        record_failed_node(
+                            repo_uuid=str(self.repo_uuid),
+                            category=category,
+                            error=error_msg,
+                            version=self.version_tag,
+                        )
+                    except Exception as exc:
+                        logger.warning("记录失败节点到 Redis 失败: %s", exc)
+
         self._cleanup_redis_task_key()
 
         logger.info(
@@ -1381,9 +1595,9 @@ class AnalysisOrchestrator:
             agent_results,
         )
 
-    async def fail(self, db: AsyncSession | None, error_message: str, total_lines: int = 0) -> None:
+    async def fail(self, db: AsyncSession | None, error_message: str) -> None:
         """标记任务失败"""
-        self.progress_manager.update(TaskStatus.FAILED, 100.0, self.total_files, self.total_files, 0, total_lines)
+        self.progress_manager.update(TaskStatus.FAILED, 100.0, self.total_files, self.total_files, 0)
         if self.version_id is not None:
             try:
                 await self._update_analysis_version(
@@ -1407,21 +1621,12 @@ class AnalysisOrchestrator:
         if self.version_id is None:
             return
 
-        try:
-            await self._update_analysis_version(
-                db,
-                TaskStatus.CANCELLED,
-                completed_at=datetime.now(UTC),
-            )
-        except Exception:
-            logger.warning("更新分析版本失败（版本可能未提交），继续更新仓库状态", exc_info=True)
-
-        try:
-            await self._set_repo_status(db, TaskStatus.CANCELLED.value)
-        except Exception:
-            logger.warning("更新仓库状态失败", exc_info=True)
-
-        self._cleanup_redis_task_key()
+        await self._update_analysis_version(
+            db,
+            TaskStatus.CANCELLED,
+            completed_at=datetime.now(UTC),
+        )
+        await self._set_repo_status(db, TaskStatus.CANCELLED.value)
 
     async def get_in_progress_version(self, db: AsyncSession | None = None) -> tuple[Any, str | None]:
         """检查是否有未终态的分析版本"""
@@ -1464,22 +1669,35 @@ class AnalysisOrchestrator:
             await db.commit()
 
     async def _cleanup_failed_step_data_inner(self, db: AsyncSession, failed_status: str) -> None:
-        """cleanup_failed_step_data 内部逻辑（不含 commit）"""
+        """
+        清理失败步骤的残留数据
+
+        R-R1: 使用 analysis_version_id 隔离清理，仅删除当前版本的数据，
+        不删除历史版本或同一仓库其他分析版本的数据。
+        """
+        version_id = getattr(self, "version_id", None)
+        if version_id is None:
+            logger.warning("version_id 为 None，无法执行版本隔离清理，跳过")
+            return
+
         if failed_status == TaskStatus.PARSING.value:
             ast_dao = AstNodeDAO()
-            deleted = await ast_dao.delete_by_repository(db, self.repo_uuid)
-            logger.info("清理失败 AST 数据: deleted=%d", deleted)
+            deleted = await ast_dao.delete_by_repository_and_version(db, self.repo_uuid, version_id)
+            logger.info("清理失败 AST 数据: version=%s, deleted=%d", version_id, deleted)
 
         elif failed_status == TaskStatus.ANALYZING_STRUCTURES.value:
             call_edge_dao = CallEdgeDAO()
             module_dep_dao = ModuleDependencyDAO()
-            deleted_edges = await call_edge_dao.delete_by_repository(db, self.repo_uuid)
-            deleted_deps = await module_dep_dao.delete_by_repository(db, self.repo_uuid)
-            # 同时清理框架检测和路由数据
-            deleted_routes = await self.api_route_dao.delete_by_repository(db, self.repo_uuid)
-            deleted_patterns = await self.framework_pattern_dao.delete_by_repository(db, self.repo_uuid)
+            deleted_edges = await call_edge_dao.delete_by_repository_and_version(db, self.repo_uuid, version_id)
+            deleted_deps = await module_dep_dao.delete_by_repository_and_version(db, self.repo_uuid, version_id)
+            # 同时清理框架检测和路由数据（这些表已存在 analysis_version_id 字段）
+            deleted_routes = await self.api_route_dao.delete_by_repository_and_version(db, self.repo_uuid, version_id)
+            deleted_patterns = await self.framework_pattern_dao.delete_by_repository_and_version(
+                db, self.repo_uuid, version_id
+            )
             logger.info(
-                "清理失败结构数据: edges=%d, deps=%d, routes=%d, patterns=%d",
+                "清理失败结构数据: version=%s, edges=%d, deps=%d, routes=%d, patterns=%d",
+                version_id,
                 deleted_edges,
                 deleted_deps,
                 deleted_routes,
@@ -1487,30 +1705,29 @@ class AnalysisOrchestrator:
             )
 
         elif failed_status == TaskStatus.PENDING.value:
-            file_dao = FileDAO()
-            deleted = await file_dao.delete_by_repository(db, self.repo_uuid)
-            logger.info("清理失败文件数据: deleted=%d", deleted)
+            # PENDING 阶段文件还未存储到 DB，无需清理
+            logger.info("PENDING 阶段无需清理文件数据: version=%s", version_id)
 
         elif failed_status == TaskStatus.FAILED.value:
-            # 失败状态：清理所有可能残留的数据
+            # 失败状态：清理当前版本可能残留的结构化数据（非文件数据）
             ast_dao = AstNodeDAO()
-            deleted_ast = await ast_dao.delete_by_repository(db, self.repo_uuid)
+            deleted_ast = await ast_dao.delete_by_repository_and_version(db, self.repo_uuid, version_id)
             call_edge_dao = CallEdgeDAO()
             module_dep_dao = ModuleDependencyDAO()
-            deleted_edges = await call_edge_dao.delete_by_repository(db, self.repo_uuid)
-            deleted_deps = await module_dep_dao.delete_by_repository(db, self.repo_uuid)
-            deleted_routes = await self.api_route_dao.delete_by_repository(db, self.repo_uuid)
-            deleted_patterns = await self.framework_pattern_dao.delete_by_repository(db, self.repo_uuid)
-            file_dao = FileDAO()
-            deleted_files = await file_dao.delete_by_repository(db, self.repo_uuid)
+            deleted_edges = await call_edge_dao.delete_by_repository_and_version(db, self.repo_uuid, version_id)
+            deleted_deps = await module_dep_dao.delete_by_repository_and_version(db, self.repo_uuid, version_id)
+            deleted_routes = await self.api_route_dao.delete_by_repository_and_version(db, self.repo_uuid, version_id)
+            deleted_patterns = await self.framework_pattern_dao.delete_by_repository_and_version(
+                db, self.repo_uuid, version_id
+            )
             logger.info(
-                "清理失败仓库全部数据: ast=%d, edges=%d, deps=%d, routes=%d, patterns=%d, files=%d",
+                "清理失败版本全部结构化数据: version=%s, ast=%d, edges=%d, deps=%d, routes=%d, patterns=%d",
+                version_id,
                 deleted_ast,
                 deleted_edges,
                 deleted_deps,
                 deleted_routes,
                 deleted_patterns,
-                deleted_files,
             )
 
     def run(self) -> dict[str, Any]:
@@ -1563,6 +1780,16 @@ class AnalysisOrchestrator:
             self.version_tag = existing_version.version
             self.total_files = existing_version.total_files
 
+            # R-R4: 加载已完成的阶段列表到缓存，供后续阶段跳过判断
+            existing_stages = getattr(existing_version, "stages_completed", None)
+            if existing_stages:
+                self._stages_completed_cache = existing_stages
+                logger.info(
+                    "恢复已完成阶段: repo=%s, stages=%s",
+                    self.repo_uuid,
+                    list(existing_stages.keys()),
+                )
+
             if existing_version.status == TaskStatus.FAILED.value:
                 # 失败恢复：使用独立 session 清理数据
                 await self.cleanup_failed_step_data(None, existing_version.status)
@@ -1590,11 +1817,13 @@ class AnalysisOrchestrator:
                 await self.cancel_checker.check(self.task_id)
                 if not await self.scan_files(shared_db):
                     raise ValueError(f"Repository {self.repo_uuid} not found for scanning")
-                # 扫描完成后 total_files 已更新，再次推送进度让 filesTotal 从 0 跳变到真实值
-                scan_result = self.scan_result
-                assert scan_result is not None  # scan_files 成功则 scan_result 必不为 None
-                total_lines = scan_result.total_lines
-                self.progress_manager.update(TaskStatus.SCANNING, 10.0, 0, self.total_files, 0, total_lines)
+                # 扫描完成后更新进度，包含 total_lines 供前端显示 LINES 计数
+                total_lines = self.scan_result.total_lines if self.scan_result else 0
+                self.progress_manager.update(
+                    TaskStatus.SCANNING, 10.0, self.total_files, self.total_files, 0, total_lines
+                )
+                # R-R3: 扫描完成后保存里程碑快照
+                await self._save_stage_snapshot(shared_db, "scan")
 
             # 增量判断
             do_full_analysis = self.mode == AnalysisMode.FULL.value
@@ -1604,17 +1833,22 @@ class AnalysisOrchestrator:
 
             # Step 3: AST 解析
             if skip_to_step != "ast":
-                self.progress_manager.update(TaskStatus.PARSING, 25.0, 0, self.total_files, 0, total_lines)
+                self.progress_manager.update(TaskStatus.PARSING, 25.0, self.total_files, self.total_files)
                 await self._update_analysis_version(shared_db, TaskStatus.PARSING)
 
                 if self.task_id:
-                    # 文件级进度估算：避免将 AST 节点数误报为文件数
-                    # current/total 是内部批量进度（AST 节点数），按比例估算已解析文件数
+                    _max_parsing_files = 0
+
                     def _parsing_progress(current: int, total: int, stage: str) -> None:
-                        pct = 25.0 + (current / max(total, 1)) * 10
+                        nonlocal _max_parsing_files
+                        # 使用估算的文件数而非 AST 节点数，确保 FILES 计数稳定
                         estimated_files = int((current / max(total, 1)) * self.total_files)
+                        _max_parsing_files = max(_max_parsing_files, estimated_files)
                         self.progress_manager.update(
-                            TaskStatus.PARSING, pct, estimated_files, self.total_files, 0, total_lines
+                            TaskStatus.PARSING,
+                            25.0 + (current / max(total, 1)) * 10,
+                            _max_parsing_files,
+                            self.total_files,
                         )
 
                     parsing_progress = _parsing_progress
@@ -1626,28 +1860,32 @@ class AnalysisOrchestrator:
                 elif self.files_to_parse:
                     await self.parse_ast_incremental(shared_db, progress_callback=parsing_progress)
 
+                # R-R4: 标记 AST 解析阶段完成
+                await self._mark_stage_complete(shared_db, "ast", self.total_files)
+                # R-R3: AST 解析完成后保存里程碑快照
+                await self._save_stage_snapshot(shared_db, "ast")
+                await self.cancel_checker.check(self.task_id)
+
             # Step 4: 结构分析
-            if skip_to_step != "structures":
-                self.progress_manager.update(
-                    TaskStatus.ANALYZING_STRUCTURES, 50.0, self.total_files, self.total_files, 0, total_lines
-                )
+            if skip_to_step != "structures" and not self._has_stage_completed("structures"):
+                self.progress_manager.update(TaskStatus.ANALYZING_STRUCTURES, 50.0, self.total_files, self.total_files)
                 await self._update_analysis_version(
                     shared_db, TaskStatus.ANALYZING_STRUCTURES, analyzed_files=self.total_files
                 )
 
                 if self.task_id:
-                    # 文件级进度估算：避免将结构数量误报为文件数
-                    # current/total 是内部批量进度（call edges / module deps），按比例估算
+                    _max_structures_files = 0
+
                     def _structures_progress(current: int, total: int, stage: str) -> None:
-                        pct = 50.0 + (current / max(total, 1)) * 10
+                        nonlocal _max_structures_files
+                        # 使用估算的文件数而非结构数量，确保 FILES 计数稳定
                         estimated_files = int((current / max(total, 1)) * self.total_files)
+                        _max_structures_files = max(_max_structures_files, estimated_files)
                         self.progress_manager.update(
                             TaskStatus.ANALYZING_STRUCTURES,
-                            pct,
-                            estimated_files,
+                            50.0 + (current / max(total, 1)) * 10,
+                            _max_structures_files,
                             self.total_files,
-                            0,
-                            total_lines,
                         )
 
                     structures_progress = _structures_progress
@@ -1664,18 +1902,24 @@ class AnalysisOrchestrator:
                     logger.exception("结构分析失败")
                     raise
 
+                # R-R4: 标记结构分析阶段完成
+                await self._mark_stage_complete(shared_db, "structures", self.total_files)
+                # R-R3: 结构分析完成后保存里程碑快照
+                await self._save_stage_snapshot(shared_db, "structures")
+                await self.cancel_checker.check(self.task_id)
+
             # Step 4.5: 框架检测 + API 路由提取 + 中间件链分析
-            if skip_to_step != "frameworks":
-                self.progress_manager.update(
-                    TaskStatus.ANALYZING_STRUCTURES, 55.0, self.total_files, self.total_files, 0, total_lines
-                )
+            if skip_to_step != "frameworks" and not self._has_stage_completed("frameworks"):
+                self.progress_manager.update(TaskStatus.ANALYZING_STRUCTURES, 55.0, self.total_files, self.total_files)
                 await self.detect_frameworks_and_routes(shared_db)
+                # R-R4: 标记框架检测阶段完成
+                await self._mark_stage_complete(shared_db, "frameworks", self.total_files)
+                # R-R3: 框架检测完成后保存里程碑快照
+                await self._save_stage_snapshot(shared_db, "frameworks")
 
             # Step 5: AI 分析（Phase 3）
             if skip_to_step != "ai":
-                self.progress_manager.update(
-                    TaskStatus.ANALYZING_MODULES, 60.0, self.total_files, self.total_files, 0, total_lines
-                )
+                self.progress_manager.update(TaskStatus.ANALYZING_MODULES, 60.0, self.total_files, self.total_files)
                 await self._update_analysis_version(
                     shared_db, TaskStatus.ANALYZING_MODULES, analyzed_files=self.total_files
                 )
@@ -1836,12 +2080,7 @@ class AnalysisOrchestrator:
                         pct = 62
                         while pct < 98:
                             self.progress_manager.update(
-                                TaskStatus.ANALYZING_MODULES,
-                                float(pct),
-                                self.total_files,
-                                self.total_files,
-                                0,
-                                total_lines,
+                                TaskStatus.ANALYZING_MODULES, float(pct), self.total_files, self.total_files, 0
                             )
                             pct += 3
                             await asyncio.sleep(5)  # 每 5 秒推送一次
@@ -1863,30 +2102,55 @@ class AnalysisOrchestrator:
                         with contextlib.suppress(asyncio.CancelledError):
                             await pusher_task
 
+                # Extract knowledge point count for Meilisearch sync and completion
+                knowledge_points_count = len(final_state.get("knowledge_points", [])) if final_state else 0
+                agent_results = final_state.get("agent_results") if final_state else None
+
+                # 将拓展失败信息合并到 agent_results 中，供前端显示重试按钮
+                expansion_failures = final_state.get("expansion_failures", []) if final_state else []  # type: ignore[arg-type]
+                if expansion_failures:
+                    if agent_results is None:
+                        agent_results = {}
+                    agent_results["_expansion"] = {
+                        "status": "partial_failure",
+                        "failed_titles": expansion_failures,
+                        "total_failed": len(expansion_failures),  # type: ignore[arg-type]
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+
+                # P0-b: 即时持久化 intermediate agent_status，确保即使后续步骤失败，
+                # 已完成的节点状态也被保存，供前端显示和单独重试使用
+                if agent_results:
+                    try:
+                        await self._update_analysis_version(
+                            shared_db,
+                            TaskStatus.ANALYZING_MODULES,
+                            analyzed_files=self.total_files,
+                            agent_status=agent_results,
+                        )
+                        logger.info(
+                            "即时持久化 agent_status: version=%s, agents=%s",
+                            self.version_tag,
+                            {k: v.get("status") for k, v in agent_results.items()},
+                        )
+                    except Exception:
+                        logger.warning("即时持久化 agent_status 失败", exc_info=True)
+
                 # 检查是否被取消（AI 分析后，保存前）
                 await self.cancel_checker.check(self.task_id)
 
-                # 从 final_state 提取知识点数量
-                knowledge_points = final_state.get("knowledge_points", [])
-                knowledge_points_count = len(knowledge_points)
-
-                # 同步知识点到 Meilisearch 索引（异步安全）
+                # 持久化知识点到数据库（knowledge_points 表）
+                kp_dao = KnowledgePointDAO()
                 if knowledge_points_count > 0:
                     try:
-                        meili_client = MeiliSearchClient()
-                        meili_client.add_documents(knowledge_points)
-                        logger.info("知识点已同步到 Meilisearch: count=%d", knowledge_points_count)
-                    except Exception as exc:
-                        logger.warning("知识点同步到 Meilisearch 失败: %s", exc)
-
-                    # 持久化知识点到数据库（knowledge_points 表）
-                    try:
                         kp_records = []
-                        for kp in knowledge_points:
+                        for kp in final_state.get("knowledge_points", []):
                             record = {
                                 "repository_id": self.repo_uuid,
                                 "version": self.version_tag,
-                                "category": kp.get("category", ""),
+                                "category": kp.get(
+                                    "category", kp.get("prefix", "").split("-")[0] if kp.get("prefix") else ""
+                                ),
                                 "category_name": kp.get("category_name", ""),
                                 "title": kp.get("title", ""),
                                 "description": kp.get("description", ""),
@@ -1895,22 +2159,53 @@ class AnalysisOrchestrator:
                                 "code_snippets": kp.get("code_snippets", []),
                                 "call_chain": kp.get("call_chain", []),
                                 "expansion": kp.get("expansion", {}),
-                                "knowledge_metadata": kp.get("metadata", {}),
+                                "knowledge_metadata": kp.get("metadata", kp.get("knowledge_metadata", {})),
                             }
                             kp_records.append(record)
-                        await kp_dao.batch_create(shared_db, kp_records)
-                        logger.info("知识点已持久化到数据库: count=%d", knowledge_points_count)
+                        created_kps = await kp_dao.batch_create(shared_db, kp_records)
+                        logger.info("知识点已持久化到数据库: count=%d", len(created_kps))
+
+                        # 为每个生成的知识点创建嵌入向量，用于语义搜索
+                        if created_kps:
+                            try:
+                                embedding_client = EmbeddingClient()
+                                # 构建嵌入文本：标题 + 描述
+                                embed_texts: list[str] = []
+                                for kp in created_kps:  # type: ignore[attr-defined]
+                                    embed_text = f"{kp.title}\n{kp.description or ''}"
+                                    embed_texts.append(embed_text)
+
+                                # 并行生成嵌入向量
+                                embeddings = await embedding_client.embed(embed_texts)
+
+                                # 将嵌入结果分配回对应的知识点
+                                for i, kp in enumerate(created_kps):
+                                    if i < len(embeddings) and embeddings[i]:
+                                        kp.embedding = embeddings[i]  # type: ignore[assignment]
+                                    else:
+                                        logger.warning("未能为知识点 %s 生成嵌入向量", kp.title)
+
+                                logger.info("已为 %d 个知识点生成嵌入向量", len(created_kps))
+                            except Exception as exc:
+                                logger.warning("生成知识点点嵌入失败（不影响分析完成）: %s", exc, exc_info=True)
                     except Exception as exc:
-                        logger.warning("知识点持久化到数据库失败: %s", exc)
-                # Extract agent results for partial retry support
-                agent_results = final_state.get("agent_results") if "final_state" in locals() else None
+                        logger.warning("知识点持久化到数据库失败: %s", exc, exc_info=True)
+
+                # 同步知识点到 Meilisearch 索引（使用数据库生成的 ID）
+                if knowledge_points_count > 0:
+                    try:
+                        meili_client = MeiliSearchClient()
+                        meili_client.add_documents(final_state["knowledge_points"])
+                        logger.info("知识点已同步到 Meilisearch: count=%d", knowledge_points_count)
+                    except Exception as exc:
+                        logger.warning("知识点同步到 Meilisearch 失败: %s", exc)
             else:
                 knowledge_points_count = 0
                 agent_results = None
 
             # Step 6: 存储结果
             self.progress_manager.update(
-                TaskStatus.STORING, 80.0, self.total_files, self.total_files, knowledge_points_count, total_lines
+                TaskStatus.STORING, 80.0, self.total_files, self.total_files, knowledge_points_count
             )
             await self._update_analysis_version(
                 shared_db,
@@ -1927,7 +2222,6 @@ class AnalysisOrchestrator:
                 shared_db,
                 knowledge_points_count=knowledge_points_count,
                 agent_results=agent_results,
-                total_lines=total_lines,
             )
 
             # 提交 save_snapshot 和 complete 的变更（版本状态、仓库状态、快照记录）
@@ -1937,8 +2231,7 @@ class AnalysisOrchestrator:
             "version_id": str(self.version_id),
             "version_tag": self.version_tag,
             "status": TaskStatus.COMPLETED.value,
-            # O-B6: 补充 eager 模式需要的字段
             "files_processed": self.total_files,
+            "files_total": self.total_files,
             "knowledge_points_count": knowledge_points_count,
-            "total_lines": total_lines,
         }

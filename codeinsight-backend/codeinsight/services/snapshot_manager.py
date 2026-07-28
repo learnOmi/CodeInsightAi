@@ -36,9 +36,13 @@ class SnapshotManager:
         version: str,
         files: list[FileModel],
         node_counts: dict[str, int] | None = None,
+        stage: str = "storing",
     ) -> int:
         """
         保存本次分析的文件快照
+
+        R-R3: 支持按 stage 保存里程碑快照（scan/ast/structures/frameworks/ai/storing），
+        每个阶段独立保存，避免后续阶段失败时丢失前期成果。
 
         SV-6 修复：先保存快照再清理，由调用者统一管理 commit，保证事务原子性。
         调用者应在外部统一 commit/rollback，本方法不执行 commit。
@@ -48,6 +52,7 @@ class SnapshotManager:
             version: 分析版本标签（如 v20260712-abc1234）
             files: 本次分析的文件列表
             node_counts: 每个文件的 AST 节点数 {file_path: count}
+            stage: 里程碑阶段（scan/ast/structures/frameworks/ai/storing）
 
         Returns:
             保存的快照记录数
@@ -60,6 +65,7 @@ class SnapshotManager:
                 {
                     "repository_id": repo_uuid,
                     "analysis_version": version,
+                    "stage": stage,
                     "file_id": file_obj.id,
                     "content_hash": file_obj.content_hash,
                     "nodes_count": node_counts.get(file_obj.path, 0),
@@ -67,52 +73,54 @@ class SnapshotManager:
             )
 
         if not snapshots_data:
-            logger.info("快照保存: repo=%s, version=%s, files=0 (跳过)", repo_uuid, version)
+            logger.info("快照保存: repo=%s, version=%s, stage=%s, files=0 (跳过)", repo_uuid, version, stage)
             return 0
 
         await self.snapshot_dao.create_many(self.db, snapshots_data)
 
         logger.info(
-            "快照保存完成: repo=%s, version=%s, files=%d",
+            "快照保存完成: repo=%s, version=%s, stage=%s, files=%d",
             repo_uuid,
             version,
+            stage,
             len(snapshots_data),
         )
-
-        # SV-6: 清理在事务内执行，由调用者统一 commit
-        await self._cleanup_old_snapshots(repo_uuid, version)
 
         return len(snapshots_data)
 
     async def load_latest_snapshot(
         self,
         repo_uuid: UUID,
+        stage: str = "storing",
     ) -> tuple[str, dict[UUID, str]] | None:
         """
-        加载最新快照
+        加载指定阶段的最新快照
 
+        R-R3: 支持按 stage 加载里程碑快照。
         返回 (version, {file_id: content_hash})。
 
         Args:
             repo_uuid: 仓库 UUID
+            stage: 里程碑阶段（默认 storing）
 
         Returns:
             (version, hash_map) 或 None（无历史快照）
         """
-        latest_version = await self.snapshot_dao.get_latest_version(self.db, repo_uuid)
+        latest_version = await self.snapshot_dao.get_latest_version(self.db, repo_uuid, stage=stage)
         if latest_version is None:
-            logger.info("无历史快照: repo=%s", repo_uuid)
+            logger.info("无历史快照: repo=%s, stage=%s", repo_uuid, stage)
             return None
 
-        # 获取该版本的所有快照
-        snapshots = await self.snapshot_dao.get_by_version(self.db, repo_uuid, latest_version)
+        # 获取该版本该阶段的所有快照
+        snapshots = await self.snapshot_dao.get_by_version_and_stage(self.db, repo_uuid, latest_version, stage)
         # file_id 可为 NULL，过滤掉后再构建字典
         hash_map = {s.file_id: s.content_hash for s in snapshots if s.file_id is not None}
 
         logger.info(
-            "加载最新快照: repo=%s, version=%s, files=%d",
+            "加载最新快照: repo=%s, version=%s, stage=%s, files=%d",
             repo_uuid,
             latest_version,
+            stage,
             len(hash_map),
         )
 
@@ -122,20 +130,22 @@ class SnapshotManager:
         self,
         repo_uuid: UUID,
         version: str,
+        stage: str = "storing",
     ) -> dict[UUID, str] | None:
         """
-        加载指定版本的快照
+        加载指定版本和阶段的快照
 
         Args:
             repo_uuid: 仓库 UUID
             version: 分析版本标签
+            stage: 里程碑阶段（默认 storing）
 
         Returns:
             {file_id: content_hash} 或 None
         """
-        snapshots = await self.snapshot_dao.get_by_version(self.db, repo_uuid, version)
+        snapshots = await self.snapshot_dao.get_by_version_and_stage(self.db, repo_uuid, version, stage)
         if not snapshots:
-            logger.warning("指定版本无快照: repo=%s, version=%s", repo_uuid, version)
+            logger.warning("指定版本无快照: repo=%s, version=%s, stage=%s", repo_uuid, version, stage)
             return None
 
         return {s.file_id: s.content_hash for s in snapshots if s.file_id is not None}

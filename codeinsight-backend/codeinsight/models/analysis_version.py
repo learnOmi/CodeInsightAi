@@ -8,18 +8,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import (
-    JSON,
-    TIMESTAMP,
-    UUID,
-    CheckConstraint,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import TIMESTAMP, UUID, CheckConstraint, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -50,7 +40,11 @@ class AnalysisVersionModel(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     # A-D6: 记录每个 Agent 的执行状态（用于部分重试）
-    agent_status: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    agent_status: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # R-R2: 扫描阶段元数据（commit_hash、errors、skipped_count 等），用于断点续跑重建完整 ScanResult
+    scan_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # R-R4: 已完成的分析阶段集合，用于断点续跑跳过已完成阶段
+    stages_completed: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         # 同一仓库内版本标签唯一（而非全局唯一）

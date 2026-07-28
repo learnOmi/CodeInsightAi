@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, Suspense } from "react";
+import { useState, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -331,7 +331,7 @@ function KnowledgeDetailModal({
 
 // ── Main Page ───────────────────────────────────────────────────────────────
 
-function KnowledgePageContent() {
+export default function KnowledgePage() {
   const CATEGORIES = [
     { key: "all", label: "全部" },
     { key: "DP", label: "设计模式" },
@@ -339,8 +339,6 @@ function KnowledgePageContent() {
     { key: "AL", label: "算法实现" },
     { key: "ET", label: "工程技巧" },
     { key: "DK", label: "领域知识" },
-    { key: "TT", label: "开发模板" },
-    { key: "TK", label: "技术栈" },
   ];
 
   const router = useRouter();
@@ -351,11 +349,6 @@ function KnowledgePageContent() {
   const [page, setPage] = useState(1);
   const [selectedKp, setSelectedKp] = useState<KnowledgePoint | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-
-  // 搜索关键词变化时重置页码
-  useEffect(() => {
-    setPage(1);
-  }, [searchQuery]);
 
   // 仓库切换：更新 URL 参数
   const handleRepoChange = (newRepoId: string) => {
@@ -370,7 +363,7 @@ function KnowledgePageContent() {
     router.push(query ? `/knowledge?${query}` : "/knowledge");
   };
 
-  const { data: repos } = useRepositories();
+  const { data: repos } = useRepositories(1, 30);
   const queryRepoId = selectedRepoId === "all" ? "" : selectedRepoId;
 
   const { data: statsData } = useQuery({
@@ -380,12 +373,11 @@ function KnowledgePageContent() {
   });
 
   const { data: kpData, isLoading } = useQuery({
-    queryKey: ["knowledge-points", selectedRepoId, selectedCategory, searchQuery, page],
+    queryKey: ["knowledge-points", selectedRepoId, selectedCategory, page],
     queryFn: () =>
       getKnowledgePoints({
         repositoryId: queryRepoId,
         category: selectedCategory !== "all" ? selectedCategory : undefined,
-        search: searchQuery.trim() || undefined,
         page,
         pageSize: 12,
       }),
@@ -393,11 +385,44 @@ function KnowledgePageContent() {
   });
 
   const filteredKps = useMemo(() => {
-    return kpData?.items ?? [];
-  }, [kpData]);
+    if (!kpData?.items) return [];
+    if (!searchQuery.trim()) return kpData.items;
+    const q = searchQuery.toLowerCase();
+    return kpData.items.filter(
+      (kp) =>
+        kp.title.toLowerCase().includes(q) ||
+        kp.description.toLowerCase().includes(q) ||
+        kp.tags?.some((t) => t.toLowerCase().includes(q))
+    );
+  }, [kpData, searchQuery]);
 
   const points = useMemo(() => filteredKps, [filteredKps]);
-  const totalPages = kpData ? Math.max(1, Math.ceil(kpData.total / kpData.pageSize)) : 1;
+  // 分页计算：搜索时基于过滤后的结果数量重新计算总页数，否则使用总知识点数除以每页数量
+  const totalPages = useMemo(() => {
+    if (!kpData) return 1;
+    
+    // 确定要使用的总知识点数
+    let total: number;
+    if (selectedRepoId !== "all") {
+      // 指定仓库时使用 kpData 中的精确值（与仓库过滤匹配）
+      total = kpData.total || 0;
+    } else {
+      // "所有仓库" 时优先使用 statsData（如果已就绪），否则回退到 kpData
+      if (statsData && statsData.totalPoints !== undefined) {
+        total = statsData.totalPoints;
+      } else {
+        total = kpData.total || 0;
+      }
+    }
+
+    // 获取每页大小
+    const pageSize = Math.max(1, Number(kpData.pageSize) || 12);
+    
+    if (searchQuery.trim()) {
+      return Math.max(1, Math.ceil(filteredKps.length / pageSize));
+    }
+    return Math.max(1, Math.ceil(total / pageSize));
+  }, [kpData, selectedRepoId, statsData, filteredKps, searchQuery]);
 
   return (
     <>
@@ -459,7 +484,7 @@ function KnowledgePageContent() {
                 className="w-full appearance-none rounded-xl border border-white/[0.06] bg-[var(--bg-card)]/50 backdrop-blur px-4 py-2.5 pr-10 text-sm text-[var(--text-primary)] focus:outline-none focus:border-brand/40 transition-colors"
               >
                 <option value="all">所有仓库</option>
-                {repos?.map((repo) => (
+                {repos?.items?.map((repo) => (
                   <option key={repo.id} value={repo.id}>
                     {repo.name}
                   </option>
@@ -593,18 +618,5 @@ function KnowledgePageContent() {
         <KnowledgeDetailModal kp={selectedKp} onClose={() => setSelectedKp(null)} />
       )}
     </>
-  );
-}
-
-export default function KnowledgePage() {
-  return (
-    <Suspense fallback={
-      <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] rounded-full bg-brand/[0.04] blur-[120px]" />
-        <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-purple-500/[0.04] blur-[120px]" />
-      </div>
-    }>
-      <KnowledgePageContent />
-    </Suspense>
   );
 }

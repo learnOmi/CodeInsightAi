@@ -84,13 +84,6 @@ def sample_state() -> AnalysisState:
         "progress": 0.0,
         "error": None,
         "messages": [],
-        "language_distribution": {},
-        "file_dependencies": {},
-        "file_structure": {},
-        "enable_chunking": False,
-        "chunk_progress": {},
-        "chunk_results": [],
-        "agent_results": {},
     }
 
 
@@ -597,13 +590,6 @@ class TestMergeNode:
             "progress": 0.5,
             "error": None,
             "messages": [],
-            "language_distribution": {},
-            "file_dependencies": {},
-            "file_structure": {},
-            "enable_chunking": False,
-            "chunk_progress": {},
-            "chunk_results": [],
-            "agent_results": {},
         }
         node = MergeNode(MagicMock())
         result = await node.execute(state)
@@ -627,13 +613,6 @@ class TestMergeNode:
             "progress": 0.5,
             "error": None,
             "messages": [],
-            "language_distribution": {},
-            "file_dependencies": {},
-            "file_structure": {},
-            "enable_chunking": False,
-            "chunk_progress": {},
-            "chunk_results": [],
-            "agent_results": {},
         }
         node = MergeNode(MagicMock())
         result = await node.execute(state)
@@ -653,13 +632,6 @@ class TestMergeNode:
             "progress": 0.5,
             "error": None,
             "messages": [],
-            "language_distribution": {},
-            "file_dependencies": {},
-            "file_structure": {},
-            "enable_chunking": False,
-            "chunk_progress": {},
-            "chunk_results": [],
-            "agent_results": {},
         }
         node = MergeNode(MagicMock())
         result = await node.execute(state)
@@ -680,13 +652,6 @@ class TestExpansionNode:
             "progress": 0.9,
             "error": None,
             "messages": [],
-            "language_distribution": {},
-            "file_dependencies": {},
-            "file_structure": {},
-            "enable_chunking": False,
-            "chunk_progress": {},
-            "chunk_results": [],
-            "agent_results": {},
         }
 
     @pytest.fixture
@@ -736,13 +701,6 @@ class TestExpansionNode:
             "progress": 0.9,
             "error": None,
             "messages": [],
-            "language_distribution": {},
-            "file_dependencies": {},
-            "file_structure": {},
-            "enable_chunking": False,
-            "chunk_progress": {},
-            "chunk_results": [],
-            "agent_results": {},
         }
         result = await node.execute(state)
         assert result["progress"] == 1.0
@@ -874,13 +832,6 @@ class TestExpansionNode:
             "progress": 0.9,
             "error": None,
             "messages": [],
-            "language_distribution": {},
-            "file_dependencies": {},
-            "file_structure": {},
-            "enable_chunking": False,
-            "chunk_progress": {},
-            "chunk_results": [],
-            "agent_results": {},
         }
         node = ExpansionNode(llm_client)
         result = await node.execute(state)

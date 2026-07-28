@@ -29,6 +29,10 @@ class AstNodeModel(Base):
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False
     )
+    # R-R1: 分析版本隔离（允许跨版本共享的历史数据）
+    analysis_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("analysis_versions.id", ondelete="CASCADE"), nullable=True
+    )
     file_id: Mapped[uuid.UUID] = mapped_column(UUID, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
     node_type: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)

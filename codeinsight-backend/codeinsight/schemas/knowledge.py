@@ -29,7 +29,6 @@ class KnowledgeCategory(StrEnum):
     DK: 领域知识 (Domain Knowledge)
     TT: 开发模板 (Template/Technique)
     TK: 技术栈 (Technology/Toolkit)
-    DS: 设计结构 (Design Structure)
     """
 
     DESIGN_PATTERN = "DP"
@@ -39,7 +38,6 @@ class KnowledgeCategory(StrEnum):
     DOMAIN_KNOWLEDGE = "DK"
     TEMPLATE_TECHNIQUE = "TT"
     TECHNOLOGY_STACK = "TK"
-    DESIGN_STRUCTURE = "DS"
 
 
 class CodeSnippet(BaseModel):
@@ -121,7 +119,16 @@ class LearningResource(BaseModel):
 
     title: str
     url: str
-    type: Literal["book", "article", "video", "course"]
+    type: str = "article"  # 默认值，接受任意字符串，LLM 可能返回 documentation/code/tutorial 等
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _coerce_type(cls, v: Any) -> str:
+        """将未知类型映射为默认值，避免 LLM 返回非标准值时 Pydantic 校验失败"""
+        valid_types = {"book", "article", "video", "course"}
+        if isinstance(v, str) and v.lower() in valid_types:
+            return v.lower()
+        return "article"
 
 
 class ExpansionContent(BaseModel):
@@ -137,7 +144,7 @@ class ExpansionContent(BaseModel):
     principle: str = ""
     applicable_scenarios: list[str] = []
     best_practices: list[str] = []
-    related_patterns: list[str] = []
+    related_patterns: list[Any] = []
     learning_resources: list[LearningResource] = []
 
 
@@ -250,8 +257,8 @@ class CodeSnippetExtraction(BaseModel):
     """LLM 输出的代码片段（简化版，不含 language/signature）"""
 
     file: str
-    start_line: int = Field(..., gt=0)
-    end_line: int = Field(..., gt=0)
+    start_line: int = Field(default=0, ge=0)
+    end_line: int = Field(default=0, ge=0)
     content: str = Field(default="", min_length=0)
     highlighted_lines: list[int] = []
 
@@ -275,8 +282,8 @@ class KnowledgePointExtraction(BaseModel):
     - code_snippets 和 call_chain 使用简化版模型
     """
 
-    category: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK|TT|TK|DS)$")  # DP, AD, AL, ET, DK, TT, TK, DS
-    prefix: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK|TT|TK|DS)-.+$")  # DP-Factory, AD-MVC, TT-CRUD, TK-REACT, etc.
+    category: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK|TT|TK)$")  # DP, AD, AL, ET, DK, TT, TK
+    prefix: str = Field(..., pattern=r"^(DP|AD|AL|ET|DK|TT|TK)-.+$")  # DP-Factory, AD-MVC, TT-CRUD, TK-REACT, etc.
     title: str = Field(..., min_length=1)
     description: str = Field(..., min_length=1)
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)

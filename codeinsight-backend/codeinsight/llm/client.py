@@ -198,6 +198,9 @@ class LLMClient:
         - Circuit Breaker: 上游故障时快速失败，避免无限等待
         - 指数退避: 限流时指数退避，最大 60 秒
 
+        熔断器 OPEN 时：先无限重试等待熔断器恢复（不计入 attempt），恢复后再进入令牌获取流程。
+        令牌获取/调用失败：计入 attempt，超过 max_retries 后放弃。
+
         Args:
             messages: 对话消息列表
             api_kwargs: API 关键字参数
@@ -211,36 +214,47 @@ class LLMClient:
             LLMError: 其他 LLM 调用错误
         """
         limiter = get_llm_limiter()
+        attempt = 0
 
-        for attempt in range(max_retries + 1):
+        # 第一阶段：等待熔断器恢复（不计入 attempt，无限重试）
+        # 使用 skip_bucket=True 跳过 Token Bucket，仅检查熔断器状态
+        # 熔断器 OPEN 时 acquire() 返回退避时间（浮点数），CLOSED/HALF_OPEN 时返回 True
+        while True:
+            result = await limiter.acquire("llm_global", skip_bucket=True)
+            if result is True:
+                # 熔断器 CLOSED 或 HALF_OPEN 且探测成功，进入第二阶段
+                break
+            # 熔断器 OPEN，result 是退避时间（秒），等待后重试
+            backoff = int(result) + 2  # +2s 缓冲
+            logger.warning("LLM 熔断器 OPEN，自适应退避 %ds 后重试", backoff)
+            await asyncio.sleep(backoff)
+
+        # 第二阶段：获取令牌 + 调用 API（计入 attempt）
+        while True:
             try:
-                # 尝试获取限流令牌
-                granted = await limiter.acquire("llm_global")
+                # 尝试获取限流令牌（跳过熔断器检查，已在第一阶段处理）
+                granted = await limiter.acquire("llm_global", skip_breaker=True)
                 if not granted:
                     if attempt < max_retries:
+                        logger.warning("LLM 限流令牌不足，等待 1s 后重试: attempt=%d/%d", attempt + 1, max_retries)
                         await asyncio.sleep(1)
+                        attempt += 1
                         continue
                     raise RuntimeError("LLM rate limited: unable to acquire token after retries")
             except RuntimeError as e:
                 if "Circuit breaker is OPEN" in str(e):
-                    # 熔断器已打开：自适应退避，等待恢复时间后再重试
-                    # 分析场景（ExpansionNode）有大量请求，不应被直接抛弃
-                    backoff = limiter.circuit_breaker_timeout + 2  # +2s 缓冲
-                    if attempt < max_retries:
-                        logger.warning(
-                            "LLM 熔断器 OPEN，自适应退避 %ds 后重试: attempt=%d/%d",
-                            backoff,
-                            attempt + 1,
-                            max_retries,
-                        )
-                        await asyncio.sleep(backoff)
-                        continue
-                    # 重试耗尽，抛出最终错误
-                    logger.error("LLM 熔断器退避重试耗尽: %s", e)
-                    raise
+                    # 极特殊情况：熔断器在 Phase 2 期间再次 OPEN（如并发多实例），回到第一阶段
+                    logger.warning("LLM 熔断器再次 OPEN，重新等待恢复")
+                    while True:
+                        acquired = await limiter.acquire("llm_global", skip_bucket=True)
+                        if acquired is True:
+                            break
+                        await asyncio.sleep(int(acquired) + 2)
+                    continue
                 if attempt < max_retries:
                     logger.warning("LLM 限流令牌不足，等待后重试: %s", e)
                     await asyncio.sleep(min(2**attempt, 60))
+                    attempt += 1
                     continue
                 raise
 
@@ -257,11 +271,13 @@ class LLMClient:
                     # 限流：指数退避
                     wait = min(2**attempt, 60)
                     logger.warning(
-                        "LLM 频率限制，等待 %ds 后重试: %s",
+                        "LLM 频率限制，等待 %ds 后重试: attempt=%d/%d",
                         wait,
-                        e,
+                        attempt + 1,
+                        max_retries,
                     )
                     await asyncio.sleep(wait)
+                    attempt += 1
                 else:
                     logger.error("LLM 频率限制重试耗尽: %s", e)
                     raise
@@ -271,11 +287,13 @@ class LLMClient:
                 if attempt < max_retries:
                     wait = min(2**attempt, 60)
                     logger.warning(
-                        "LLM 上游内部错误，等待 %ds 后重试: %s",
+                        "LLM 上游内部错误，等待 %ds 后重试: attempt=%d/%d",
                         wait,
-                        e,
+                        attempt + 1,
+                        max_retries,
                     )
                     await asyncio.sleep(wait)
+                    attempt += 1
                 else:
                     logger.error("LLM 上游内部错误重试耗尽: %s", e)
                     raise

@@ -65,6 +65,7 @@ async def list_versions(
                 completed_at=v.completed_at,
                 error_message=v.error_message,
                 created_at=v.created_at,
+                agent_status=v.agent_status,
             )
         )
 

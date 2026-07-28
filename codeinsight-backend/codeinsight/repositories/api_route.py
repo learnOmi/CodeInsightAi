@@ -53,6 +53,32 @@ class ApiRouteDAO:
         rowcount = getattr(result, "rowcount", 0)
         return cast(int, rowcount) or 0
 
+    async def delete_by_repository_and_version(
+        self, db: AsyncSession, repository_id: UUID, analysis_version_id: UUID
+    ) -> int:
+        """
+        R-R1: 删除指定仓库和分析版本的 API 路由（版本隔离清理）
+
+        ApiRouteModel 已有 analysis_version_id 字段，此方法使用该字段进行精确清理。
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            analysis_version_id: 分析版本 ID
+
+        Returns:
+            删除的记录数
+        """
+        result = await db.execute(
+            delete(ApiRouteModel).where(
+                ApiRouteModel.repository_id == repository_id,
+                ApiRouteModel.analysis_version_id == analysis_version_id,
+            )
+        )
+        await db.flush()
+        rowcount = getattr(result, "rowcount", 0)
+        return cast(int, rowcount) or 0
+
     async def count_by_repository(self, db: AsyncSession, repository_id: UUID) -> int:
         """统计指定仓库的 API 路由数量"""
         from sqlalchemy import func

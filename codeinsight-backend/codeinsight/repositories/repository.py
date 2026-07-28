@@ -132,3 +132,16 @@ class RepositoryDAO:
         """
         result = await db.execute(select(func.count(RepositoryModel.id)).where(RepositoryModel.path == path))
         return (result.scalar() or 0) > 0
+
+    async def count(self, db: AsyncSession) -> int:
+        """
+        统计仓库总数
+
+        Args:
+            db: 异步数据库会话
+
+        Returns:
+            仓库总数
+        """
+        result = await db.execute(select(func.count(RepositoryModel.id)))
+        return result.scalar() or 0

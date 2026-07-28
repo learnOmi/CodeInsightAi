@@ -27,6 +27,10 @@ class CallEdgeModel(Base):
     repository_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False
     )
+    # R-R1: 分析版本隔离
+    analysis_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("analysis_versions.id", ondelete="CASCADE"), nullable=True
+    )
     caller_node_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("ast_nodes.id", ondelete="CASCADE"), nullable=False
     )

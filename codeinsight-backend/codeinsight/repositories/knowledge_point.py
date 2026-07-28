@@ -5,6 +5,8 @@ KnowledgePoint 数据访问对象
 知识点更新/删除时同步到 Meilisearch 索引。
 """
 
+from __future__ import annotations
+
 import logging
 from uuid import UUID
 
@@ -53,27 +55,6 @@ class KnowledgePointDAO:
         await db.refresh(kp)
         return kp
 
-    async def batch_create(self, db: AsyncSession, data_list: list[dict]) -> list[KnowledgePointModel]:
-        """
-        批量创建知识点
-
-        Args:
-            db: 异步数据库会话
-            data_list: 知识点字典列表
-
-        Returns:
-            创建的 KnowledgePointModel 实例列表
-        """
-        if not data_list:
-            return []
-        models = [KnowledgePointModel(**data) for data in data_list]
-        db.add_all(models)
-        await db.flush()
-        for m in models:
-            await db.refresh(m)
-        logger.info("批量创建知识点完成: count=%d", len(models))
-        return models
-
     async def get_by_id(self, db: AsyncSession, point_id: UUID) -> KnowledgePointModel | None:
         """
         根据 ID 获取知识点
@@ -98,7 +79,6 @@ class KnowledgePointDAO:
         version: str | None = None,
         category: str | None = None,
         tag: str | None = None,
-        search: str | None = None,
         skip: int = 0,
         limit: int = 100,
         sort_by: str = "created_at",
@@ -113,7 +93,6 @@ class KnowledgePointDAO:
             version: 分析版本号筛选
             category: 分类筛选（DP-/AD-/AL-/ET-/DK-）
             tag: 标签筛选
-            search: 搜索关键词（在 title/description/tags 中模糊匹配）
             skip: 跳过的记录数
             limit: 返回的记录数上限
             sort_by: 排序字段（受白名单限制）
@@ -137,12 +116,6 @@ class KnowledgePointDAO:
             # PostgreSQL ARRAY 类型支持 contains([tag])，其他数据库后端需要适配
             query = query.where(KnowledgePointModel.tags.contains([tag]))
 
-        if search is not None and search.strip():
-            pattern = f"%{search.strip()}%"
-            query = query.where(
-                KnowledgePointModel.title.ilike(pattern) | KnowledgePointModel.description.ilike(pattern)
-            )
-
         # R-6: 排序字段白名单验证，防止任意属性注入
         if sort_by not in self._ALLOWED_SORT_FIELDS:
             sort_by = "created_at"
@@ -162,8 +135,6 @@ class KnowledgePointDAO:
         repository_id: UUID | None,
         version: str | None = None,
         category: str | None = None,
-        tag: str | None = None,
-        search: str | None = None,
     ) -> int:
         """
         统计知识点数量
@@ -173,13 +144,11 @@ class KnowledgePointDAO:
             repository_id: 仓库 ID（可选，不传则统计所有仓库）
             version: 版本号筛选
             category: 分类筛选
-            tag: 标签筛选
-            search: 搜索关键词
 
         Returns:
             符合条件的记录数
         """
-        query = select(func.count()).select_from(KnowledgePointModel)
+        query = select(func.count())
         if repository_id is not None:
             query = query.where(KnowledgePointModel.repository_id == repository_id)
 
@@ -188,15 +157,6 @@ class KnowledgePointDAO:
 
         if category is not None:
             query = query.where(KnowledgePointModel.category == category)
-
-        if tag is not None:
-            query = query.where(KnowledgePointModel.tags.contains([tag]))
-
-        if search is not None and search.strip():
-            pattern = f"%{search.strip()}%"
-            query = query.where(
-                KnowledgePointModel.title.ilike(pattern) | KnowledgePointModel.description.ilike(pattern)
-            )
 
         result = await db.execute(query)
         return result.scalar() or 0
@@ -281,3 +241,126 @@ class KnowledgePointDAO:
             logger.warning("知识点从 Meilisearch 删除失败: id=%s, error=%s", point_id, exc)
 
         return True
+
+    async def delete_by_version(self, db: AsyncSession, repository_id: UUID, version: str) -> int:
+        """
+        按版本号删除知识点（用于 retry 前清理旧数据）
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            version: 版本号
+
+        Returns:
+            删除的记录数
+        """
+        result = await db.execute(
+            select(KnowledgePointModel).where(
+                KnowledgePointModel.repository_id == repository_id,
+                KnowledgePointModel.version == version,
+            )
+        )
+        kps = list(result.scalars().all())
+
+        for kp in kps:
+            await db.delete(kp)
+            # 从 Meilisearch 删除
+            try:
+                from codeinsight.services.meilisearch_client import MeiliSearchClient
+
+                meili_client = MeiliSearchClient()
+                meili_client.delete_document(kp.id)
+            except Exception as exc:
+                logger.warning("知识点从 Meilisearch 删除失败: id=%s, error=%s", kp.id, exc)
+
+        await db.flush()
+        return len(kps)
+
+    async def delete_by_version_and_category(
+        self, db: AsyncSession, repository_id: UUID, version: str, category: str
+    ) -> int:
+        """
+        按版本号 + 类别删除知识点（用于 retry 前仅清理指定类别的旧数据）
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+            version: 版本号
+            category: 分析类别代码
+
+        Returns:
+            删除的记录数
+        """
+        result = await db.execute(
+            select(KnowledgePointModel).where(
+                KnowledgePointModel.repository_id == repository_id,
+                KnowledgePointModel.version == version,
+                KnowledgePointModel.category == category,
+            )
+        )
+        kps = list(result.scalars().all())
+
+        for kp in kps:
+            await db.delete(kp)
+            try:
+                from codeinsight.services.meilisearch_client import MeiliSearchClient
+
+                meili_client = MeiliSearchClient()
+                meili_client.delete_document(kp.id)
+            except Exception as exc:
+                logger.warning("知识点从 Meilisearch 删除失败: id=%s, error=%s", kp.id, exc)
+
+        await db.flush()
+        logger.info("按版本+类别删除知识点: version=%s, category=%s, deleted=%d", version, category, len(kps))
+        return len(kps)
+
+    async def batch_create(self, db: AsyncSession, items: list[dict]) -> list[KnowledgePointModel]:  # type: ignore[valid-type]
+        """
+        批量创建知识点
+
+        Args:
+            db: 异步数据库会话
+            items: 知识点数据列表（每个 dict 包含 KnowledgePointModel 所需字段）
+
+        Returns:
+            创建的 KnowledgePointModel 列表
+        """
+        created: list[KnowledgePointModel] = []
+        for data in items:  # type: ignore[attr-defined]
+            if "repository_id" not in data:
+                logger.warning("跳过缺少 repository_id 的知识点: %s", data.get("title", ""))
+                continue
+            kp = KnowledgePointModel(**data)
+            db.add(kp)
+            created.append(kp)
+
+        if created:
+            await db.flush()
+            logger.info("批量创建知识点完成: count=%d", len(created))
+
+            # 同步到 Meilisearch
+            try:
+                from codeinsight.services.meilisearch_client import MeiliSearchClient
+
+                meili_client = MeiliSearchClient()
+                documents = []
+                for kp in created:
+                    documents.append(
+                        {
+                            "id": str(kp.id),
+                            "title": kp.title,
+                            "description": kp.description,
+                            "category": kp.category,
+                            "category_name": kp.category_name,
+                            "tags": kp.tags or [],
+                            "confidence": kp.confidence,
+                            "repository_id": str(kp.repository_id),
+                            "version": kp.version,
+                            "created_at": kp.created_at.isoformat() if kp.created_at else "",
+                        }
+                    )
+                meili_client.add_documents(documents)
+            except Exception as exc:
+                logger.warning("批量创建知识点同步 Meilisearch 失败: count=%d, error=%s", len(created), exc)
+
+        return created

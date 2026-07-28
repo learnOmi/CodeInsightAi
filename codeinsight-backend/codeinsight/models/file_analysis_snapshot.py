@@ -43,31 +43,34 @@ class FileAnalysisSnapshotModel(Base):
         UUID, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False
     )
     analysis_version: Mapped[str] = mapped_column(String, nullable=False)
+    # R-R3: 里程碑阶段标记，用于区分不同阶段的快照（scan/ast/structures/frameworks/ai/storing）
+    stage: Mapped[str] = mapped_column(String(32), nullable=False, server_default=text("'storing'"))
     file_id: Mapped[uuid.UUID | None] = mapped_column(UUID, ForeignKey("files.id", ondelete="SET NULL"), nullable=True)
-    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False, default="")
     nodes_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     edges_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     deps_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
     __table_args__ = (
-        # 索引：按 (repo, version) 查找快照（增量分析用）
-        Index("idx_snapshot_repo_version", "repository_id", "analysis_version"),
+        # 索引：按 (repo, version, stage) 查找快照
+        Index("idx_snapshot_repo_version_stage", "repository_id", "analysis_version", "stage"),
         # 索引：按 content_hash 查找（增量检测用）
         Index("idx_snapshot_content_hash", "content_hash"),
-        # 部分唯一索引：仅 file_id 非空时唯一
-        # PostgreSQL 中 NULL ≠ NULL，但复合唯一约束中 NULL 被视为相等
-        # 使用 partial index 避免 SET NULL 后多条 NULL 记录冲突
+        # 索引：按 stage 查找里程碑快照
+        Index("idx_snapshot_stage", "repository_id", "analysis_version", "stage"),
+        # 部分唯一索引：仅 file_id 非空时唯一（含 stage）
         Index(
-            "uq_snapshot_repo_version_file_partial",
+            "uq_snapshot_repo_version_stage_file_partial",
             "repository_id",
             "analysis_version",
+            "stage",
             "file_id",
             unique=True,
             postgresql_where=text("file_id IS NOT NULL"),
         ),
         CheckConstraint(
-            "content_hash IS NOT NULL AND length(content_hash) > 0",
+            "content_hash IS NOT NULL",
             name="chk_snapshot_content_hash",
         ),
     )

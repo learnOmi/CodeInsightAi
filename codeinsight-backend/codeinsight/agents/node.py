@@ -10,11 +10,13 @@ import asyncio
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from codeinsight.agents.state import AnalysisState
+from codeinsight.db.redis_failed_nodes import record_failed_node
 from codeinsight.llm.client import LLMClient
 from codeinsight.llm.errors import LLMError
 from codeinsight.prompts import (
@@ -34,6 +36,10 @@ logger = logging.getLogger(__name__)
 # Maximum number of code snippets to include in context for LLM analysis
 MAX_CODE_SNIPPETS = 50
 MAX_CODE_CHARS_PER_SNIPPET = 5000
+
+# LLM 调用自动重试配置
+MAX_LLM_RETRIES = 3
+MAX_BACKOFF_SECONDS = 60
 
 # Pydantic TypeAdapter for validating LLM output as a list of KnowledgePointExtraction
 _kp_adapter: TypeAdapter[list[KnowledgePointExtraction]] = TypeAdapter(list[KnowledgePointExtraction])
@@ -156,6 +162,55 @@ class AnalysisNode:
             更新后的分析状态
         """
         raise NotImplementedError("Subclasses must implement execute method")
+
+    async def _execute_with_retry(
+        self,
+        state: AnalysisState,
+        category: str,
+        prompt: str,
+        max_retries: int = MAX_LLM_RETRIES,
+    ) -> tuple[list[dict[str, Any]], float, int]:
+        """
+        带指数退避重试的 LLM 分析执行
+
+        对 LLM 调用进行指数退避重试，同时记录成本估算和实际重试次数。
+
+        Args:
+            state: 当前分析状态
+            category: 分析类别代码（DP/AD/AL/ET/DK/TT/TK）
+            prompt: 系统提示词
+            max_retries: 最大重试次数
+
+        Returns:
+            三元组 (knowledge_points, cost_estimate, attempts)
+
+        Raises:
+            LLMError: 超过重试次数后仍然失败
+        """
+        cost_estimate = 0.0
+
+        for attempt in range(max_retries + 1):
+            try:
+                messages = await self._build_messages(state, prompt)
+                response = await self._llm_client.chat(messages)
+                cost_estimate = float(response.get("cost", 0.0))  # type: ignore[union-attr]
+                knowledge_points = self._parse_response(response, category)
+                return knowledge_points, cost_estimate, attempt + 1
+            except LLMError as exc:
+                if attempt < max_retries:
+                    backoff = min(2**attempt, MAX_BACKOFF_SECONDS)
+                    logger.warning(
+                        "LLM 分析失败，指数退避 %ds 后重试（%d/%d）: category=%s, error=%s",
+                        backoff,
+                        attempt + 1,
+                        max_retries,
+                        category,
+                        exc,
+                    )
+                    await asyncio.sleep(backoff)
+                else:
+                    raise
+        raise LLMError("超出重试次数")
 
     async def _build_messages(self, state: AnalysisState, system_prompt: str) -> list[dict[str, Any]]:
         """
@@ -383,42 +438,42 @@ class AnalysisNode:
         context_parts.append("\n\n".join(snippets_list))
         return "\n\n".join(context_parts)
 
-    # ── JSON 解析辅助方法 ────────────────────────────────────────────────
-
-    def _parse_json_with_repair(self, raw: str) -> str:
-        """提取代码块（如有）并运行 _repair_json，尝试解析
-
-        统一 LLM 响应的 JSON 解析入口：先尝试从 ```json 代码块提取，
-        然后运行修复算法，最后尝试解析。
-        """
-        content = raw.strip()
-        if content.startswith("```"):
-            first_newline = content.find("\n")
-            if first_newline != -1:
-                content = content[first_newline + 1 :]
-            if content.endswith("```"):
-                content = content[:-3].strip()
-            elif content.rstrip().endswith("```"):
-                content = content.rstrip()[:-3].strip()
-
-        # 始终返回修复后的内容，即使 json.loads 仍失败
-        # 修复后的内容比原始内容更干净，后续备用修复步骤依赖它
-        repaired = self._repair_json(content)
-        return repaired
-
     def _parse_response(self, response: Any, category: str) -> list[dict[str, Any]]:
         """
         解析 LLM 响应
+
+        使用 Pydantic TypeAdapter 对 LLM 返回的 JSON 进行结构化校验，
+        确保输出符合 KnowledgePointExtraction 格式。
+
+        Args:
+            response: LLM 响应（dict 或原始字符串）
+            category: 知识点分类
+
+        Returns:
+            知识点列表（dict 格式，供 state 使用）
         """
         content = response.get("content", "") if isinstance(response, dict) else str(response)
 
         if not content:
             return []
 
-        # 清理 markdown 代码块并修复 JSON
-        content = self._parse_json_with_repair(content)
+        # 清理 markdown 代码块标记（如 ```json ... ```），只保留纯 JSON 内容
+        content = content.strip()
+        if content.startswith("```"):
+            # 去掉开头的 ```json 或 ``` 等标记
+            first_newline = content.find("\n")
+            if first_newline != -1:
+                content = content[first_newline + 1 :]
+            # 去掉结尾的 ```
+            if content.endswith("```"):
+                content = content[:-3].strip()
+            elif content.rstrip().endswith("```"):
+                content = content.rstrip()[:-3].strip()
 
+        parsed = None  # 初始化为 None，避免在 except 块中引用未赋值变量
         try:
+            # 尝试修复常见 JSON 格式问题
+            content = self._repair_json(content)
             parsed = json.loads(content)
             if not isinstance(parsed, list):
                 # 尝试从包装对象中提取列表
@@ -429,176 +484,121 @@ class AnalysisNode:
                 else:
                     parsed = [parsed]
 
-            # 用 Pydantic TypeAdapter 校验整个列表
-            # 先标准化所有 prefix：在验证之前修复缺少类别前缀的项
-            for item in parsed if isinstance(parsed, list) else []:
-                if (
-                    isinstance(item, dict)
-                    and "prefix" in item
-                    and "category" in item
-                    and not re.match(r"^(DP|AD|AL|ET|DK|TT|TK|DS)-", item["prefix"])
-                ):
-                    item["prefix"] = f"{item['category']}-{item['prefix']}"
-            try:
-                validated = _kp_adapter.validate_python(parsed)
-                return self._normalize_knowledge_points(validated, category)
-            except ValidationError as ve:
-                # 部分项目校验失败：逐项过滤，保留有效项
-                logger.warning("LLM 响应部分解析失败 (%s)，尝试逐项过滤", ve)
+            # 用 Pydantic TypeAdapter 校验
+            validated = _kp_adapter.validate_python(parsed)
+            return self._normalize_knowledge_points(validated, category)
+
+        except (json.JSONDecodeError, TypeError, ValidationError) as exc:
+            logger.warning(
+                "LLM 响应解析失败，类别=%s，错误类型：%s，内容长度=%d，前200字符: %s...",
+                category,
+                type(exc).__name__,
+                len(content),
+                content[:200],
+            )
+
+            # 只有当解析成功得到 parsed 对象时，才尝试过滤无效项目
+            # 尝试逐个验证知识点（更宽松的恢复策略）：即使 JSON 解码失败但解析到部分列表也尝试
+            if isinstance(parsed, list):
                 valid_items = []
-                for i, item in enumerate(parsed):
-                    # 再次对每个单项应用 prefix 标准化（确保修复后的 prefix 生效）
-                    if (
-                        isinstance(item, dict)
-                        and "prefix" in item
-                        and "category" in item
-                        and not re.match(r"^(DP|AD|AL|ET|DK|TT|TK|DS)-", item["prefix"])
-                    ):
-                        item["prefix"] = f"{item['category']}-{item['prefix']}"
+                valid_categories = {"DP", "AD", "AL", "ET", "DK", "TT", "TK"}
+                category_mapping = {
+                    "DS": "AL",
+                    "SE": "ET",
+                    "UI": "AD",
+                    "DB": "DK",
+                    "NET": "ET",
+                    "SEC": "ET",
+                    "PERF": "ET",
+                    "OOP": "DP",
+                    "ARCH": "AD",
+                    "TEST": "TT",
+                    "TOOL": "TK",
+                    "CONFIG": "ET",
+                }
+                for item in parsed:
+                    if not isinstance(item, dict):
+                        continue
+                    item_copy = item.copy()
+                    cat = item_copy.get("category", "")
+                    if cat not in valid_categories and cat in category_mapping:
+                        item_copy["category"] = category_mapping[cat]
+                        cat = category_mapping[cat]
+                    prefix = item_copy.get("prefix", "")
+                    if prefix and not prefix.startswith(f"{cat}-"):
+                        item_copy["prefix"] = f"{cat}-{prefix}"
                     try:
-                        validated_item = KnowledgePointExtraction.model_validate(item)
+                        validated_item = _kp_adapter.validate_python(item_copy)
                         valid_items.append(validated_item)
-                    except ValidationError:
-                        logger.warning("跳过第 %d 个无效知识点: %s", i + 1, str(item)[:100])
+                    except Exception:
+                        continue
                 if valid_items:
-                    logger.info("逐项过滤完成: 有效 %d / 总数 %d", len(valid_items), len(parsed))
-                    return self._normalize_knowledge_points(valid_items, category)
-                # 全部无效，降级到 fallback
-                raise
+                    logger.info(
+                        "LLM 响应逐项验证成功: %d/%d 个知识点通过校验",
+                        len(valid_items),
+                        len(parsed),
+                    )
+                    return self._normalize_knowledge_points(valid_items, category)  # type: ignore[arg-type]
 
-        except (json.JSONDecodeError, TypeError) as parse_exc:
-            # JSON 解析失败，尝试使用剩余的修复步骤（step 2-5）进行补救
-            logger.debug("JSON 直接解析失败，尝试备用修复路径: %s", parse_exc)
-            remaining_content = content
-
-            # Step 2: 如果响应被截断，尝试找到最后一个完整 JSON 对象
-            stripped = remaining_content.rstrip()
-            open_brackets = stripped.count("[") - stripped.count("]")
-            open_braces = stripped.count("{") - stripped.count("}")
-            if open_brackets > 0 or open_braces > 0:
-                in_str = False
-                count_brackets = 0
-                count_braces = 0
-                for ch in stripped:
-                    if ch == '"':
-                        in_str = not in_str
-                        continue
-                    if in_str:
-                        continue
-                    if ch == "[":
-                        count_brackets += 1
-                    elif ch == "]":
-                        count_brackets -= 1
-                    elif ch == "{":
-                        count_braces += 1
-                    elif ch == "}":
-                        count_braces -= 1
-                # 补全缺失的括号
-                while count_brackets < 0:
-                    stripped += "]"
-                    count_brackets += 1
-                while open_brackets > 0:
-                    stripped += "]"
-                    open_brackets -= 1
-                while count_braces < 0:
-                    stripped += "}"
-                    count_braces += 1
-                while open_braces > 0:
-                    stripped += "}"
-                    open_braces -= 1
-
+            if parsed is not None and isinstance(parsed, list) and isinstance(exc, ValidationError):
                 try:
-                    json.loads(stripped)
-                    remaining_content = stripped
-                except json.JSONDecodeError:
+                    valid_items = []
+                    valid_categories = {"DP", "AD", "AL", "ET", "DK", "TT", "TK"}
+                    # 类别码映射：将 LLM 可能返回的变体映射到有效类别
+                    category_mapping = {
+                        "DS": "AL",  # Data Structure → Algorithm
+                        "SE": "ET",  # Software Engineering → Engineering/Tech
+                        "UI": "AD",  # UI/UX → Architecture Design
+                        "DB": "DK",  # Database → Domain Knowledge
+                        "NET": "ET",  # Network → Engineering/Tech
+                        "SEC": "ET",  # Security → Engineering/Tech
+                        "PERF": "ET",  # Performance → Engineering/Tech
+                        "OOP": "DP",  # OOP → Design Patterns
+                        "ARCH": "AD",  # Architecture → Architecture Design
+                        "TEST": "TT",  # Testing → Testing Tech
+                        "TOOL": "TK",  # Tools → Technology Stack
+                        "CONFIG": "ET",  # Configuration → Engineering/Tech
+                    }
+                    for item in parsed:
+                        if isinstance(item, dict):
+                            cat = item.get("category", "")
+                            # 如果类别码无效，尝试映射
+                            if cat not in valid_categories and cat in category_mapping:
+                                item["category"] = category_mapping[cat]
+                                # 同步更新 prefix
+                                prefix = item.get("prefix", "")
+                                if prefix and prefix.startswith(cat):
+                                    item["prefix"] = prefix.replace(cat, category_mapping[cat], 1)
+                                cat = category_mapping[cat]
+                            if cat in valid_categories:
+                                # 确保 prefix 也有效
+                                prefix = item.get("prefix", "")
+                                if prefix and not prefix.startswith(cat):
+                                    item["prefix"] = f"{cat}-{prefix}" if not prefix.startswith(f"{cat}-") else prefix
+                                valid_items.append(item)  # type: ignore[arg-type]
+                    if valid_items:
+                        validated = _kp_adapter.validate_python(valid_items)
+                        logger.info("LLM 响应过滤后校验成功: %d/%d 个有效知识点", len(valid_items), len(parsed))
+                        return self._normalize_knowledge_points(validated, category)
+                except Exception:
                     pass
 
-            # Step 3: 提取最后一个完整 JSON 对象（支持 { 和 [ 两种格式）
-            try:
-                brace_idx = remaining_content.rfind("}")
-                bracket_idx = remaining_content.rfind("]")
-                end_idx = max(brace_idx, bracket_idx)
-                if end_idx != -1:
-                    start_char = "{" if end_idx == brace_idx else "["
-                    start_idx = remaining_content.rfind(start_char, 0, end_idx + 1)
-                    if start_idx != -1:
-                        candidate = remaining_content[start_idx : end_idx + 1]
-                        try:
-                            json.loads(candidate)
-                            remaining_content = candidate
-                        except json.JSONDecodeError:
-                            pass
-            except Exception:
-                pass
-
-            # Step 4: 尝试提取 JSON 数组（找到第一个 [ 和最后一个 ]）
-            try:
-                start = remaining_content.find("[")
-                end = remaining_content.rfind("]")
-                if start != -1 and end != -1 and end > start:
-                    candidate = remaining_content[start : end + 1]
-                    try:
-                        json.loads(candidate)
-                        remaining_content = candidate
-                    except json.JSONDecodeError:
-                        pass
-            except Exception:
-                pass
-
-            # Step 5: 最后手段——去掉所有非 JSON 兼容的字符
-            try:
-                start = remaining_content.find("[")
-                end = remaining_content.rfind("]")
-                if start != -1 and end != -1 and end > start:
-                    candidate = remaining_content[start : end + 1]
-                    candidate = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", candidate)
-                    try:
-                        json.loads(candidate)
-                        remaining_content = candidate
-                    except json.JSONDecodeError:
-                        pass
-            except Exception:
-                pass
-
-            # 用剩余内容进行尝试解析
-            try:
-                parsed = json.loads(remaining_content)
-                if not isinstance(parsed, list):
-                    if isinstance(parsed, dict) and "knowledge_points" in parsed:
-                        parsed = parsed["knowledge_points"]
-                    elif isinstance(parsed, dict) and "items" in parsed:
-                        parsed = parsed["items"]
-                    else:
-                        parsed = [parsed]
-                # 标准化 prefix：在验证之前修复缺少类别前缀的项
-                for item in parsed if isinstance(parsed, list) else []:
-                    if (
-                        isinstance(item, dict)
-                        and "prefix" in item
-                        and "category" in item
-                        and not re.match(r"^(DP|AD|AL|ET|DK|TT|TK|DS)-", item["prefix"])
-                    ):
-                        item["prefix"] = f"{item['category']}-{item['prefix']}"
-                validated = _kp_adapter.validate_python(parsed)
-                return self._normalize_knowledge_points(validated, category)
-            except Exception:
-                # 所有修复都失败，使用 fallback
-                logger.warning("LLM 响应解析失败: %s, 原始内容: %s...", parse_exc, content[:200])
-                return [
-                    {
-                        "category": category,
-                        "category_name": CATEGORY_NAMES.get(category, "未知"),
-                        "prefix": f"{category}-Unknown",
-                        "title": f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
-                        "description": content,
-                        "confidence": 0.8,
-                        "tags": [],
-                        "code_snippets": [],
-                        "call_chain": [],
-                        "expansion": {},
-                        "metadata": {},
-                    }
-                ]
+            # Fallback: treat raw content as a single knowledge point
+            return [
+                {
+                    "category": category,
+                    "category_name": CATEGORY_NAMES.get(category, "未知"),
+                    "prefix": f"{category}-Unknown",
+                    "title": f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
+                    "description": content,
+                    "confidence": 0.8,
+                    "tags": [],
+                    "code_snippets": [],
+                    "call_chain": [],
+                    "expansion": {},
+                    "metadata": {},
+                }
+            ]
 
     @staticmethod
     def _repair_json(content: str) -> str:
@@ -608,11 +608,13 @@ class AnalysisNode:
             json.loads(content)
             return content
         except json.JSONDecodeError:
+            logger.debug("原始 JSON 解析失败，开始修复: %s", content[:200])
             pass
 
         # 0. 处理 Extra data 错误（LLM 在 JSON 对象后附加了额外文本）
-        # 使用字符串感知的括号匹配，避免引号内的括号被误计数
+        # 例如: {"a":1,"b":2}extra text → 提取 {"a":1,"b":2}
         try:
+            # 找第一个 { 或 [ 和对应的最后一个 } 或 ]
             first_brace = content.find("{")
             first_bracket = content.find("[")
             start_idx = -1
@@ -624,19 +626,12 @@ class AnalysisNode:
                 start_idx = first_bracket
 
             if start_idx != -1:
+                # 跳过起始符前的所有内容
                 after_start = content[start_idx:]
+                # 找匹配的结束符
                 open_depth = 0
                 end_idx = -1
-                in_str = False
                 for i, ch in enumerate(after_start):
-                    if ch == "\\" and in_str and i + 1 < len(after_start):
-                        i += 1  # 跳过转义字符
-                        continue
-                    if ch == '"':
-                        in_str = not in_str
-                        continue
-                    if in_str:
-                        continue
                     if ch in ("{", "["):
                         open_depth += 1
                     elif ch in ("}", "]"):
@@ -654,33 +649,23 @@ class AnalysisNode:
         except Exception:
             pass
 
-        # 1. 修复字符串值中未转义的双引号和无效转义序列（LLM 最常见的问题）
+        # 1. 修复缺失逗号（LLM 常见问题：} { 或 ] [ 之间缺少逗号）
+        try:
+            # 在 } 和 { 之间、} 和 [ 之间、] 和 { 之间、] 和 [ 之间插入逗号
+            fixed = re.sub(r"(\]|\})(\s*)(\[|\{)", r"\1,\2\3", content)
+            json.loads(fixed)
+            return fixed
+        except (json.JSONDecodeError, Exception):
+            pass
+
+        # 2. 修复字符串值中未转义的双引号（LLM 最常见的问题）
         # 使用逐字符解析的方式修复
-        valid_json_escapes = set('"\\/bfnrtu')
-        hex_chars = set("0123456789abcdefABCDEF")
         repaired = []
         in_string = False
         i = 0
         while i < len(content):
             ch = content[i]
             if ch == "\\":
-                if in_string and i + 1 < len(content):
-                    next_ch = content[i + 1]
-                    if next_ch not in valid_json_escapes:
-                        # 字符串内部的无效转义序列（如 \j, \s, \x），去掉反斜杠
-                        i += 1
-                        repaired.append(content[i])
-                        i += 1
-                        continue
-                    elif next_ch == "u":
-                        # 验证 \uXXXX 的 4 位十六进制数字
-                        if i + 5 >= len(content) or not all(c in hex_chars for c in content[i + 2 : i + 6]):
-                            # 无效的 \u 转义（如 \uXXXX 字面量、\u002 缺位），去掉反斜杠
-                            i += 1
-                            repaired.append(content[i])
-                            i += 1
-                            continue
-                # 有效的转义序列，保持原样
                 repaired.append(ch)
                 if i + 1 < len(content):
                     i += 1
@@ -711,55 +696,20 @@ class AnalysisNode:
 
         content = "".join(repaired)
 
-        # 1b. 清理 JSON 结构中的常见 LLM 格式问题
-        # 移除拖尾逗号（在 ] 或 } 之前的逗号）
-        content = re.sub(r",\s*([\]}])", r"\1", content)
-        # 如果整个 JSON 没有双引号但使用单引号，全局替换为双引号
-        if '"' not in content and "'" in content:
-            content = content.replace("'", '"')
-
         # 2. 如果响应被截断，尝试找到最后一个完整 JSON 对象
         stripped = content.rstrip()
         open_brackets = stripped.count("[") - stripped.count("]")
         open_braces = stripped.count("{") - stripped.count("}")
-        if open_brackets > 0 or open_braces > 0:
-            # 使用字符串感知的计数补全括号
-            in_str = False
-            count_brackets = 0
-            count_braces = 0
-            for ch in stripped:
-                if ch == '"':
-                    in_str = not in_str
-                    continue
-                if in_str:
-                    continue
-                if ch == "[":
-                    count_brackets += 1
-                elif ch == "]":
-                    count_brackets -= 1
-                elif ch == "{":
-                    count_braces += 1
-                elif ch == "}":
-                    count_braces -= 1
-            # 补全缺失的括号
-            while count_brackets < 0:
-                stripped += "]"
-                count_brackets += 1
-            while open_brackets > 0:
-                stripped += "]"
-                open_brackets -= 1
-            while count_braces < 0:
-                stripped += "}"
-                count_braces += 1
-            while open_braces > 0:
-                stripped += "}"
-                open_braces -= 1
+        if open_brackets > 0:
+            stripped += "]" * open_brackets
+        if open_braces > 0:
+            stripped += "}" * open_braces
 
-            try:
-                json.loads(stripped)
-                return stripped
-            except json.JSONDecodeError:
-                content = stripped
+        try:
+            json.loads(stripped)
+            return stripped
+        except json.JSONDecodeError:
+            content = stripped
 
         # 3. 提取最后一个完整 JSON 对象（支持 { 和 [ 两种格式）
         try:
@@ -832,32 +782,18 @@ class AnalysisNode:
         """
         normalized = []
         for point in points:
-            # Copy to avoid mutating the original pydantic model
-            point_data = point.model_dump()
-
-            # 自动修复 prefix：如果 LLM 生成的 prefix 缺少类别前缀（如 "WS-LIB" 而非 "TK-WS-LIB"）
-            if not re.match(r"^(DP|AD|AL|ET|DK|TT|TK|DS)-", point_data["prefix"]):
-                original_prefix = point_data["prefix"]
-                point_data["prefix"] = f"{category}-{point_data['prefix']}"
-                logger.debug("自动修复 prefix: %s → %s", original_prefix, point_data["prefix"])
-
-            expansion = point_data.get("expansion", {}) or {}
+            expansion = point.expansion.model_dump() if point.expansion else {}
             # 将 CodeSnippetExtraction 转换为 dict，确保 content 字段传递
             snippets = []
-            for s in point_data.get("code_snippets", []):
-                snippet_dict = s.copy() if isinstance(s, dict) else s.model_dump()
-                # 将 extraction 的 file 字段映射为 file_path
-                snippet_dict["file_path"] = snippet_dict.pop("file", "")
-                snippets.append(snippet_dict)
-            for s in point_data.get("code_snippets", []):
-                snippet_dict = s.copy() if isinstance(s, dict) else s.model_dump()
+            for s in point.code_snippets:
+                snippet_dict = s.model_dump()
                 # 将 extraction 的 file 字段映射为 file_path
                 snippet_dict["file_path"] = snippet_dict.pop("file", "")
                 snippets.append(snippet_dict)
             # 将 CallChainExtraction 转换为 dict，确保 name→signature 映射
             call_chain = []
-            for c in point_data.get("call_chain", []):
-                chain_dict = c.copy() if isinstance(c, dict) else c.model_dump()
+            for c in point.call_chain:
+                chain_dict = c.model_dump()
                 # 将 extraction 的 name 字段映射为 signature
                 chain_dict["signature"] = chain_dict.get("name", "")
                 # 将 extraction 的 lines 转换为 tuple
@@ -868,23 +804,21 @@ class AnalysisNode:
                     elif len(lines) == 1:
                         chain_dict["lines"] = (lines[0], lines[0])
                 call_chain.append(chain_dict)
-            # Ensure all required fields exist in the normalized dict
-            # We must ensure that each point has all required keys from AnalysisState
-            final_point = {
-                "id": point_data.get("prefix", ""),  # Meilisearch 需要唯一 id，使用 prefix 作为标识
-                "category": category,
-                "category_name": CATEGORY_NAMES.get(category, "未知"),
-                "prefix": point_data.get("prefix", ""),
-                "title": point_data.get("title", f"{CATEGORY_NAMES.get(category, '未知')}分析结果"),
-                "description": point_data.get("description", ""),
-                "confidence": point_data.get("confidence", 0.8),
-                "tags": point_data.get("tags", []),
-                "code_snippets": snippets,
-                "call_chain": call_chain,
-                "expansion": expansion,
-                "metadata": {},
-            }
-            normalized.append(final_point)
+            normalized.append(
+                {
+                    "category": category,
+                    "category_name": CATEGORY_NAMES.get(category, "未知"),
+                    "prefix": point.prefix,
+                    "title": point.title or f"{CATEGORY_NAMES.get(category, '未知')}分析结果",
+                    "description": point.description,
+                    "confidence": point.confidence,
+                    "tags": point.tags,
+                    "code_snippets": snippets,
+                    "call_chain": call_chain,
+                    "expansion": expansion,
+                    "metadata": {},
+                }
+            )
         return normalized
 
 
@@ -901,31 +835,50 @@ class DesignPatternNode(AnalysisNode):
 
         try:
             prompt = load_design_pattern_prompt()
-            messages = await self._build_messages(state, prompt)
-
-            response = await self._llm_client.chat(messages)
-            knowledge_points = self._parse_response(response, category)
+            knowledge_points, cost_estimate, attempts = await self._execute_with_retry(state, category, prompt)
 
             logger.info(
-                "设计模式分析完成: repo_id=%s, extracted=%d",
+                "设计模式分析完成: repo_id=%s, extracted=%d, cost=%.4f, attempts=%d",
                 state["repo_id"],
                 len(knowledge_points),
+                cost_estimate,
+                attempts,
             )
 
-            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
             result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.2,
-                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
+                "agent_results": {
+                    category: {
+                        "status": "success",
+                        "attempts": attempts,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "knowledge_points_count": len(knowledge_points),
+                        "cost_estimate": cost_estimate,
+                    }
+                },
             }
             return result  # type: ignore[return-value]
 
         except LLMError as exc:
+            repo_id = state.get("repo_id", "unknown")
             logger.error("设计模式分析失败: %s", exc)
+            # 将失败节点记录到 Redis，供前端轮询显示
+            try:
+                record_failed_node(repo_id, category, str(exc))
+            except Exception as rec_exc:
+                logger.warning("记录失败节点到 Redis 失败: %s", rec_exc)
             return {  # type: ignore[typeddict-item]
                 "error": str(exc),
-                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+                "agent_results": {
+                    category: {
+                        "status": "failed",
+                        "attempts": MAX_LLM_RETRIES + 1,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "error": str(exc),
+                    }
+                },
             }
 
 
@@ -942,30 +895,50 @@ class ArchitectureNode(AnalysisNode):
 
         try:
             prompt = load_architecture_prompt()
-            messages = await self._build_messages(state, prompt)
-
-            response = await self._llm_client.chat(messages)
-            knowledge_points = self._parse_response(response, category)
+            knowledge_points, cost_estimate, attempts = await self._execute_with_retry(state, category, prompt)
 
             logger.info(
-                "架构设计分析完成: repo_id=%s, extracted=%d",
+                "架构设计分析完成: repo_id=%s, extracted=%d, cost=%.4f, attempts=%d",
                 state["repo_id"],
                 len(knowledge_points),
+                cost_estimate,
+                attempts,
             )
 
             result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.4,
-                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
+                "agent_results": {
+                    category: {
+                        "status": "success",
+                        "attempts": attempts,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "knowledge_points_count": len(knowledge_points),
+                        "cost_estimate": cost_estimate,
+                    }
+                },
             }
             return result  # type: ignore[return-value]
 
         except LLMError as exc:
+            repo_id = state.get("repo_id", "unknown")
             logger.error("架构设计分析失败: %s", exc)
+            # 将失败节点记录到 Redis，供前端轮询显示
+            try:
+                record_failed_node(repo_id, category, str(exc))
+            except Exception as rec_exc:
+                logger.warning("记录失败节点到 Redis 失败: %s", rec_exc)
             return {  # type: ignore[typeddict-item]
                 "error": str(exc),
-                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+                "agent_results": {
+                    category: {
+                        "status": "failed",
+                        "attempts": MAX_LLM_RETRIES + 1,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "error": str(exc),
+                    }
+                },
             }
 
 
@@ -982,30 +955,50 @@ class AlgorithmNode(AnalysisNode):
 
         try:
             prompt = load_algorithm_prompt()
-            messages = await self._build_messages(state, prompt)
-
-            response = await self._llm_client.chat(messages)
-            knowledge_points = self._parse_response(response, category)
+            knowledge_points, cost_estimate, attempts = await self._execute_with_retry(state, category, prompt)
 
             logger.info(
-                "算法实现分析完成: repo_id=%s, extracted=%d",
+                "算法实现分析完成: repo_id=%s, extracted=%d, cost=%.4f, attempts=%d",
                 state["repo_id"],
                 len(knowledge_points),
+                cost_estimate,
+                attempts,
             )
 
             result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.6,
-                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
+                "agent_results": {
+                    category: {
+                        "status": "success",
+                        "attempts": attempts,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "knowledge_points_count": len(knowledge_points),
+                        "cost_estimate": cost_estimate,
+                    }
+                },
             }
             return result  # type: ignore[return-value]
 
         except LLMError as exc:
+            repo_id = state.get("repo_id", "unknown")
             logger.error("算法实现分析失败: %s", exc)
+            # 将失败节点记录到 Redis，供前端轮询显示
+            try:
+                record_failed_node(repo_id, category, str(exc))
+            except Exception as rec_exc:
+                logger.warning("记录失败节点到 Redis 失败: %s", rec_exc)
             return {  # type: ignore[typeddict-item]
                 "error": str(exc),
-                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+                "agent_results": {
+                    category: {
+                        "status": "failed",
+                        "attempts": MAX_LLM_RETRIES + 1,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "error": str(exc),
+                    }
+                },
             }
 
 
@@ -1022,31 +1015,50 @@ class EngineeringNode(AnalysisNode):
 
         try:
             prompt = load_engineering_prompt()
-            messages = await self._build_messages(state, prompt)
-
-            response = await self._llm_client.chat(messages)
-            knowledge_points = self._parse_response(response, category)
+            knowledge_points, cost_estimate, attempts = await self._execute_with_retry(state, category, prompt)
 
             logger.info(
-                "工程技术分析完成: repo_id=%s, extracted=%d",
+                "工程技术分析完成: repo_id=%s, extracted=%d, cost=%.4f, attempts=%d",
                 state["repo_id"],
                 len(knowledge_points),
+                cost_estimate,
+                attempts,
             )
 
-            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
             result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 0.8,
-                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
+                "agent_results": {
+                    category: {
+                        "status": "success",
+                        "attempts": attempts,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "knowledge_points_count": len(knowledge_points),
+                        "cost_estimate": cost_estimate,
+                    }
+                },
             }
             return result  # type: ignore[return-value]
 
         except LLMError as exc:
+            repo_id = state.get("repo_id", "unknown")
             logger.error("工程技术分析失败: %s", exc)
+            # 将失败节点记录到 Redis，供前端轮询显示
+            try:
+                record_failed_node(repo_id, category, str(exc))
+            except Exception as rec_exc:
+                logger.warning("记录失败节点到 Redis 失败: %s", rec_exc)
             return {  # type: ignore[typeddict-item]
                 "error": str(exc),
-                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+                "agent_results": {
+                    category: {
+                        "status": "failed",
+                        "attempts": MAX_LLM_RETRIES + 1,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "error": str(exc),
+                    }
+                },
             }
 
 
@@ -1063,31 +1075,50 @@ class DomainKnowledgeNode(AnalysisNode):
 
         try:
             prompt = load_domain_knowledge_prompt()
-            messages = await self._build_messages(state, prompt)
-
-            response = await self._llm_client.chat(messages)
-            knowledge_points = self._parse_response(response, category)
+            knowledge_points, cost_estimate, attempts = await self._execute_with_retry(state, category, prompt)
 
             logger.info(
-                "领域知识分析完成: repo_id=%s, extracted=%d",
+                "领域知识分析完成: repo_id=%s, extracted=%d, cost=%.4f, attempts=%d",
                 state["repo_id"],
                 len(knowledge_points),
+                cost_estimate,
+                attempts,
             )
 
-            # A-D4: 返回新字典而非原地 extend，让 LangGraph reducer 正确合并并行结果
             result = {
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 1.0,
-                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
+                "agent_results": {
+                    category: {
+                        "status": "success",
+                        "attempts": attempts,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "knowledge_points_count": len(knowledge_points),
+                        "cost_estimate": cost_estimate,
+                    }
+                },
             }
             return result  # type: ignore[return-value]
 
         except LLMError as exc:
+            repo_id = state.get("repo_id", "unknown")
             logger.error("领域知识分析失败: %s", exc)
+            # 将失败节点记录到 Redis，供前端轮询显示
+            try:
+                record_failed_node(repo_id, category, str(exc))
+            except Exception as rec_exc:
+                logger.warning("记录失败节点到 Redis 失败: %s", rec_exc)
             return {  # type: ignore[typeddict-item]
                 "error": str(exc),
-                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+                "agent_results": {
+                    category: {
+                        "status": "failed",
+                        "attempts": MAX_LLM_RETRIES + 1,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "error": str(exc),
+                    }
+                },
             }
 
 
@@ -1104,29 +1135,49 @@ class TemplateTechniqueNode(AnalysisNode):
 
         try:
             prompt = load_template_technique_prompt()
-            messages = await self._build_messages(state, prompt)
-
-            response = await self._llm_client.chat(messages)
-            knowledge_points = self._parse_response(response, category)
+            knowledge_points, cost_estimate, attempts = await self._execute_with_retry(state, category, prompt)
 
             logger.info(
-                "开发模板分析完成: repo_id=%s, extracted=%d",
+                "开发模板分析完成: repo_id=%s, extracted=%d, cost=%.4f, attempts=%d",
                 state["repo_id"],
                 len(knowledge_points),
+                cost_estimate,
+                attempts,
             )
 
             return {  # type: ignore[typeddict-item]
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 1.0,
-                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
+                "agent_results": {
+                    category: {
+                        "status": "success",
+                        "attempts": attempts,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "knowledge_points_count": len(knowledge_points),
+                        "cost_estimate": cost_estimate,
+                    }
+                },
             }
 
         except LLMError as exc:
+            repo_id = state.get("repo_id", "unknown")
             logger.error("开发模板分析失败: %s", exc)
+            # 将失败节点记录到 Redis，供前端轮询显示
+            try:
+                record_failed_node(repo_id, category, str(exc))
+            except Exception as rec_exc:
+                logger.warning("记录失败节点到 Redis 失败: %s", rec_exc)
             return {  # type: ignore[typeddict-item]
                 "error": str(exc),
-                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+                "agent_results": {
+                    category: {
+                        "status": "failed",
+                        "attempts": MAX_LLM_RETRIES + 1,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "error": str(exc),
+                    }
+                },
             }
 
 
@@ -1143,29 +1194,49 @@ class TechnologyStackNode(AnalysisNode):
 
         try:
             prompt = load_technology_stack_prompt()
-            messages = await self._build_messages(state, prompt)
-
-            response = await self._llm_client.chat(messages)
-            knowledge_points = self._parse_response(response, category)
+            knowledge_points, cost_estimate, attempts = await self._execute_with_retry(state, category, prompt)
 
             logger.info(
-                "技术栈分析完成: repo_id=%s, extracted=%d",
+                "技术栈分析完成: repo_id=%s, extracted=%d, cost=%.4f, attempts=%d",
                 state["repo_id"],
                 len(knowledge_points),
+                cost_estimate,
+                attempts,
             )
 
             return {  # type: ignore[typeddict-item]
                 "knowledge_points": knowledge_points,
                 "current_category": category,
                 "progress": 1.0,
-                "agent_results": {category: {"status": "success", "count": len(knowledge_points)}},
+                "agent_results": {
+                    category: {
+                        "status": "success",
+                        "attempts": attempts,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "knowledge_points_count": len(knowledge_points),
+                        "cost_estimate": cost_estimate,
+                    }
+                },
             }
 
         except LLMError as exc:
+            repo_id = state.get("repo_id", "unknown")
             logger.error("技术栈分析失败: %s", exc)
+            # 将失败节点记录到 Redis，供前端轮询显示
+            try:
+                record_failed_node(repo_id, category, str(exc))
+            except Exception as rec_exc:
+                logger.warning("记录失败节点到 Redis 失败: %s", rec_exc)
             return {  # type: ignore[typeddict-item]
                 "error": str(exc),
-                "agent_results": {category: {"status": "failed", "error": str(exc)}},
+                "agent_results": {
+                    category: {
+                        "status": "failed",
+                        "attempts": MAX_LLM_RETRIES + 1,
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "error": str(exc),
+                    }
+                },
             }
 
 
@@ -1196,19 +1267,18 @@ class MergeNode:
         """
         kps = state.get("knowledge_points", [])
 
-        # 1. 去重（按 title + category 合并相似知识点）
-        seen: dict[tuple[str, str], dict] = {}
+        # 1. 去重（按 title，保留置信度高的）
+        seen: dict[str, dict] = {}
         for kp in kps:
             title = kp.get("title", "")
             if not title:
                 continue
-            key = (title, kp.get("category", ""))
-            if key in seen:
+            if title in seen:
                 # 保留置信度高的
                 if kp.get("confidence", 0) > seen[title].get("confidence", 0):
-                    seen[key] = kp
+                    seen[title] = kp
             else:
-                seen[key] = kp
+                seen[title] = kp
 
         # 2. 排序（按 confidence 降序）
         merged = sorted(seen.values(), key=lambda x: x.get("confidence", 0), reverse=True)
@@ -1254,15 +1324,16 @@ class ExpansionNode:
         logger.info("开始生成拓展内容: %d 个知识点", len(kps))
 
         # 低置信度过滤：confidence < 0.7 的知识点跳过拓展生成
-        processed_kps = []
+        filtered_kps = []
         skipped_count = 0
         for kp in kps:
             confidence = kp.get("confidence", 0.5)
             if confidence < 0.7:
                 skipped_count += 1
-                processed_kps.append(kp)  # 直接保留，不生成 expansion
+                # 保留知识点但不生成拓展内容
+                filtered_kps.append(kp)
             else:
-                processed_kps.append(kp)
+                filtered_kps.append(kp)
 
         if skipped_count > 0:
             logger.info("低置信度知识点跳过拓展生成: %d 个 (confidence < 0.7)", skipped_count)
@@ -1282,22 +1353,31 @@ class ExpansionNode:
                 )
                 return None
 
-        # 并发处理所有高置信度知识点
-        high_conf_kp_indices = [i for i, kp in enumerate(processed_kps) if kp.get("confidence", 0.5) >= 0.7]
-        high_conf_kps = [processed_kps[i] for i in high_conf_kp_indices]
-        results = await asyncio.gather(*(_process_expansion(kp) for kp in high_conf_kps), return_exceptions=False)
+        # 并发处理所有知识点，生成新列表而非原地修改
+        results = await asyncio.gather(*[_process_expansion(kp) for kp in filtered_kps])
 
         # 用生成结果更新 knowledge_points（保留未变更的条目）
-        updated_kps = list(processed_kps)
-        for idx, result in zip(high_conf_kp_indices, results, strict=True):
-            if isinstance(result, Exception):
-                logger.error("Unexpected exception in _process_expansion: %s", result)
-                continue
-            updated_kps[idx] = result if result is not None else processed_kps[idx]
+        updated_kps = []
+        expansion_failed_titles = []
+        for original, result in zip(filtered_kps, results, strict=True):
+            if result is not None:
+                updated_kps.append(result)
+            else:
+                updated_kps.append(original)
+                expansion_failed_titles.append(original.get("title", ""))
 
         state["knowledge_points"] = updated_kps
+        state["expansion_failures"] = expansion_failed_titles  # type: ignore[typeddict-unknown-key]
         state["progress"] = 1.0
-        logger.info("拓展内容生成完成: %d 个知识点已更新 / %d 个跳过", len(updated_kps) - skipped_count, skipped_count)
+        if expansion_failed_titles:
+            logger.warning(
+                "拓展内容生成完成: %d 个知识点已更新, %d 个失败: %s",
+                len(updated_kps) - len(expansion_failed_titles),
+                len(expansion_failed_titles),
+                expansion_failed_titles[:3],
+            )
+        else:
+            logger.info("拓展内容生成完成: %d 个知识点已更新", len(updated_kps))
         return state
 
     async def _generate_expansion(self, kp: dict) -> dict | None:
@@ -1308,12 +1388,17 @@ class ExpansionNode:
         即使 JSON 部分字段无效，也尽量提取可用内容。
         """
         title = kp.get("title", "")
+        # 移除 HTML 标签和特殊字符（如 <T>、<S> 等泛型标记），避免混淆 LLM
+        sanitized_title = re.sub(r"<[^>]+>", "", title).strip()
+        # 如果移除了泛型标记后 title 为空，保留原始 title 但转义尖括号
+        if not sanitized_title:
+            sanitized_title = title.replace("<", "&lt;").replace(">", "&gt;")
         category = kp.get("category_name", kp.get("category", ""))
         description = kp.get("description", "")[:500]
 
         prompt = (
             "请为以下知识点生成5个维度的拓展内容。\n\n"
-            f"知识点标题：{title}\n"
+            f"知识点标题：{sanitized_title}\n"
             f"知识点分类：{category}\n"
             f"知识点描述：{description}\n\n"
             "请生成以下5个维度的内容：\n"
@@ -1356,14 +1441,29 @@ class ExpansionNode:
 
             except LLMError as exc:
                 exc_str = str(exc).lower()
-                is_rate_limit = "rate limit" in exc_str or "请求限制" in exc_str or "429" in exc_str
+                is_rate_limit = (
+                    "rate limit" in exc_str
+                    or "请求限制" in exc_str
+                    or "429" in exc_str
+                    or "circuit breaker" in exc_str
+                    or "熔断" in exc_str
+                )
                 if is_rate_limit:
-                    logger.warning("拓展内容触发频率限制，LLMClient 已自动退避: title=%s", title)
-
-                if attempt < self.MAX_RETRIES:
-                    logger.debug("拓展内容生成失败，重试: title=%s, attempt=%d", title, attempt + 1)
-                    await asyncio.sleep(1)
-                    continue
+                    if attempt < self.MAX_RETRIES:
+                        wait = 30  # 等待熔断器恢复（circuit_breaker_timeout = 30s）
+                        logger.warning(
+                            "拓展内容频率限制，等待 %ds 后重试: title=%s, attempt=%d",
+                            wait,
+                            title,
+                            attempt + 1,
+                        )
+                        await asyncio.sleep(wait)
+                        continue
+                else:
+                    if attempt < self.MAX_RETRIES:
+                        logger.debug("拓展内容生成失败，重试: title=%s, attempt=%d", title, attempt + 1)
+                        await asyncio.sleep(1)
+                        continue
                 logger.warning("拓展内容生成失败: title=%s, error=%s", title, exc)
                 return None
 
@@ -1378,67 +1478,199 @@ class ExpansionNode:
         return None
 
     def _parse_merged_expansion(self, content: str) -> dict | None:
-        """解析合并的拓展内容 JSON，支持部分提取
+        """解析合并的拓展内容 JSON，支持部分提取（处理中文标点、截断和尾随文本）
 
-        尝试完整解析，如果失败则尝试提取代码块。
-        如果仍然失败，尝试提取每个字段的可用部分。
+        尝试完整解析，如果失败则尝试从代码块中提取。
+        如果仍然失败，手动提取可用字段，忽略非标准 JSON（如中文冒号）。
         """
-        # 1. 尝试完整解析
-        try:
-            parsed = json.loads(content)
-            validated = self._expansion_adapter.validate_python(parsed)
-            return validated.model_dump()
-        except Exception:
-            pass
+        parsed: Any = None  # 缓存 json.loads 结果
 
-        # 2. 尝试从代码块中提取
-        try:
-            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
-            if match:
-                parsed = json.loads(match.group(1))
+        # 预处理：将中文全角冒号替换为半角冒号，修复 {"name：\"value\"} 格式
+        clean_content = content.replace("：", ":").replace("\n", "")
+
+        # 步骤 1：尝试在原始内容中匹配最外层的 JSON {}
+        # 使用递归函数平衡计数法查找最外层大括号对
+        outer_brace_match = self._find_outer_json_braces(clean_content)
+        if outer_brace_match:
+            try:
+                parsed = json.loads(outer_brace_match)
                 validated = self._expansion_adapter.validate_python(parsed)
                 return validated.model_dump()
+            except Exception:
+                pass
+
+        # 步骤 2：尝试从 Markdown 代码块中提取
+        if parsed is None:
+            try:
+                match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", clean_content)
+                if match:
+                    block_content = match.group(1).strip()
+                    # 去除尾注文字或冗余内容
+                    json_candidate = self._extract_outer_json(block_content)
+                    if json_candidate:
+                        parsed = json.loads(json_candidate)
+                        validated = self._expansion_adapter.validate_python(parsed)
+                        return validated.model_dump()
+            except Exception:
+                pass
+
+        # 步骤 3：备用方案——尝试直接从原始内容提取最外层 JSON
+        if parsed is None:
+            json_candidate = self._extract_outer_json(clean_content)
+            if json_candidate:
+                try:
+                    parsed = json.loads(json_candidate)
+                    validated = self._expansion_adapter.validate_python(parsed)
+                    return validated.model_dump()
+                except Exception:
+                    pass
+
+        # 步骤 4：手动部分提取：不依赖 Pydantic 校验，逐字段提取
+        # 直接操作 cleaned_content，不再先完整解析
+        try:
+            result = self._manual_extract_expansion(clean_content)
+            if result:
+                return result
         except Exception:
             pass
 
-        # 3. 部分提取：收集所有可用字段
+        # 所有策略都失败
+        logger.warning("拓展内容JSON解析全部失败，记录原始响应前2000字符: %s", content[:2000])
+        return None
+
+    def _find_outer_json_braces(self, content: str) -> str | None:
+        """使用平衡计数法寻找 JSON 对象最外层的 { ... }"""
+        if not content or content[0] != "{":
+            return None
+        depth = 0
+        start = None
+        for i, ch in enumerate(content):
+            if ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start is not None:
+                    return content[start : i + 1]
+        return None
+
+    def _extract_outer_json(self, content: str) -> str | None:
+        """从字符串中提取最外层的 JSON 对象（支持嵌套、尾部有文本的情况）"""
+        content = content.strip()
+        if not content.startswith("{"):
+            candidate = self._find_outer_json_braces(content)
+            if candidate:
+                return candidate
+            return None
+
+        # 尝试直接解析（可能已经是纯净的 JSON）
         try:
-            parsed = json.loads(content)
-            result: dict[str, Any] = {}
-            for field in [
-                "principle",
-                "applicable_scenarios",
-                "best_practices",
-                "related_patterns",
-                "learning_resources",
-            ]:
-                if field in parsed and parsed[field] is not None:
-                    result[field] = parsed[field]
-            if result:
+            json.loads(content)
+            return content
+        except json.JSONDecodeError:
+            pass
+
+        # 从第一个 { 开始找到匹配的 }（考虑嵌套）
+        depth = 0
+        for i, ch in enumerate(content):
+            if ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start is not None:
+                    return content[start : i + 1]
+        return None
+
+    def _manual_extract_expansion(self, content: str) -> dict | None:
+        """从已清洗的内容中手动提取扩展内容（不依赖完整 JSON 解析）"""
+        # 原则原则
+        principle_match = re.search(r'"principle"\s*:\s*"((?:\\.|[^"])*)"', content, re.DOTALL)
+        if principle_match:
+            principle = principle_match.group(1).replace('\\"', '"')
+        else:
+            principle_match = re.search(r'"principle"[^:]+:\s*"([^"]+)"', content)
+            principle = principle_match.group(1) if principle_match else ""
+
+        # 适用场景列表
+        applicable_scenarios = []
+        scenarios_match = re.findall(r'"applicable_scenarios"\s*:\s*\[([^\]]+)\]', content)
+        if scenarios_match:
+            inner = scenarios_match[0].strip()
+            if inner:
+                # 提取每个字符串项
+                scenario_items = re.findall(r'"([^"]+)"', inner)
+                applicable_scenarios = [s for s in scenario_items if s]
+
+        # 最佳实践
+        best_practices = []
+        practices_match = re.findall(r'"best_practices"\s*:\s*\[([^\]]+)\]', content)
+        if practices_match:
+            inner = practices_match[0].strip()
+            if inner:
+                practice_items = re.findall(r'"([^"]+)"', inner)
+                best_practices = [p for p in practice_items if p]
+
+        # 关联模式
+        related_patterns = []
+        patterns_match = re.findall(r'"related_patterns"\s*:\s*\[[^\]]*\]', content)
+        if patterns_match:
+            patterns_str = patterns_match[0]
+            # 手动提取名称描述对（支持中文冒号）
+            item_matches = re.findall(r"\{[^{}]*?\}", patterns_str)
+            for item in item_matches:
+                name_match = re.search(r'"[^"]*"[^:]*:\s*([^"]+)', item)
+                if name_match:
+                    related_patterns.append(name_match.group(1))
+            if not related_patterns:
+                # 扁平提取相关模式
+                related_patterns = re.findall(r'"related_patterns"\s*:\s*\[([\s\S]*?)\]', content)
+                # 这里简化处理，返回空数组（实际提取更复杂）
+
+        # 学习资料
+        learning_resources = []
+        resources_match = re.findall(r'"learning_resources"\s*:\s*\[([^\]]+)\]', content)
+        if resources_match:
+            inner = resources_match[0].strip()
+            # 提取每个资源条目（标题和URL）
+            title_url_pairs = re.findall(r'"title"\s*:\s*"([^"]+)",\s*"url"\s*:\s*"([^"]+)"', inner)
+            for title, url in title_url_pairs:
+                learning_resources.append({"title": title, "url": url, "type": "article"})
+
+        if principle or applicable_scenarios or best_practices or learning_resources:
+            result = {}
+            if principle:
+                result["principle"] = principle
+            if applicable_scenarios:
+                result["applicable_scenarios"] = applicable_scenarios
+            if best_practices:
+                result["best_practices"] = best_practices
+            if related_patterns:
+                result["related_patterns"] = related_patterns
+            if learning_resources:
+                result["learning_resources"] = learning_resources
+
+            # 验证后返回
+            try:
                 validated = self._expansion_adapter.validate_python(result)
                 return validated.model_dump()
-        except Exception:
-            pass
-
-        # 4. 从代码块中做部分提取
-        try:
-            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
-            if match:
-                parsed = json.loads(match.group(1))
-                result = {}
-                for field in [
-                    "principle",
-                    "applicable_scenarios",
-                    "best_practices",
-                    "related_patterns",
-                    "learning_resources",
-                ]:
-                    if field in parsed and parsed[field] is not None:
-                        result[field] = parsed[field]
-                if result:
-                    validated = self._expansion_adapter.validate_python(result)
-                    return validated.model_dump()
-        except Exception:
-            pass
+            except Exception:
+                # Pydantic 校验失败，手动构建并返回（跳过严格检查）
+                manual_result = {}
+                if principle:
+                    manual_result["principle"] = principle
+                if applicable_scenarios:
+                    manual_result["applicable_scenarios"] = applicable_scenarios
+                if best_practices:
+                    manual_result["best_practices"] = best_practices
+                if related_patterns:
+                    manual_result["related_patterns"] = related_patterns
+                if learning_resources:
+                    manual_result["learning_resources"] = learning_resources
+                if manual_result:
+                    logger.warning("扩展内容部分提取 Pydantic 校验失败，返回手动构建结果")
+                    return manual_result
 
         return None

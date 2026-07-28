@@ -175,15 +175,54 @@ class AnalysisVersionDAO:
         )
         return result.scalar_one_or_none()
 
-    # In-progress 状态的集合（用于断点续跑查询）
-    _IN_PROGRESS_STATUSES = (
-        "pending",
-        "scanning",
-        "parsing",
-        "analyzing_structures",
-        "analyzing_modules",
-        "storing",
-    )
+    async def get_latest_failed(
+        self,
+        db: AsyncSession,
+        repository_id: UUID,
+    ) -> AnalysisVersionModel | None:
+        """
+        获取仓库中最新的已失败分析版本
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+
+        Returns:
+            最新的失败 AnalysisVersionModel，不存在则返回 None
+        """
+        result = await db.execute(
+            select(AnalysisVersionModel)
+            .where(
+                AnalysisVersionModel.repository_id == repository_id,
+                AnalysisVersionModel.status == "failed",
+            )
+            .order_by(AnalysisVersionModel.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_latest_by_repository(
+        self,
+        db: AsyncSession,
+        repository_id: UUID,
+    ) -> AnalysisVersionModel | None:
+        """
+        获取仓库中最新的分析版本（无论状态）
+
+        Args:
+            db: 异步数据库会话
+            repository_id: 仓库 ID
+
+        Returns:
+            最新的 AnalysisVersionModel，不存在则返回 None
+        """
+        result = await db.execute(
+            select(AnalysisVersionModel)
+            .where(AnalysisVersionModel.repository_id == repository_id)
+            .order_by(AnalysisVersionModel.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def get_latest_in_progress(
         self,
@@ -208,9 +247,20 @@ class AnalysisVersionDAO:
             select(AnalysisVersionModel)
             .where(
                 AnalysisVersionModel.repository_id == repository_id,
-                AnalysisVersionModel.status.in_(self._IN_PROGRESS_STATUSES),
+                AnalysisVersionModel.status.in_(_IN_PROGRESS_STATUSES),
             )
             .order_by(AnalysisVersionModel.created_at.desc())
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+
+# In-progress 状态的集合（用于断点续跑查询）
+_IN_PROGRESS_STATUSES = (
+    "pending",
+    "scanning",
+    "parsing",
+    "analyzing_structures",
+    "analyzing_modules",
+    "storing",
+)

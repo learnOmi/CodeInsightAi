@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from codeinsight.agents.state import AnalysisState
 from codeinsight.auth import get_api_key_dependency
 from codeinsight.config import settings
 from codeinsight.constants.redis_keys import repo_active_task_key, task_mode_key, task_repo_key
@@ -25,6 +26,24 @@ from codeinsight.db.session import async_session_factory, get_db_session
 from codeinsight.exceptions import RepositoryNotFoundError, RepositoryPathExistsError
 from codeinsight.repositories import RepositoryDAO
 from codeinsight.schemas import Repository, RepositoryCreate, RepositoryUpdate
+from codeinsight.schemas.analysis import AnalysisMode
+
+
+class PaginatedRepositories(BaseModel):
+    """分页仓库列表响应"""
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        alias_generator=to_camel,
+    )
+
+    items: list[Repository]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
 
 logger = logging.getLogger(__name__)
 
@@ -57,33 +76,6 @@ def _get_active_task_id(repository_id: UUID) -> str | None:
     except redis.RedisError:
         logger.debug("Redis 查询活跃任务失败: repo=%s", repository_id)
     return None
-
-
-async def _trigger_eager_analysis_background(
-    repository_id: UUID, eager_task_id: str, mode: str = "full", agents: list | None = None
-) -> None:
-    """后台触发 eager 分析任务（使用 asyncio.create_task 在后台执行）
-
-    Args:
-        repository_id: 仓库 ID
-        eager_task_id: 预先生成的 task_id（与 X-Task-Id 响应头一致）
-        mode: 分析模式
-        agents: 启用的 Agent 列表
-    """
-    from codeinsight.api.analysis import AnalysisMode, _trigger_analysis
-    from codeinsight.db.session import async_session_factory
-    from codeinsight.repositories import RepositoryDAO
-
-    async with async_session_factory() as db:
-        dao = RepositoryDAO()
-        repo = await dao.get_by_id(db, repository_id)
-        if repo is None:
-            logger.error("Background eager analysis: repo not found: %s", repository_id)
-            return
-        logger.info("Background eager task starting: repo=%s, task_id=%s", repository_id, eager_task_id)
-        await _trigger_analysis(
-            repository_id, repo, mode=AnalysisMode(mode), agents=agents, eager_task_id=eager_task_id
-        )
 
 
 @router.post("", response_model=Repository, status_code=201)
@@ -120,50 +112,64 @@ async def create_repository(
     # 设置 X-Task-Id 响应头（如果存在）
     task_id = None
     if request.auto_analyze:
-        repo.status = "analyzing"
-        # 生成 task_id 并传递给后台任务，确保与 X-Task-Id 响应头一致
-        # 这样前端用 X-Task-Id 轮询进度时能找到正确的 Redis key
+        # 预先生成 task_id
         eager_task_id = f"eager-{uuid4()}"
-        # 立即写入 Redis，使 list_repositories 能立即查到活跃任务
-        try:
-            client = get_redis_client()
-            from codeinsight.constants.redis_keys import task_mode_key, task_repo_key
-
-            client.set(task_repo_key(eager_task_id), str(repo.id), ex=settings.redis_task_mapping_ttl)
-            client.set(task_mode_key(eager_task_id), "full", ex=settings.redis_task_mapping_ttl)
-            client.set(repo_active_task_key(str(repo.id)), eager_task_id, ex=settings.redis_task_mapping_ttl)
-            client.set(
-                f"task:{eager_task_id}:submitted_at", datetime.now(UTC).isoformat(), ex=settings.redis_task_mapping_ttl
-            )
-        except redis.RedisError as exc:
-            logger.warning("Redis 写入 eager 任务映射失败: %s", exc)
-        asyncio.create_task(_trigger_eager_analysis_background(repo.id, eager_task_id))
+        # 立即持久化 status 和 current_task_id，再触发后台任务
+        repo.status = "analyzing"
+        repo.current_task_id = eager_task_id
+        await db.flush()
+        await db.refresh(repo)
         task_id = eager_task_id
+
+        # 提前提交事务，确保后台任务（新 session）能读取到刚创建的仓库
+        # 参考 get_db_session 注释："支持路由内手动 commit() 的场景"
+        await db.commit()
+
+        # 直接调用 _trigger_analysis，传入已加载的 repo 对象
+        # 避免新开 session 读取不到未提交数据的问题
+        from codeinsight.api.analysis import AnalysisMode, _trigger_analysis
+
+        result = await _trigger_analysis(
+            repo.id, repo, mode=AnalysisMode.FULL, agents=None, eager_task_id=eager_task_id
+        )
+        logger.info(
+            "Eager analysis triggered: repo=%s, task_id=%s, result_task=%s", repo.id, eager_task_id, result.task_id
+        )
 
     if task_id:
         raw_response.headers["X-Task-Id"] = task_id
-        repo.current_task_id = task_id  # type: ignore[attr-defined]
     return repo
 
 
-@router.get("", response_model=list[Repository])
+@router.get("", response_model=PaginatedRepositories)
 async def list_repositories(
     db: DbSession,
     dao: RepoDaoDep,
-    skip: Annotated[int, Query(ge=0, description="跳过的记录数")] = 0,
-    limit: Annotated[int, Query(ge=1, le=500, description="返回的记录数")] = 100,
+    page: Annotated[int, Query(ge=1, description="页码")] = 1,
+    page_size: Annotated[int, Query(ge=1, le=500, description="每页数量")] = 100,
 ):
     """
-    获取仓库列表
+    获取仓库列表（分页）
 
     分页返回用户的所有仓库。
     """
-    repos = await dao.list(db, skip=skip, limit=limit)
+    skip = (page - 1) * page_size
+    repos = await dao.list(db, skip=skip, limit=page_size)
+    total = await dao.count(db)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+
     # 填充活跃任务 ID（仅对 analyzing 状态的仓库查询 Redis）
     for repo in repos:
         if repo.status == "analyzing":
             repo.current_task_id = _get_active_task_id(repo.id)  # type: ignore[attr-defined]
-    return repos
+
+    return PaginatedRepositories(
+        items=repos,  # type: ignore[arg-type]
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
 
 
 @router.get("/{repository_id}", response_model=Repository)
@@ -270,11 +276,11 @@ async def analyze_specific_agents(
                     status_code=409,
                     detail=f"仓库 {repository_id} 有正在进行的分析任务：{active_task_id}",
                 )
-        except Exception as err:
+        except Exception:
             raise HTTPException(
                 status_code=409,
                 detail=f"仓库 {repository_id} 有正在运行的任务：{active_task_id}",
-            ) from err
+            ) from None
 
     # 生成 task_id
     task_id = f"eager-{uuid4()}"
@@ -282,7 +288,7 @@ async def analyze_specific_agents(
     # 设置 Redis 映射
     ttl = settings.redis_task_mapping_ttl or 3600
     client.set(task_repo_key(task_id), str(repository_id), ex=ttl)
-    client.set(task_mode_key(task_id), "full", ex=ttl)
+    client.set(task_mode_key(task_id), AnalysisMode.FULL.value, ex=ttl)
     client.set(repo_active_task_key(str(repository_id)), task_id, ex=ttl)
     client.set(f"task:{task_id}:submitted_at", datetime.now(UTC).isoformat(), ex=ttl)
 
@@ -298,7 +304,7 @@ async def analyze_specific_agents(
 
         orchestrator = AnalysisOrchestrator(
             repo_uuid=repository_id,
-            mode="full",
+            mode=AnalysisMode.FULL.value,
             task_instance=None,
             task_id=task_id,
         )
@@ -352,7 +358,7 @@ async def analyze_specific_agents(
                 "technology_stack": "TK",
             }
 
-            initial_state = {  # type: ignore
+            initial_state: AnalysisState = {  # type: ignore
                 "repo_id": str(repository_id),
                 "ast_data": ast_data,
                 "code_snippets": code_snippets,
@@ -443,6 +449,7 @@ async def analyze_specific_agents(
 
                 except TimeoutError:
                     logger.error(f"Agent {agent_name} 执行超时")
+                    # 无法更新具体知识点的超时状态（无 ID），仅记录日志
                 except Exception as exc:
                     logger.error(f"Agent {agent_name} 执行失败: {exc}")
 

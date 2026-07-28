@@ -922,8 +922,6 @@ export interface components {
             errorMessage?: string | null;
             /** Createdat */
             createdAt: string | null;
-            /** Agentstatus */
-            agentStatus?: { [key: string]: { status: string; count?: number; error?: string } } | null;
         };
         /**
          * AnalyzeRequest
@@ -1507,8 +1505,6 @@ export interface components {
             lastAnalyzedAt?: string | null;
             /** Currenttaskid */
             currentTaskId?: string | null;
-            /** Errormessage */
-            errorMessage?: string | null;
         };
         /**
          * RepositoryCreate

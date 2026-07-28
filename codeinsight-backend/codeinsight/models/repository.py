@@ -60,6 +60,7 @@ class RepositoryModel(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now(), onupdate=func.now())
     last_analyzed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    current_task_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     __table_args__ = (
         # M-3 修复：CHECK 约束与 RepositoryStatus 枚举保持一致

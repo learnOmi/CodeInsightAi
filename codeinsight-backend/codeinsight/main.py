@@ -21,6 +21,7 @@ from codeinsight.api import (
     knowledge,
     module_dependencies,
     repositories,
+    retry,  # 新增：单独重试 API
     routes,
     search,
     stats,
@@ -42,6 +43,23 @@ def _configure_logging() -> None:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
         root.addHandler(handler)
+    # 添加文件日志，方便调试时查看完整日志
+    _add_file_handler(root)
+
+
+def _add_file_handler(root: logging.Logger) -> None:
+    """添加文件日志 handler"""
+    from pathlib import Path
+
+    log_dir = Path(__file__).resolve().parent.parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = str(log_dir / "codeinsight.log")
+    # 避免重复添加
+    if not any(isinstance(h, logging.FileHandler) for h in root.handlers):
+        fh = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        root.addHandler(fh)
+        print(f"[LOG] 文件日志已开启: {log_file}")
 
 
 @asynccontextmanager
@@ -150,6 +168,7 @@ def create_app() -> FastAPI:
     app.include_router(routes.router, prefix="/api/v1", tags=["API 路由"])
     app.include_router(module_dependencies.router, prefix="/api/v1", tags=["模块依赖"])
     app.include_router(stats.router, prefix="/api/v1", tags=["项目统计"])
+    app.include_router(retry.router, prefix="/api/v1", tags=["单独重试"])
 
     # 健康检查端点（S-1 修复：不返回敏感错误信息，防止信息泄露）
     # 注意：健康检查端点不加认证，因为需要被负载均衡器等基础设施访问

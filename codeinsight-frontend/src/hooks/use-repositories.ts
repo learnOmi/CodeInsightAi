@@ -19,12 +19,26 @@ type RepositoryCreate = components["schemas"]["RepositoryCreate"];
 type RepositoryUpdate = components["schemas"]["RepositoryUpdate"];
 type AnalyzeRequest = components["schemas"]["AnalyzeRequest"];
 type AnalysisTask = components["schemas"]["AnalysisTask"];
-type AnalysisVersion = components["schemas"]["AnalysisVersion"];
 
-export function useRepositories() {
+// Backend now returns agentStatus alongside the standard AnalysisVersion fields.
+// The shared package's generated types have not been regenerated yet, so we
+// extend the schema type locally until that happens.
+type AnalysisVersion = components["schemas"]["AnalysisVersion"] & {
+  agentStatus?: Record<string, AgentStatusInfo>;
+};
+
+interface AgentStatusInfo {
+  status: string;
+  knowledge_points_count?: number;
+  error?: string;
+  attempts?: number;
+  timestamp?: string;
+}
+
+export function useRepositories(page = 1, pageSize = 100) {
   return useQuery({
-    queryKey: ["repositories"],
-    queryFn: getRepositories,
+    queryKey: ["repositories", page, pageSize],
+    queryFn: () => getRepositories(page, pageSize),
   });
 }
 

@@ -10,6 +10,7 @@ from .ast_node import AstNodeModel
 from .call_edge import CallEdgeModel
 from .external_dependency import ExternalDependencyModel
 from .file import FileModel
+from .file_analysis_progress import FileAnalysisProgressModel  # R-R4
 from .file_analysis_snapshot import FileAnalysisSnapshotModel
 from .framework_pattern import FrameworkPatternModel
 from .knowledge_point import KnowledgePointModel
@@ -21,6 +22,7 @@ __all__ = [
     "RepositoryStatus",
     "FileModel",
     "FileAnalysisSnapshotModel",
+    "FileAnalysisProgressModel",  # R-R4
     "AstNodeModel",
     "CallEdgeModel",
     "ModuleDependencyModel",

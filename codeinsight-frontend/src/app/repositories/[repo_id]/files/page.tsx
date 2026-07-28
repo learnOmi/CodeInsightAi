@@ -1,12 +1,15 @@
 "use client";
 
 import { use, useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useFiles } from "@/hooks/use-files";
+import { useVersions } from "@/hooks/use-repositories";
 import { buildFileTree, countFiles } from "@/utils/tree-utils";
 import { FileTree } from "@/components/file-tree";
 import { StructureList } from "@/components/structure";
 import { CallGraph } from "@/components/call-graph";
 import { VersionManager } from "@/components/VersionManager";
+import { AgentStatusPanel } from "@/components/AgentStatusPanel";
 import { RouteList } from "@/components/analysis/RouteList";
 import { DependencyList } from "@/components/analysis/DependencyList";
 import { FrameworkList } from "@/components/analysis/FrameworkList";
@@ -183,6 +186,8 @@ export default function FilesPage({
   }, [handleNavigateBack]);
 
   const { data: files, isLoading, error } = useFiles(repo_id);
+  const { data: versions } = useVersions(repo_id);
+  const queryClient = useQueryClient();
   const filesRef = useRef(files);
   filesRef.current = files;
 
@@ -315,7 +320,12 @@ export default function FilesPage({
                 <FrameworkList repositoryId={repo_id} />
               </div>
             ) : (
-              <div className="h-full overflow-y-auto p-4">
+              <div className="h-full overflow-y-auto p-4 space-y-4">
+                <AgentStatusPanel
+                  versions={versions ?? []}
+                  repositoryId={repo_id}
+                  onStatusChange={() => queryClient.invalidateQueries({ queryKey: ["repositories", repo_id, "versions"] })}
+                />
                 <VersionManager repositoryId={repo_id} />
               </div>
             )}

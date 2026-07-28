@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import uuid
 from uuid import UUID
 
 import meilisearch
@@ -104,8 +105,10 @@ class MeiliSearchClient:
             kp: 知识点字典，必须包含 id/title/description/category 等字段
         """
         try:
+            kp_id = kp.get("id")
+            kp_id = str(uuid.uuid4()) if kp_id is None else str(kp_id)
             document = {
-                "id": str(kp["id"]),
+                "id": kp_id,
                 "title": kp.get("title", ""),
                 "description": kp.get("description", ""),
                 "category": kp.get("category", ""),
@@ -130,9 +133,12 @@ class MeiliSearchClient:
         """
         documents = []
         for kp in kps:
+            # 如果知识点没有 id（来自 agent 图的知识点尚未持久化），生成临时 UUID
+            kp_id = kp.get("id")
+            kp_id = str(uuid.uuid4()) if kp_id is None else str(kp_id)
             documents.append(
                 {
-                    "id": str(kp["id"]),
+                    "id": kp_id,
                     "title": kp.get("title", ""),
                     "description": kp.get("description", ""),
                     "category": kp.get("category", ""),

@@ -63,7 +63,6 @@ class AnalysisProgress(BaseModel):
     files_processed: int
     files_total: int
     knowledge_points_found: int
-    total_lines: int = 0
 
 
 class AnalyzeRequest(BaseModel):
