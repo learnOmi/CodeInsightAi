@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useDependencies } from "@/hooks/use-analysis-results";
 import type { ExternalDependency } from "@/api/dependencies";
 import { cn } from "@/utils";
@@ -41,10 +42,6 @@ const ALL_ECOSYSTEMS = "";
 /** 骨架屏占位行数 */
 const SKELETON_ROWS = 6;
 
-/** 未知/缺省占位文本 */
-const VERSION_FALLBACK = "未指定版本";
-const UNKNOWN_LABEL = "未知";
-
 /**
  * 获取生态系统展示配置。
  * @param ecosystem 生态系统名称
@@ -54,7 +51,7 @@ function getEcosystemConfig(ecosystem: string): { icon: string; label: string } 
   return (
     ECOSYSTEM_CONFIG[ecosystem.toLowerCase()] || {
       icon: "📚",
-      label: ecosystem || UNKNOWN_LABEL,
+      label: ecosystem || "unknown",
     }
   );
 }
@@ -77,7 +74,7 @@ function getScopeStyle(scope: string): string {
 function groupByEcosystem(deps: ExternalDependency[]): Array<[string, ExternalDependency[]]> {
   const groups = new Map<string, ExternalDependency[]>();
   for (const dep of deps) {
-    const key = dep.ecosystem || UNKNOWN_LABEL;
+    const key = dep.ecosystem || "unknown";
     const arr = groups.get(key);
     if (arr) arr.push(dep);
     else groups.set(key, [dep]);
@@ -101,6 +98,7 @@ function groupByEcosystem(deps: ExternalDependency[]): Array<[string, ExternalDe
 
 /** 作用域标签 */
 function ScopeTag({ scope }: { scope: string }) {
+  const { t } = useTranslation();
   return (
     <span
       className={cn(
@@ -108,7 +106,7 @@ function ScopeTag({ scope }: { scope: string }) {
         getScopeStyle(scope)
       )}
     >
-      {scope || UNKNOWN_LABEL}
+      {scope || t("dependencies.ecosystem.unknown")}
     </span>
   );
 }
@@ -125,6 +123,7 @@ function FilterBar({
   scope: string;
   setScope: (v: string) => void;
 }) {
+  const { t } = useTranslation();
   const selectClass =
     "h-8 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand";
 
@@ -134,14 +133,14 @@ function FilterBar({
         value={ecosystem}
         onChange={(e) => setEcosystem(e.target.value)}
         className={selectClass}
-        aria-label="生态系统过滤"
+        aria-label={t("dependencies.ecosystemFilter")}
       >
-        <option value={ALL_ECOSYSTEMS}>全部生态系统</option>
+        <option value={ALL_ECOSYSTEMS}>{t("dependencies.allEcosystems")}</option>
         {ECOSYSTEM_ORDER.map((eco) => {
           const cfg = getEcosystemConfig(eco);
           return (
             <option key={eco} value={eco}>
-              {cfg.icon} {cfg.label}
+              {cfg.icon} {t(`dependencies.ecosystem.${eco}`)}
             </option>
           );
         })}
@@ -151,11 +150,11 @@ function FilterBar({
         value={scope}
         onChange={(e) => setScope(e.target.value)}
         className={selectClass}
-        aria-label="作用域过滤"
+        aria-label={t("dependencies.scopeFilter")}
       >
         {SCOPE_OPTIONS.map((s) => (
           <option key={s} value={s}>
-            {s === "" ? "全部作用域" : s}
+            {s === "" ? t("dependencies.allScopes") : s}
           </option>
         ))}
       </select>
@@ -180,8 +179,9 @@ function DependencySkeleton() {
 
 /** 单个依赖项 */
 function DependencyItem({ dep }: { dep: ExternalDependency }) {
+  const { t } = useTranslation();
   const ecoCfg = getEcosystemConfig(dep.ecosystem);
-  const version = dep.version || dep.versionRange || VERSION_FALLBACK;
+  const version = dep.version || dep.versionRange || t("dependencies.noVersion");
   const isMaven = dep.ecosystem?.toLowerCase() === "maven";
   const [showFiles, setShowFiles] = useState(false);
   const hasUsedByFiles = dep.usedByFiles && dep.usedByFiles.length > 0;
@@ -225,7 +225,7 @@ function DependencyItem({ dep }: { dep: ExternalDependency }) {
       {showFiles && hasUsedByFiles && (
         <div className="px-5 py-1.5 space-y-0.5 text-xs border-l-2 border-[var(--border)]/60 ml-5 mb-0.5">
           <div className="text-[10px] text-[var(--text-muted)] font-semibold uppercase tracking-wider mb-1">
-            引用文件 ({dep.usedByFiles.length})
+            {t("dependencies.citedFiles", { n: dep.usedByFiles.length })}
           </div>
           {dep.usedByFiles.map((filePath, idx) => (
             <div key={idx} className="font-mono text-[var(--text-muted)] truncate">
@@ -246,13 +246,14 @@ function EcosystemGroup({
   ecosystem: string;
   deps: ExternalDependency[];
 }) {
+  const { t } = useTranslation();
   const cfg = getEcosystemConfig(ecosystem);
   return (
     <div className="mb-4 last:mb-0">
       <div className="flex items-center gap-2 mb-2.5 pb-2 border-b border-[var(--border)]/60">
         <span className="w-6 h-6 flex items-center justify-center rounded-md bg-[var(--bg-hover)]">{cfg.icon}</span>
         <span className="text-sm font-semibold text-[var(--text-primary)]">
-          {cfg.label}
+          {t(`dependencies.ecosystem.${ecosystem}`, { defaultValue: cfg.label })}
         </span>
         <span className="text-[10px] text-[var(--text-muted)] font-mono bg-[var(--bg-hover)] px-1.5 py-0.5 rounded-sm">({deps.length})</span>
       </div>
@@ -271,6 +272,7 @@ function EcosystemGroup({
  * @param repositoryId 仓库 ID
  */
 export function DependencyList({ repositoryId }: DependencyListProps) {
+  const { t } = useTranslation();
   const [ecosystem, setEcosystem] = useState("");
   const [scope, setScope] = useState("");
 
@@ -293,7 +295,7 @@ export function DependencyList({ repositoryId }: DependencyListProps) {
     return (
       <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
         <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
-          外部依赖
+          {t("dependencies.heading")}
         </h3>
         <DependencySkeleton />
       </div>
@@ -304,9 +306,9 @@ export function DependencyList({ repositoryId }: DependencyListProps) {
     return (
       <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
         <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
-          外部依赖
+          {t("dependencies.heading")}
         </h3>
-        <div className="text-red-500 text-sm">加载依赖数据失败</div>
+        <div className="text-red-500 text-sm">{t("dependencies.loadError")}</div>
       </div>
     );
   }
@@ -314,7 +316,7 @@ export function DependencyList({ repositoryId }: DependencyListProps) {
   return (
     <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
       <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
-        外部依赖
+        {t("dependencies.heading")}
       </h3>
 
       <FilterBar
@@ -326,7 +328,7 @@ export function DependencyList({ repositoryId }: DependencyListProps) {
 
       {!deps || deps.length === 0 ? (
         <div className="text-[var(--text-muted)] text-sm py-10 text-center">
-          暂无外部依赖数据
+          {t("dependencies.empty")}
         </div>
       ) : (
         grouped.map(([eco, items]) => (

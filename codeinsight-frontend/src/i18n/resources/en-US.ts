@@ -106,6 +106,23 @@ export const en = {
     nextPage: "Next",
   },
 
+  // ====== Common Node Types ======
+  nodeTypes: {
+    function: "Function",
+    method: "Method",
+    class: "Class",
+    interface: "Interface",
+    module: "Module",
+    variable: "Variable",
+    import: "Import",
+    function_call: "Call",
+    call: "Call",
+    constructor: "Constructor",
+    struct: "Struct",
+    enum: "Enum",
+    default: "Node",
+  },
+
   // ====== Repo Card ======
   repoCard: {
     step: {

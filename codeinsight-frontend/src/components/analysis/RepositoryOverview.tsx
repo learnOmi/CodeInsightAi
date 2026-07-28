@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { useRepositoryStats } from "@/hooks/use-analysis-results";
 
 interface RepositoryOverviewProps {
@@ -22,12 +23,13 @@ const METER_COLORS = [
  * 一站式展示项目的全局统计信息，帮助用户快速把握项目规模与技术栈组成。
  */
 export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
+  const { t } = useTranslation();
   const { data: stats, isLoading, error } = useRepositoryStats(repositoryId);
 
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">项目概览</h3>
+        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">{t("overview.heading")}</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[...Array(8)].map((_, i) => (
             <div key={i} className="h-20 bg-[var(--bg-hover)] rounded-lg animate-pulse" />
@@ -40,8 +42,8 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
   if (error || !stats) {
     return (
       <div>
-        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">项目概览</h3>
-        <div className="text-red-500 text-sm">加载统计信息失败</div>
+        <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">{t("overview.heading")}</h3>
+        <div className="text-red-500 text-sm">{t("overview.loadError")}</div>
       </div>
     );
   }
@@ -55,30 +57,30 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
 
   return (
     <div className="space-y-6">
-      <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">项目概览</h3>
+      <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">{t("overview.heading")}</h3>
 
       {/* 顶部分类统计卡片 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="文件" value={stats.fileCount} sub={`${stats.totalLines} 行代码`} />
-        <StatCard label="AST 节点" value={stats.nodeCount} sub={`${nodeTypeEntries.length} 种类型`} />
-        <StatCard label="调用关系" value={stats.edgeCount} sub={`${edgeTypeEntries.length} 种调用类型`} />
+        <StatCard label={t("overview.files")} value={stats.fileCount} sub={`${stats.totalLines} ${t("overview.codeLines")}`} />
+        <StatCard label={t("overview.astNodes")} value={stats.nodeCount} sub={t("overview.types", { n: nodeTypeEntries.length })} />
+        <StatCard label={t("overview.callRelations")} value={stats.edgeCount} sub={t("overview.callTypes", { n: edgeTypeEntries.length })} />
         <StatCard
-          label="模块依赖"
+          label={t("overview.moduleDeps")}
           value={stats.moduleDependencyCount}
-          sub={`${Math.round(stats.moduleDependencyCount / Math.max(stats.fileCount, 1) * 10) / 10} 依赖/文件`}
+          sub={`${Math.round(stats.moduleDependencyCount / Math.max(stats.fileCount, 1) * 10) / 10} ${t("overview.depsPerFile")}`}
         />
-        <StatCard label="外部依赖" value={stats.externalDependencyCount} sub={`${ecoEntries.length} 个生态系统`} />
-        <StatCard label="框架" value={stats.frameworkCount} sub="检测到的技术框架" />
-        <StatCard label="API 路由" value={stats.routeCount} sub="HTTP 端点" />
+        <StatCard label={t("overview.externalDeps")} value={stats.externalDependencyCount} sub={t("overview.ecosystems", { n: ecoEntries.length })} />
+        <StatCard label={t("overview.frameworks")} value={stats.frameworkCount} sub={t("overview.detectedFrameworks")} />
+        <StatCard label={t("overview.apiRoutes")} value={stats.routeCount} sub={t("overview.httpEndpoints")} />
       </div>
 
       {/* 语言分布 + 节点类型分布 + 调用类型分布 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* 语言分布 */}
         <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
-          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">语言分布</h4>
+          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">{t("overview.langDistribution")}</h4>
           {langEntries.length === 0 ? (
-            <p className="text-xs text-[var(--text-muted)]">暂无数据</p>
+            <p className="text-xs text-[var(--text-muted)]">{t("overview.noData")}</p>
           ) : (
             <div className="space-y-2">
               {langEntries.map(([lang, count], idx) => (
@@ -96,9 +98,9 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
 
         {/* AST 节点类型分布 */}
         <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
-          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">节点类型分布</h4>
+          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">{t("overview.nodeTypeDist")}</h4>
           {nodeTypeEntries.length === 0 ? (
-            <p className="text-xs text-[var(--text-muted)]">暂无数据</p>
+            <p className="text-xs text-[var(--text-muted)]">{t("overview.noData")}</p>
           ) : (
             <div className="space-y-1.5">
               {nodeTypeEntries.slice(0, 8).map(([type, count]) => {
@@ -115,7 +117,7 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
               })}
               {nodeTypeEntries.length > 8 && (
                 <p className="text-xs text-[var(--text-muted)] text-center pt-1">
-                  还有 {nodeTypeEntries.length - 8} 种类型...
+                  {t("overview.moreTypes", { n: nodeTypeEntries.length - 8 })}
                 </p>
               )}
             </div>
@@ -124,9 +126,9 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
 
         {/* 调用类型分布 */}
         <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
-          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">调用类型分布</h4>
+          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">{t("overview.callTypeDist")}</h4>
           {edgeTypeEntries.length === 0 ? (
-            <p className="text-xs text-[var(--text-muted)]">暂无数据</p>
+            <p className="text-xs text-[var(--text-muted)]">{t("overview.noData")}</p>
           ) : (
             <div className="space-y-1.5">
               {edgeTypeEntries.map(([type, count]) => {
@@ -151,7 +153,7 @@ export function RepositoryOverview({ repositoryId }: RepositoryOverviewProps) {
       {/* 生态系统分布 */}
       {ecoEntries.length > 0 && (
         <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
-          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">外部依赖生态系统</h4>
+          <h4 className="text-xs font-semibold mb-3 text-[var(--text-muted)] uppercase tracking-wider">{t("overview.depEcosystems")}</h4>
           <div className="flex flex-wrap gap-2">
             {ecoEntries.map(([eco, count]) => (
               <span

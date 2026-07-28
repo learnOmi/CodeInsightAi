@@ -96,17 +96,18 @@ const elk = new ELKConstructor({
 });
 
 // 节点 tooltip 描述生成
-function buildNodeTooltip(data: any): string {
-  const lines = [`${data.nodeTypeLabel}：${data.label}`];
+function buildNodeTooltip(data: any, t: (key: string, options?: any) => string): string {
+  const nodeTypeLabel = t(`callGraph.nodeTypes.${data.nodeTypeLabel}`);
+  const lines = [t("callGraph.tooltipType", { type: nodeTypeLabel, label: data.label })];
   if (!data.isCurrentFile && data.filePath) {
-    lines.push(`文件：${data.filePath}`);
+    lines.push(t("callGraph.tooltipFile", { path: data.filePath }));
   }
-  if (data.callsMade > 0) lines.push(`调用 ${data.callsMade} 个方法`);
-  if (data.callsReceived > 0) lines.push(`被 ${data.callsReceived} 个方法调用`);
-  if (data.pendingFwd > 0) lines.push(`▼ 待展开外部调用：${data.pendingFwd}`);
-  if (data.pendingBwd > 0) lines.push(`▲ 待展开外部调用者：${data.pendingBwd}`);
-  if (data.expandedFwdCount > 0) lines.push(`▼ 已展开 ${data.expandedFwdCount} 个调用（点击折叠）`);
-  if (data.expandedBwdCount > 0) lines.push(`▲ 已展开 ${data.expandedBwdCount} 个调用者（点击折叠）`);
+  if (data.callsMade > 0) lines.push(t("callGraph.tooltipCalls", { n: data.callsMade }));
+  if (data.callsReceived > 0) lines.push(t("callGraph.tooltipCalledBy", { n: data.callsReceived }));
+  if (data.pendingFwd > 0) lines.push(t("callGraph.tooltipPendingOut", { n: data.pendingFwd }));
+  if (data.pendingBwd > 0) lines.push(t("callGraph.tooltipPendingIn", { n: data.pendingBwd }));
+  if (data.expandedFwdCount > 0) lines.push(t("callGraph.tooltipExpandedOut", { n: data.expandedFwdCount }));
+  if (data.expandedBwdCount > 0) lines.push(t("callGraph.tooltipExpandedIn", { n: data.expandedBwdCount }));
   return lines.join(" | ");
 }
 
@@ -143,6 +144,7 @@ function ToggleButton({
   bwdChecked,
   hasPotentialExternal,
   totalAvailable,
+  t,
 }: {
   direction: "down" | "up";
   pendingCount: number;
@@ -154,6 +156,7 @@ function ToggleButton({
   hasPotentialExternal?: boolean;
   /** 该方向总共有多少个外部节点（含已展开的），用于显示"全部"提示 */
   totalAvailable?: number;
+  t: (key: string, options?: any) => string;
 }) {
   const isEmptyChecked = direction === "up" && bwdChecked && pendingCount === 0 && expandedCount === 0;
   // 预计算索引中也没有外部 caller → 隐藏按钮（不是"未检查"，而是真的没有）
@@ -173,24 +176,24 @@ function ToggleButton({
 
   // 构建标题：当待展开数 > 单次上限时，提示 Shift+Click 可展开全部
   const loadAllHint = totalAvailable && pendingCount > MAX_EXTERNAL_PER_EXPANSION
-    ? `（Shift+点击展开全部 ${totalAvailable} 个）`
+    ? t("callGraph.loadAllHint", { total: totalAvailable })
     : "";
   let title: string;
   if (direction === "down") {
     if (isExpanded) {
-      title = `已展开 ${expandedCount} 个外部调用，点击折叠（原路按步折叠）`;
+      title = t("callGraph.expandCalls", { n: expandedCount });
     } else {
-      const extra = expandedCount > 0 ? `（已展开 ${expandedCount}）` : "";
-      title = `待展开 ${pendingCount} 个外部调用${extra}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）${loadAllHint}`;
+      const extra = expandedCount > 0 ? `（${t("callGraph.expandCalls", { n: expandedCount })}）` : "";
+      title = `${t("callGraph.pendingCalls", { n: pendingCount, max: MAX_EXTERNAL_PER_EXPANSION })}${extra}${loadAllHint}`;
     }
   } else {
     if (isExpanded) {
-      title = `已展开 ${expandedCount} 个外部调用者，点击折叠（原路按步折叠）`;
+      title = t("callGraph.expandCallers", { n: expandedCount });
     } else if (loading) {
-      title = "加载中...";
+      title = t("callGraph.loading");
     } else {
-      const extra = expandedCount > 0 ? `（已展开 ${expandedCount}）` : "";
-      title = `待展开 ${pendingCount} 个外部调用者${extra}，点击展开（本次最多 ${MAX_EXTERNAL_PER_EXPANSION} 个）${loadAllHint}`;
+      const extra = expandedCount > 0 ? `（${t("callGraph.expandCallers", { n: expandedCount })}）` : "";
+      title = `${t("callGraph.pendingCallers", { n: pendingCount, max: MAX_EXTERNAL_PER_EXPANSION })}${extra}${loadAllHint}`;
     }
   }
 
@@ -224,6 +227,7 @@ function ToggleButton({
  * 自定义 CallGraph 节点 — 渲染多个 Handle + tooltip + ▼/▲ 双向按钮
  */
 function CallGraphNode({ data, selected }: any) {
+  const { t } = useTranslation();
   const [hovered, setHovered] = useState(false);
   const isClass = data.isClass;
   const isMember = data.isMember;
@@ -260,7 +264,7 @@ function CallGraphNode({ data, selected }: any) {
             className="absolute z-50 bottom-full left-1/2 mb-2 px-2 py-1 text-xs whitespace-nowrap rounded shadow-lg pointer-events-none"
             style={{ transform: "translateX(-50%)", backgroundColor: "var(--bg-card)", color: "var(--text-primary)", border: "1px solid var(--border)" }}
           >
-            {buildNodeTooltip(data)}
+            {buildNodeTooltip(data, t)}
           </div>
         )}
         <Handle
@@ -318,6 +322,7 @@ function CallGraphNode({ data, selected }: any) {
         pendingCount={data.pendingFwd || 0}
         expandedCount={data.expandedFwdCount || 0}
         onClick={data.onToggleFwd}
+        t={t}
       />
       {/* ▲ 向上展开/折叠按钮（caller 方向） */}
       <ToggleButton
@@ -335,6 +340,7 @@ function CallGraphNode({ data, selected }: any) {
         bwdChecked={data.bwdChecked}
         hasPotentialExternal={data.hasPotentialExternal}
         totalAvailable={data.totalAvailableBwd}
+        t={t}
       />
 
       <div className="flex items-center gap-1" style={{ marginTop: data.isCurrentFile ? 0 : -4 }}>
@@ -370,7 +376,7 @@ function CallGraphNode({ data, selected }: any) {
           className="absolute z-50 bottom-full left-1/2 mb-2 px-2 py-1 text-xs whitespace-nowrap rounded shadow-lg pointer-events-none"
           style={{ transform: "translateX(-50%)", backgroundColor: "#1f2937", color: "#e5e7eb" }}
         >
-          {buildNodeTooltip(data)}
+          {buildNodeTooltip(data, t)}
         </div>
       )}
       {Array.from({ length: MAX_HANDLES }, (_, i) => (
@@ -554,7 +560,7 @@ async function buildGraphData(
         data: {
           label: astNode.name,
           nodeType: "call",
-          nodeTypeLabel: "调用点",
+          nodeTypeLabel: "callSite",
           icon: "▸",
           color: "rgba(107, 114, 128, 0.12)",
           borderColor: "rgba(107, 114, 128, 0.35)",
@@ -589,7 +595,7 @@ async function buildGraphData(
       data: {
         label: astNode.name,
         nodeType: astNode.nodeType,
-        nodeTypeLabel: config.label,
+        nodeTypeLabel: astNode.nodeType,
         icon: config.icon,
         color: config.color,
         borderColor: config.borderColor,
@@ -983,7 +989,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         const spaceLeft = MAX_TOTAL_NODES - displayedNodeCountRef.current;
         const allowed = Math.min(maxToAdd, Math.max(0, spaceLeft));
         if (allowed <= 0) {
-          setGlobalError(`已达节点数上限（${MAX_TOTAL_NODES}），请先折叠部分节点`);
+          setGlobalError(t("callGraph.nodeLimit", { max: MAX_TOTAL_NODES }));
           return prev;
         }
         for (let i = 0; i < allowed; i++) {
@@ -1009,7 +1015,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         return next;
       });
     });
-  }, [expandedFwdByNode, collapseFwdRecursive, collectFwdDescendants, startExitAnimation]);
+  }, [expandedFwdByNode, collapseFwdRecursive, collectFwdDescendants, startExitAnimation, t]);
 
   /**
    * 向上展开/折叠 toggle（caller 方向，需 API 调用）
@@ -1134,7 +1140,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
           const maxToAdd = Math.min(MAX_EXTERNAL_PER_EXPANSION, unshownCallers.length);
           const spaceLeft = MAX_TOTAL_NODES - displayedNodeCountRef.current;
           if (spaceLeft <= 0) {
-            setGlobalError(`已达节点数上限（${MAX_TOTAL_NODES}），请先折叠部分节点`);
+            setGlobalError(t("callGraph.nodeLimit", { max: MAX_TOTAL_NODES }));
             return prev;
           }
           const allowed = Math.min(maxToAdd, spaceLeft);
@@ -1148,7 +1154,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       }
     } catch (e) {
       console.error("toggleBwd fetch error:", e);
-      setGlobalError("获取外部调用者失败");
+      setGlobalError(t("callGraph.errExternalCaller"));
     } finally {
       if (isMountedRef.current) {
         setBwdLoadingSet((prev) => {
@@ -1158,7 +1164,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         });
       }
     }
-  }, [expandedBwdByNode, pendingBwdByNode, collapseBwdRecursive, collectBwdDescendants, startExitAnimation]);
+  }, [expandedBwdByNode, pendingBwdByNode, collapseBwdRecursive, collectBwdDescendants, startExitAnimation, t]);
 
   /**
    * 一次性展开所有剩余外部 caller（Shift+Click 或 toolbar 按钮）
@@ -1244,7 +1250,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
           const current = new Set(next.get(nodeId) || []);
           const spaceLeft = MAX_TOTAL_NODES - displayedNodeCountRef.current;
           if (spaceLeft <= 0) {
-            setGlobalError(`已达节点数上限（${MAX_TOTAL_NODES}），请先折叠部分节点`);
+            setGlobalError(t("callGraph.nodeLimit", { max: MAX_TOTAL_NODES }));
             return prev;
           }
           const allowed = Math.min(unshownCallers.length, spaceLeft);
@@ -1258,7 +1264,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
       }
     } catch (e) {
       console.error("toggleBwdAll fetch error:", e);
-      setGlobalError("获取外部调用者失败");
+      setGlobalError(t("callGraph.errExternalCaller"));
     } finally {
       if (isMountedRef.current) {
         setBwdLoadingSet((prev) => {
@@ -1268,7 +1274,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         });
       }
     }
-  }, [expandedBwdByNode]);
+  }, [expandedBwdByNode, t]);
 
   /**
    * 计算每个节点的 pendingFwd/pendingBwd/expandedFwdCount/expandedBwdCount，
@@ -1530,7 +1536,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
             data: {
               label: callerData.name,
               nodeType: callerData.node_type,
-              nodeTypeLabel: config.label,
+              nodeTypeLabel: callerData.node_type,
               icon: config.icon,
               color: config.color,
               borderColor: config.borderColor,
@@ -1737,13 +1743,13 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
         <div className="h-full flex items-center justify-center">
           <div className="text-center">
             <div className="w-8 h-8 border-4 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-sm text-[var(--text-muted)]">加载调用图...</p>
+            <p className="text-sm text-[var(--text-muted)]">{t("callGraph.loadingTitle")}</p>
           </div>
         </div>
       ) : !graphData || graphData.nodes.length === 0 ? (
         <div className="h-full flex items-center justify-center">
           <div className="text-center text-[var(--text-muted)]">
-            <p className="text-sm">该文件暂无调用关系</p>
+            <p className="text-sm">{t("callGraph.empty")}</p>
           </div>
         </div>
       ) : (
@@ -1753,14 +1759,14 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
             <div className="flex items-center gap-2 min-w-0">
               {focusedNodeId ? (
                 <>
-                  <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">聚焦模式</span>
+                  <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{t("callGraph.focusMode")}</span>
                   <button
                     onClick={() => setSelectedNodeForChain(focusedNodeId)}
                     className="text-xs px-2 py-1 rounded-md bg-brand/10 text-brand hover:bg-brand/20 transition-colors font-medium whitespace-nowrap"
                   >
-                    🔗 查看调用链
+                    {t("callGraph.viewCallChain")}
                   </button>
-                  <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">· 点击空白区域退出</span>
+                  <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{t("callGraph.exitFocus")}</span>
                 </>
               ) : (
                 <div className="flex items-center gap-2">
@@ -1789,11 +1795,11 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
           {/* 全局错误提示 */}
           {globalError && (
             <div className="px-4 py-2 bg-status-warning/10 border-b border-status-warning/30 text-xs text-status-warning flex items-center justify-between">
-              <span>⚠ {globalError}</span>
+              <span>{t("callGraph.globalError", { err: globalError })}</span>
               <button
                 onClick={() => setGlobalError(null)}
                 className="text-status-warning hover:text-status-error ml-2"
-              >✕</button>
+              >{t("callGraph.close")}</button>
             </div>
           )}
 
@@ -1809,7 +1815,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
                     title={sidebarOpen ? t("callGraph.closeNodeList") : t("callGraph.openNodeList")}
                   >
                     <span className="text-xs font-bold leading-none">
-                      {sidebarOpen ? "✕" : currentFileNodeList.length}
+                      {sidebarOpen ? t("callGraph.close") : currentFileNodeList.length}
                     </span>
                   </button>
                   {sidebarOpen && (

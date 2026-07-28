@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { useMemo } from "react";
 import type { RouteMiddleware } from "@/api/routes";
 
@@ -81,6 +82,7 @@ interface MiddlewareChainProps {
  * - 不同中间件类型采用不同的配色方案
  */
 export function MiddlewareChain({ middlewares }: MiddlewareChainProps) {
+  const { t } = useTranslation();
   // 按 order 字段排序，确保稳定展示执行顺序
   const sortedMiddlewares = useMemo(() => {
     if (!middlewares || middlewares.length === 0) return [];
@@ -90,7 +92,7 @@ export function MiddlewareChain({ middlewares }: MiddlewareChainProps) {
   if (!middlewares || middlewares.length === 0) {
     return (
       <div className="flex items-center justify-center text-center py-8 text-sm text-[var(--text-muted)]">
-        无中间件
+        {t("middleware.none")}
       </div>
     );
   }

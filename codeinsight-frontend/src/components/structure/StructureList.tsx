@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useAstNodes } from "@/hooks/use-files";
 import { groupAstNodes, flattenGroupedNodes } from "@/utils/structure-utils";
 import { FrameworkBadge } from "@/components/common/FrameworkBadge";
@@ -27,6 +28,7 @@ interface StructureListProps extends NavigableProps {
 
 /** 代码结构概览列表 */
 export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }: StructureListProps) {
+  const { t } = useTranslation();
   const { data: nodes, isLoading, error } = useAstNodes({ file_id: fileId });
   const nodeRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -69,7 +71,7 @@ export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }:
     return (
       <div>
         <h3 className="text-[15px] font-semibold tracking-tight text-[var(--text-primary)]">{fileName}</h3>
-        <div className="text-status-error text-sm">加载结构数据失败</div>
+        <div className="text-status-error text-sm">{t("structure.loadError")}</div>
       </div>
     );
   }
@@ -80,7 +82,7 @@ export function StructureList({ fileId, fileName, onNavigate, highlightNodeId }:
 
       {flatNodes.length === 0 ? (
         <div className="text-[var(--text-muted)] text-sm py-4">
-          该文件暂无解析结果
+          {t("structure.empty")}
         </div>
       ) : (
         <ul className="space-y-0.5">
@@ -123,6 +125,7 @@ function StructureNode({
   setRef?: (el: HTMLDivElement) => void;
   isHighlighted?: boolean;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -146,12 +149,12 @@ function StructureNode({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onNavigate({ component: "callgraph", nodeId: node.id, label: node.name, detail: "调用图" });
+              onNavigate({ component: "callgraph", nodeId: node.id, label: node.name, detail: t("structure.callGraphBtn") });
             }}
             className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand hover:bg-brand/20 transition-colors flex-shrink-0"
-            title="查看调用图"
+            title={t("structure.callGraphTitle")}
           >
-            ⊙调用图
+            {t("structure.callGraphBtn")}
           </button>
         )}
         {hasDetails && (
@@ -169,13 +172,13 @@ function StructureNode({
         >
           {node.signature && (
             <div className="font-mono text-[var(--text-muted)]">
-              <span className="text-[10px] text-[var(--text-secondary)] font-semibold mr-1">签名:</span>
+              <span className="text-[10px] text-[var(--text-secondary)] font-semibold mr-1">{t("structure.signature")}</span>
               {node.signature}
             </div>
           )}
           {node.annotations && node.annotations.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              <span className="text-[10px] text-[var(--text-muted)] font-semibold">注解:</span>
+              <span className="text-[10px] text-[var(--text-muted)] font-semibold">{t("structure.annotations")}</span>
               {node.annotations.map((ann: unknown, idx: number) => {
                 const annObj = ann as { name?: string };
                 return (

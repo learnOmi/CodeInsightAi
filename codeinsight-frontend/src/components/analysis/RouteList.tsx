@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useRoutes } from "@/hooks/use-analysis-results";
 import { useFiles } from "@/hooks/use-files";
 import type { ApiRoute } from "@/api/routes";
@@ -71,13 +72,14 @@ function MethodTag({ method }: { method: string }) {
 
 /** 中间件数量徽章 */
 function MiddlewareBadge({ count }: { count: number }) {
+  const { t } = useTranslation();
   if (count <= 0) return null;
   return (
     <span
       className="inline-flex items-center rounded-sm bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] text-[var(--text-muted)] flex-shrink-0"
-      title={`${count} 个中间件`}
+      title={t("routes.middlewareTitle", { n: count })}
     >
-      MW: {count}
+      {t("routes.middlewareBadge", { n: count })}
     </span>
   );
 }
@@ -100,6 +102,7 @@ function FilterBar({
   setPathPattern: (v: string) => void;
   frameworkOptions: string[];
 }) {
+  const { t } = useTranslation();
   const selectClass =
     "h-8 rounded-md border border-white/[0.06] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand";
 
@@ -109,11 +112,11 @@ function FilterBar({
         value={httpMethod}
         onChange={(e) => setHttpMethod(e.target.value)}
         className={selectClass}
-        aria-label="HTTP 方法过滤"
+        aria-label={t("routes.methodFilter")}
       >
         {HTTP_METHOD_OPTIONS.map((m) => (
           <option key={m} value={m}>
-            {m === "" ? "全部方法" : m}
+            {m === "" ? t("routes.allMethods") : m}
           </option>
         ))}
       </select>
@@ -122,9 +125,9 @@ function FilterBar({
         value={framework}
         onChange={(e) => setFramework(e.target.value)}
         className={selectClass}
-        aria-label="框架过滤"
+        aria-label={t("routes.frameworkFilter")}
       >
-        <option value={ALL_FRAMEWORKS}>全部框架</option>
+        <option value={ALL_FRAMEWORKS}>{t("routes.allFrameworks")}</option>
         {frameworkOptions.map((f) => (
           <option key={f} value={f}>
             {f}
@@ -136,7 +139,7 @@ function FilterBar({
         type="text"
         value={pathPattern}
         onChange={(e) => setPathPattern(e.target.value)}
-        placeholder="搜索路径..."
+        placeholder={t("routes.searchPlaceholder")}
         className="h-8 flex-1 min-w-[160px] rounded-md border border-white/[0.06] bg-[var(--bg-card)] px-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
       />
     </div>
@@ -160,6 +163,7 @@ function RouteSkeleton() {
 
 /** 单行路由（可点击展开中间件链） */
 function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onNavigate?: NavigableProps["onNavigate"]; filePathToIdMap: Map<string, string> }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const hasMiddlewares = (route.middlewares?.length ?? 0) > 0;
   const fileId = route.handlerFile ? filePathToIdMap.get(route.handlerFile) : undefined;
@@ -184,12 +188,12 @@ function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onN
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onNavigate({ component: "callgraph", fileId: fileId, label: route.handlerFile, detail: "调用图" });
+              onNavigate({ component: "callgraph", fileId: fileId, label: route.handlerFile, detail: t("routes.callGraphBtn") });
             }}
             className="text-[10px] px-1.5 py-0.5 rounded bg-brand/10 text-brand hover:bg-brand/20 transition-colors flex-shrink-0"
-            title="查看调用图"
+            title={t("routes.callGraphTitle")}
           >
-            ⊙调用图
+            {t("routes.callGraphBtn")}
           </button>
         )}
         {hasMiddlewares && (
@@ -202,7 +206,7 @@ function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onN
       {/* 展开的中间件链 */}
       {expanded && route.middlewares && route.middlewares.length > 0 && (
         <div className="px-4 py-2.5 border-l-2 border-[var(--border)]/60 ml-4 mb-1">
-          <div className="text-[10px] text-[var(--text-muted)] font-semibold uppercase tracking-wider mb-2">中间件链</div>
+          <div className="text-[10px] text-[var(--text-muted)] font-semibold uppercase tracking-wider mb-2">{t("routes.middlewareChain")}</div>
           <MiddlewareChain middlewares={route.middlewares} />
         </div>
       )}
@@ -216,6 +220,7 @@ function RouteRow({ route, onNavigate, filePathToIdMap }: { route: ApiRoute; onN
  * @param repositoryId 仓库 ID
  */
 export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
+  const { t } = useTranslation();
   const [httpMethod, setHttpMethod] = useState("");
   const [framework, setFramework] = useState("");
   const [pathPattern, setPathPattern] = useState("");
@@ -251,7 +256,7 @@ export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
     return (
       <div className="bg-[var(--bg-card)] rounded-xl border border-white/[0.06] p-5">
         <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
-          API 路由
+          {t("routes.heading")}
         </h3>
         <RouteSkeleton />
       </div>
@@ -262,9 +267,9 @@ export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
     return (
       <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
         <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
-          API 路由
+          {t("routes.heading")}
         </h3>
-        <div className="text-status-error text-sm">加载路由数据失败</div>
+        <div className="text-status-error text-sm">{t("routes.loadError")}</div>
       </div>
     );
   }
@@ -272,7 +277,7 @@ export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
   return (
     <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5">
       <h3 className="text-base font-semibold mb-3 tracking-tight text-[var(--text-primary)]">
-        API 路由
+        {t("routes.heading")}
       </h3>
 
       <FilterBar
@@ -287,7 +292,7 @@ export function RouteList({ repositoryId, onNavigate }: RouteListProps) {
 
       {!routes || routes.length === 0 ? (
         <div className="text-[var(--text-muted)] text-sm py-10 text-center">
-          暂无 API 路由数据
+          {t("routes.empty")}
         </div>
       ) : (
         <ul className="space-y-0.5">

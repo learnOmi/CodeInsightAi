@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { apiFetch } from "@/api/base";
 import type { components } from "@codeinsight/shared";
 
@@ -37,6 +38,7 @@ interface AgentStatusInfo {
 }
 
 export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: AgentStatusPanelProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
 
@@ -108,7 +110,7 @@ export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: Age
         onClick={() => setExpanded(!expanded)}
         className="w-full text-left text-sm font-medium text-[var(--text-primary)] hover:text-brand transition-colors flex justify-between items-center"
       >
-        <span>AI 分析状态 ({latestVersion.version})</span>
+        <span>{t("agentStatus.header", { version: latestVersion.version })}</span>
         <span>{expanded ? "▲" : "▼"}</span>
       </button>
 
@@ -119,19 +121,19 @@ export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: Age
             {successCategories.length > 0 && (
               <span className="inline-flex items-center gap-1">
                 <span className="text-green-500">✓</span>
-                {successCategories.length} 个维度成功
+                {t("agentStatus.success", { n: successCategories.length })}
               </span>
             )}
             {failedCategories.length > 0 && (
               <span className="inline-flex items-center gap-1">
                 <span className="text-status-error">✗</span>
-                {failedCategories.length} 个维度失败
+                {t("agentStatus.failed", { n: failedCategories.length })}
               </span>
             )}
             {retryingCategories.length > 0 && (
               <span className="inline-flex items-center gap-1">
                 <span className="text-brand">⟳</span>
-                {retryingCategories.length} 个维度重试中
+                {t("agentStatus.retrying", { n: retryingCategories.length })}
               </span>
             )}
           </div>
@@ -140,7 +142,7 @@ export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: Age
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {categoryKeys.map((categoryCode) => {
               const status = agentStatus[categoryCode];
-              const displayName = CATEGORY_NAMES[categoryCode] || categoryCode;
+              const displayName = t(`agentStatus.categories.${categoryCode}`) || CATEGORY_NAMES[categoryCode] || categoryCode;
               const isFailed = status.status === "failed";
               const isRetrying = status.status === "retrying";
 
@@ -157,15 +159,15 @@ export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: Age
                 >
                   <div className="flex items-center gap-2">
                     <span>{displayName}</span>
-                    {isRetrying && <span className="text-xs">⟳ 重试中</span>}
+                    {isRetrying && <span className="text-xs">{t("agentStatus.retryingLabel")}</span>}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs">
                       {isFailed
-                        ? "失败"
+                        ? t("agentStatus.failedLabel")
                         : status.status === "retrying"
-                        ? "重试中"
-                        : `✓ ${status.knowledge_points_count || 0} 个`}
+                        ? t("agentStatus.retryLabel")
+                        : t("agentStatus.countLabel", { n: status.knowledge_points_count || 0 })}
                     </span>
                     {isFailed && (
                       <button
@@ -173,7 +175,7 @@ export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: Age
                         disabled={retrying === categoryCode}
                         className="px-2 py-0.5 text-[10px] bg-status-warning text-white rounded hover:opacity-90 disabled:opacity-50 transition-opacity font-medium"
                       >
-                        {retrying === categoryCode ? "..." : "重试"}
+                        {retrying === categoryCode ? "..." : t("agentStatus.retryBtn")}
                       </button>
                     )}
                     {!isFailed && (
@@ -182,13 +184,13 @@ export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: Age
                         disabled={retrying === categoryCode}
                         className="px-2 py-0.5 text-[10px] border border-[var(--border)] text-[var(--text-secondary)] rounded hover:bg-[var(--bg-hover)] disabled:opacity-50 transition-colors"
                       >
-                        {retrying === categoryCode ? "..." : "重跑"}
+                        {retrying === categoryCode ? "..." : t("agentStatus.rerunBtn")}
                       </button>
                     )}
                   </div>
                   {isFailed && status.error && (
                     <div className="text-xs mt-1 opacity-80 w-full truncate">
-                      错误: {status.error}
+                      {t("agentStatus.errorPrefix")} {status.error}
                     </div>
                   )}
                 </div>
@@ -216,7 +218,7 @@ export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: Age
               }}
               className="mt-3 w-full px-3 py-2 text-xs font-medium bg-status-warning text-white rounded hover:opacity-90 shadow-sm disabled:opacity-50 transition-opacity"
             >
-              批量重试 ({failedCategories.length} 个失败维度)
+              {t("agentStatus.batchRetry", { n: failedCategories.length })}
             </button>
           )}
 
@@ -224,15 +226,14 @@ export function AgentStatusPanel({ versions, repositoryId, onStatusChange }: Age
           {hasExpansionFailure && (
             <div className="mt-3 p-3 rounded bg-status-warning/10 border border-status-warning/30">
               <div className="text-xs text-[var(--text-primary)] mb-2">
-                拓展内容生成部分失败（{expansionStatus.total_failed || "?"} 个知识点），
-                可点击下方按钮重新生成
+                {t("agentStatus.expandFailBanner", { n: expansionStatus.total_failed || "?" })}
               </div>
               <button
                 onClick={handleExpansionRetry}
                 disabled={retrying === "_expansion"}
                 className="w-full px-3 py-2 text-xs font-medium bg-status-warning text-white rounded hover:opacity-90 shadow-sm disabled:opacity-50 transition-opacity"
               >
-                {retrying === "_expansion" ? "重试中..." : "重试拓展内容生成"}
+                {retrying === "_expansion" ? t("agentStatus.retryingExpand") : t("agentStatus.retryExpandBtn")}
               </button>
             </div>
           )}

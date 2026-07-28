@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { useModuleDependencies } from "@/hooks/use-analysis-results";
@@ -6,6 +6,7 @@ import { useFiles, type FileItem } from "@/hooks/use-files";
 import "@xyflow/react/dist/style.css";
 import type { NavigableProps } from "@/components/analysis/NavTrailBar";
 import { Handle, Position, ReactFlow, Background, type Node, type Edge, type NodeTypes } from "@xyflow/react";
+import { useTranslation } from "react-i18next";
 
 // ─── Props ───────────────────────────────────────
 interface ModuleDependencyGraphProps extends NavigableProps {
@@ -26,6 +27,7 @@ interface ExploreNodeData {
   nodeId?: string;
   resolvable?: boolean;
   onNavigate?: (entry: { component?: string; fileId?: string; label: string; detail?: string }) => void;
+  t?: (key: string, options?: Record<string, unknown>) => string;
 }
 
 const NODE_W = 160;
@@ -54,10 +56,12 @@ function truncate(text: string, maxLen: number): string {
 }
 
 function ExploreNode({ data }: { data: ExploreNodeData }) {
+  const { t: dataT } = data;
+  const safeT = dataT || ((key: string) => key);
   const colorMap = {
-    file: { bg: "rgba(75, 85, 99, 0.35)", border: "rgba(107, 114, 128, 0.8)", accent: "#6b7280", label: "文件" },
-    internal: { bg: "rgba(20, 184, 166, 0.25)", border: "rgba(20, 184, 166, 0.8)", accent: "#14b8a6", label: "内部模块" },
-    external: { bg: "rgba(168, 85, 247, 0.25)", border: "rgba(168, 85, 247, 0.8)", accent: "#a855f7", label: "外部依赖" },
+    file: { bg: "rgba(75, 85, 99, 0.35)", border: "rgba(107, 114, 128, 0.8)", accent: "#6b7280" },
+    internal: { bg: "rgba(20, 184, 166, 0.25)", border: "rgba(20, 184, 166, 0.8)", accent: "#14b8a6" },
+    external: { bg: "rgba(168, 85, 247, 0.25)", border: "rgba(168, 85, 247, 0.8)", accent: "#a855f7" },
   };
   const c = colorMap[data.nodeType];
 
@@ -71,7 +75,7 @@ function ExploreNode({ data }: { data: ExploreNodeData }) {
         width: NODE_W,
         color: "var(--text-primary)",
       }}
-      title={`${data.label}\n${data.fullPath || ""}\n类型: ${c.label}`}
+      title={`${data.label}\n${data.fullPath || ""}\n${safeT("moduleDeps.nodeTypes." + data.nodeType)}`}
     >
       <Handle type="source" position={Position.Right} id="source" style={{ background: c.accent }} />
       <Handle type="target" position={Position.Left} id="target" style={{ background: c.accent }} />
@@ -82,13 +86,13 @@ function ExploreNode({ data }: { data: ExploreNodeData }) {
         </span>
       </div>
       <div className="text-[10px] mt-0.5 opacity-60" style={{ color: "var(--text-muted)" }}>
-        {c.label}
+        {safeT("moduleDeps.nodeTypes." + data.nodeType)}
       </div>
       {data.onNavigate && (
         <div className="flex gap-1 mt-1.5">
           {data.resolvable === false ? (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400" title="无法解析到具体文件">
-              无法解析
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-400" title={safeT("moduleDeps.fileUnresolvable")}>
+              {safeT("moduleDeps.unresolvable")}
             </span>
           ) : (
             <>
@@ -98,9 +102,9 @@ function ExploreNode({ data }: { data: ExploreNodeData }) {
                   data.onNavigate!({ component: "callgraph", fileId: data.nodeId, label: data.label, detail: "调用图" });
                 }}
                 className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
-                title="查看调用图"
+                title={safeT("moduleDeps.callGraphTitle")}
               >
-                ⊙调用图
+                {safeT("moduleDeps.callGraphBtn")}
               </button>
               <button
                 onClick={(e) => {
@@ -108,9 +112,9 @@ function ExploreNode({ data }: { data: ExploreNodeData }) {
                   data.onNavigate!({ component: "structure", fileId: data.nodeId, label: data.label, detail: "代码结构" });
                 }}
                 className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
-                title="查看代码结构"
+                title={safeT("moduleDeps.structTitle")}
               >
-                ◆结构
+                {safeT("moduleDeps.structBtn")}
               </button>
             </>
           )}
@@ -123,6 +127,7 @@ function ExploreNode({ data }: { data: ExploreNodeData }) {
 const nodeTypes: NodeTypes = { exploreNode: ExploreNode };
 
 export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDependencyGraphProps) {
+  const { t } = useTranslation();
   const { data: deps, isLoading, error } = useModuleDependencies(repositoryId);
   const { data: files } = useFiles(repositoryId);
 
@@ -317,6 +322,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
         nodeId: centerNavNodeId,
         resolvable: centerResolvable,
         onNavigate,
+        t,
       } as unknown as Record<string, unknown>,
     });
 
@@ -366,6 +372,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
           nodeId: navNodeId,
           resolvable,
           onNavigate,
+          t,
         } as unknown as Record<string, unknown>,
       });
 
@@ -396,7 +403,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
     });
 
     return { nodes: rfNodes, edges: rfEdges };
-  }, [selectedNodeId, nodeMap, forwardEdges, reverseEdges, onNavigate, resolveInternalPath]);
+  }, [selectedNodeId, nodeMap, forwardEdges, reverseEdges, onNavigate, resolveInternalPath, t]);
 
   const handleSelectNode = useCallback((nodeId: string) => {
     if (selectedNodeId) {
@@ -437,7 +444,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
       <div className="h-[600px] flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-[var(--text-muted)]">加载模块依赖数据...</p>
+          <p className="text-sm text-[var(--text-muted)]">{t("moduleDeps.loading")}</p>
         </div>
       </div>
     );
@@ -447,7 +454,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
     return (
       <div className="h-[600px] flex items-center justify-center">
         <div className="text-center">
-          <p className="text-sm text-red-500">加载模块依赖数据失败</p>
+          <p className="text-sm text-red-500">{t("moduleDeps.loadError")}</p>
           <p className="text-xs text-[var(--text-muted)] mt-1">{error.message}</p>
         </div>
       </div>
@@ -458,7 +465,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
     return (
       <div className="h-[600px] flex items-center justify-center">
         <div className="text-center">
-          <p className="text-sm text-[var(--text-muted)]">暂无模块依赖数据</p>
+          <p className="text-sm text-[var(--text-muted)]">{t("moduleDeps.empty")}</p>
         </div>
       </div>
     );
@@ -467,16 +474,16 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-[var(--text-primary)]">模块依赖探索</h3>
+        <h3 className="text-lg font-semibold text-[var(--text-primary)]">{t("moduleDeps.title")}</h3>
         {stats && (
           <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-            <span>{stats.totalDeps} 依赖关系</span>
+            <span>{t("moduleDeps.depCount", { n: stats.totalDeps })}</span>
             <span>·</span>
-            <span>{stats.fileNodes} 源文件</span>
+            <span>{t("moduleDeps.sourceCount", { n: stats.fileNodes })}</span>
             <span>·</span>
-            <span>{stats.internalNodes} 内部模块</span>
+            <span>{t("moduleDeps.internalCount", { n: stats.internalNodes })}</span>
             <span>·</span>
-            <span>{stats.externalNodes} 外部依赖</span>
+            <span>{t("moduleDeps.externalCount", { n: stats.externalNodes })}</span>
           </div>
         )}
       </div>
@@ -488,7 +495,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜索文件或模块名称..."
+            placeholder={t("moduleDeps.searchPlaceholder")}
             className="w-full px-4 py-2 text-sm bg-[var(--bg-card)] border border-white/[0.06] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition-all"
           />
         </div>
@@ -498,16 +505,16 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
               onClick={handleBack}
               disabled={history.length === 0}
               className="px-3 py-2 text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title="后退 (Ctrl+←)"
+              title={t("moduleDeps.backTitle")}
             >
-              ← 返回
+              {t("moduleDeps.back")}
             </button>
             <button
               onClick={handleClear}
               className="px-3 py-2 text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text-muted)] hover:text-red-500 hover:border-red-500 transition-colors"
-              title="重置 (Esc)"
+              title={t("moduleDeps.resetTitle")}
             >
-              重置
+              {t("moduleDeps.reset")}
             </button>
           </>
         )}
@@ -539,7 +546,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
 
       {!selectedNodeId && !searchQuery && (
         <div className="mb-3">
-          <p className="text-xs text-[var(--text-muted)] mb-2">热门节点（引用次数最多）：</p>
+          <p className="text-xs text-[var(--text-muted)] mb-2">{t("moduleDeps.popularLabel")}</p>
           <div className="flex flex-wrap gap-2">
             {hotNodes.map((node) => (
               <button
@@ -552,7 +559,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
                     ? "border-teal-400 hover:bg-teal-500 hover:text-white text-teal-600"
                     : "border-purple-400 hover:bg-purple-500 hover:text-white text-purple-600"
                 }`}
-                title={`${node.name}\n引用 ${node.refCount} 次`}
+                title={`${node.name}\n${t("moduleDeps.citeTitle", { n: node.refCount })}`}
               >
                 {truncate(node.name, 20)} ×{node.refCount}
               </button>
@@ -578,7 +585,7 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
               <Background color="#374151" gap={16} />
             </ReactFlow>
             <div className="absolute bottom-4 left-4 bg-black/70 text-white px-3 py-2 rounded text-xs z-10">
-              节点: {nodes.length} | 边: {edges.length}
+              {t("moduleDeps.nodeEdge", { n: nodes.length, e: edges.length })}
             </div>
           </>
         ) : (
@@ -587,19 +594,19 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
               <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-blue-500/10 flex items-center justify-center">
                 <span className="text-3xl">🔍</span>
               </div>
-              <h4 className="text-lg font-medium text-[var(--text-primary)] mb-2">探索模块依赖关系</h4>
+              <h4 className="text-lg font-medium text-[var(--text-primary)] mb-2">{t("moduleDeps.emptyHeading")}</h4>
               <p className="text-sm text-[var(--text-muted)]">
-                在上方搜索框输入文件名或模块名，选择一个起始节点开始探索其依赖网络。点击图中的任意节点可继续探索。
+                {t("moduleDeps.emptyDesc")}
               </p>
               <div className="mt-4 flex items-center justify-center gap-4 text-xs text-[var(--text-muted)]">
                 <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 rounded border border-gray-400 bg-gray-500" /> 文件
+                  <span className="w-3 h-3 rounded border border-gray-400 bg-gray-500" /> {t("moduleDeps.nodeTypes.file")}
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 rounded border border-teal-400 bg-teal-500" /> 内部模块
+                  <span className="w-3 h-3 rounded border border-teal-400 bg-teal-500" /> {t("moduleDeps.nodeTypes.internal")}
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="w-3 h-3 rounded border border-purple-400 bg-purple-500" /> 外部依赖
+                  <span className="w-3 h-3 rounded border border-purple-400 bg-purple-500" /> {t("moduleDeps.nodeTypes.external")}
                 </span>
               </div>
             </div>
@@ -610,16 +617,16 @@ export function ModuleDependencyGraph({ repositoryId, onNavigate }: ModuleDepend
       {selectedNodeId && (
         <div className="flex flex-wrap gap-4 text-xs text-[var(--text-muted)]">
           <span className="flex items-center gap-1">
-            <span className="text-blue-400">→ imports</span> 当前节点导入的模块
+            <span className="text-blue-400">{t("moduleDeps.legendImport")}</span> {t("moduleDeps.legendImportDesc")}
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-red-400">← imported by</span> 导入当前节点的文件
+            <span className="text-red-400">{t("moduleDeps.legendImportedBy")}</span> {t("moduleDeps.legendImportedByDesc")}
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-[var(--text-muted)]">点击节点</span> 继续探索
+            <span className="text-[var(--text-muted)]">{t("moduleDeps.legendClick")}</span> {t("moduleDeps.legendExplore")}
           </span>
           <span className="flex items-center gap-1">
-            <span className="text-[var(--text-muted)]">Esc</span> 重置
+            <span className="text-[var(--text-muted)]">{t("moduleDeps.legendReset")}</span> {t("moduleDeps.legendResetDesc")}
           </span>
         </div>
       )}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import React, { useState, useRef, useCallback, useEffect } from "react";
 
 export type NavTabType =
@@ -37,6 +38,7 @@ export function NavTrailBar({
   onClear: () => void;
   onJumpTo: (index: number) => void;
 }) {
+  const { t } = useTranslation();
   const [isVisible, setIsVisible] = useState(true);
   const [position, setPosition] = useState({ x: 0, y: 200 });
   const [isDragging, setIsDragging] = useState(false);
@@ -97,7 +99,7 @@ export function NavTrailBar({
             ? "bg-[var(--bg-card)] border border-r-0 border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:w-9"
             : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:w-9"
         }`}
-        title={isVisible ? "隐藏导航面板" : "显示导航面板"}
+        title={isVisible ? t("navTrail.hidePanel") : t("navTrail.showPanel")}
       >
         <span className="text-lg">{isVisible ? "◀" : "▶"}</span>
       </button>
@@ -115,19 +117,19 @@ export function NavTrailBar({
         onMouseDown={handleMouseDown}
       >
         <div className="nav-panel-header flex items-center justify-between px-3.5 py-2.5 border-b border-[var(--border)] bg-[var(--bg-hover)] cursor-move">
-          <span className="text-xs font-semibold text-[var(--text-primary)] tracking-wide">探索轨迹</span>
+          <span className="text-xs font-semibold text-[var(--text-primary)] tracking-wide">{t("navTrail.trailTitle")}</span>
           <div className="flex items-center gap-1">
             <button
               onClick={onBack}
               className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] px-1.5 py-0.5 rounded hover:bg-[var(--bg-card)] transition-colors"
-              title="返回上一步"
+              title={t("navTrail.backStep")}
             >
-              ← 返回
+              {t("navTrail.back")}
             </button>
             <button
               onClick={onClear}
               className="text-[10px] text-[var(--text-muted)] hover:text-status-error px-1.5 py-0.5 rounded hover:bg-[var(--bg-card)] transition-colors"
-              title="清空轨迹"
+              title={t("navTrail.clearTrail")}
             >
               ×
             </button>
@@ -144,7 +146,7 @@ export function NavTrailBar({
                 {isDimmed && !isActive && index === activeIndex + 1 && hasDimmed && (
                   <div className="flex items-center gap-2 px-4 py-1">
                     <div className="flex-1 h-px bg-[var(--border)]/40" />
-                    <span className="text-[9px] text-[var(--text-muted)]/50 uppercase tracking-wider">回退区</span>
+                    <span className="text-[9px] text-[var(--text-muted)]/50 uppercase tracking-wider">{t("navTrail.backZone")}</span>
                     <div className="flex-1 h-px bg-[var(--border)]/40" />
                   </div>
                 )}
@@ -157,7 +159,7 @@ export function NavTrailBar({
                         ? "text-[var(--text-muted)]/40 hover:text-[var(--text-muted)]/70 hover:bg-[var(--bg-hover)]/50"
                         : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                   }`}
-                  title={`${entry.label} - ${entry.detail || ""}${isDimmed ? "（已回退，点击可跳回）" : ""}`}
+                  title={`${entry.label} - ${entry.detail || ""}${isDimmed ? t("navTrail.backTitle") : ""}`}
                 >
                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                     isActive ? "bg-brand" : isDimmed ? "bg-[var(--text-muted)]/30" : "bg-[var(--text-muted)]"
@@ -177,7 +179,7 @@ export function NavTrailBar({
 
         <div className="px-3.5 py-2 border-t border-[var(--border)] bg-[var(--bg-hover)]">
           <span className="text-[10px] text-[var(--text-muted)]">
-            {stack.length} 步{hasDimmed ? ` · 当前第 ${activeIndex + 1} 步` : ""} · 点击拖拽移动面板
+            {t("navTrail.steps", { n: stack.length })}{hasDimmed ? t("navTrail.currentStep", { n: activeIndex + 1 }) : ""} {t("navTrail.dragHint")}
           </span>
         </div>
       </div>

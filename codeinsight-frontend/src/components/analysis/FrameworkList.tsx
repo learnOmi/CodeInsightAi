@@ -1,18 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useFrameworks } from "@/hooks/use-analysis-results";
-
-/** 框架分类显示名称 */
-const FRAMEWORK_CATEGORY_LABELS: Record<string, string> = {
-  frontend: "前端",
-  backend: "后端",
-  database: "数据库",
-  messaging: "消息队列",
-  testing: "测试",
-  build: "构建工具",
-  other: "其他",
-};
 
 /** 分类配色 */
 const FRAMEWORK_CATEGORY_COLORS: Record<string, string> = {
@@ -51,10 +41,10 @@ const FRAMEWORK_DISPLAY_NAMES: Record<string, string> = {
 };
 
 /** 置信度等级 */
-function getConfidenceLevel(confidence: number): { label: string; color: string } {
-  if (confidence >= 0.8) return { label: "高", color: "text-green-600" };
-  if (confidence >= 0.5) return { label: "中", color: "text-yellow-600" };
-  return { label: "低", color: "text-gray-500" };
+function getConfidenceLevel(confidence: number, t: (key: string) => string): { label: string; color: string } {
+  if (confidence >= 0.8) return { label: t("frameworks.confidence.high"), color: "text-green-600" };
+  if (confidence >= 0.5) return { label: t("frameworks.confidence.medium"), color: "text-yellow-600" };
+  return { label: t("frameworks.confidence.low"), color: "text-gray-500" };
 }
 
 interface FrameworkListProps {
@@ -63,6 +53,7 @@ interface FrameworkListProps {
 
 /** 框架检测结果列表 */
 export function FrameworkList({ repositoryId }: FrameworkListProps) {
+  const { t } = useTranslation();
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [minConfidence, setMinConfidence] = useState<number>(0);
 
@@ -99,14 +90,14 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
 
   if (error) {
     return (
-      <div className="text-status-error text-sm py-4">{"加载框架检测数据失败"}</div>
+      <div className="text-status-error text-sm py-4">{t("frameworks.loadError")}</div>
     );
   }
 
   if (!frameworks || frameworks.length === 0) {
     return (
       <div className="text-center text-[var(--text-muted)] text-sm py-10">
-        {"暂无框架检测数据"}
+        {t("frameworks.empty")}
       </div>
     );
   }
@@ -116,42 +107,42 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
       {/* 过滤栏 */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="flex items-center gap-2">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">{"分类"}</label>
+          <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">{t("frameworks.categoryLabel")}</label>
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-[var(--text-primary)]"
           >
-            <option value="">{"全部"}</option>
+            <option value="">{t("frameworks.all")}</option>
             {categories.map((cat) => (
               <option key={cat} value={cat}>
-                {FRAMEWORK_CATEGORY_LABELS[cat] ?? cat}
+                {t(`frameworks.categories.${cat}`, { defaultValue: cat })}
               </option>
             ))}
           </select>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">{"最低置信度"}</label>
+          <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">{t("frameworks.minConfidence")}</label>
           <select
             value={minConfidence}
             onChange={(e) => setMinConfidence(Number(e.target.value))}
             className="text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand text-[var(--text-primary)]"
           >
-            <option value={0}>{"全部"}</option>
+            <option value={0}>{t("frameworks.all")}</option>
             <option value={0.3}>{"0.3+"}</option>
             <option value={0.5}>{"0.5+"}</option>
             <option value={0.8}>{"0.8+"}</option>
           </select>
         </div>
         <span className="text-[10px] text-[var(--text-muted)] font-mono bg-[var(--bg-hover)] px-2 py-0.5 rounded-sm ml-auto">
-          {frameworks.length} {"个框架"}
+          {t("frameworks.count", { n: frameworks.length })}
         </span>
       </div>
 
       {/* 框架卡片网格 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {frameworks.map((fw) => {
-          const confidence = getConfidenceLevel(fw.confidence);
+          const confidence = getConfidenceLevel(fw.confidence, t);
           const categoryColor =
             FRAMEWORK_CATEGORY_COLORS[fw.category] ??
             FRAMEWORK_CATEGORY_COLORS.other;
@@ -177,7 +168,7 @@ export function FrameworkList({ repositoryId }: FrameworkListProps) {
                   <span
                     className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${categoryColor}`}
                   >
-                    {FRAMEWORK_CATEGORY_LABELS[fw.category] ?? fw.category}
+                    {t(`frameworks.categories.${fw.category}`, { defaultValue: fw.category })}
                   </span>
                 </div>
 

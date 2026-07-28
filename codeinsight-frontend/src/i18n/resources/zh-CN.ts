@@ -106,6 +106,23 @@ export const zh = {
     nextPage: "下一页",
   },
 
+  // ====== Common Node Types ======
+  nodeTypes: {
+    function: "函数",
+    method: "方法",
+    class: "类",
+    interface: "接口",
+    module: "模块",
+    variable: "变量",
+    import: "导入",
+    function_call: "调用",
+    call: "调用",
+    constructor: "构造器",
+    struct: "结构体",
+    enum: "枚举",
+    default: "节点",
+  },
+
   // ====== Repo Card ======
   repoCard: {
     step: {

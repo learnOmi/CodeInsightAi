@@ -1,10 +1,12 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils";
 import { getNodeTypeConfig } from "@codeinsight/shared";
 
 /** AST 节点类型标签 */
 export function NodeBadge({ type, name }: { type: string; name: string }) {
+  const { t } = useTranslation();
   const config = getNodeTypeConfig(type);
 
   return (
@@ -16,7 +18,7 @@ export function NodeBadge({ type, name }: { type: string; name: string }) {
         )}
       >
         {config.icon}
-        {config.label}
+        {t(`nodeTypes.${type}`, "nodeTypes.default")}
       </span>
       <span className="font-mono text-sm text-[var(--text-primary)]">{name}</span>
     </span>

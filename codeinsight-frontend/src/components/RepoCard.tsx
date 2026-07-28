@@ -137,6 +137,18 @@ export function RepoCard({ repository }: RepoCardProps) {
   };
 
   const statusConfig = getAnalysisStatusConfig(repository.status);
+  const STATUS_KEY_MAP: Record<string, string> = {
+    pending: "repoCard.step.pending",
+    analyzing: "repoCard.step.analyzing",
+    scanning: "repoCard.step.scanning",
+    parsing: "repoCard.step.parsing",
+    analyzing_structures: "repoCard.step.analyzingStructures",
+    analyzing_modules: "repoCard.step.analyzingModules",
+    storing: "repoCard.step.storing",
+    completed: "repoCard.step.completed",
+    failed: "repoCard.step.failed",
+    cancelled: "repoCard.step.cancelled",
+  };
   const progress = sseData?.progress || { percent: 0, filesProcessed: 0, filesTotal: 0, currentStep: "pending" as TaskStatus, knowledgePointsFound: 0, totalLines: 0 };
   const currentStep = progress.currentStep ? taskStepLabels[progress.currentStep] : "";
   // 进度条显示条件：仓库处于分析中状态且有 taskId 且 SSE 未完成
@@ -179,7 +191,7 @@ export function RepoCard({ repository }: RepoCardProps) {
             )}
           >
             <span className={`w-1.5 h-1.5 rounded-full`} style={{ backgroundColor: "currentColor" }} />
-            {statusConfig.label}
+            {t(STATUS_KEY_MAP[repository.status] || "repoCard.step.pending")}
           </span>
         </div>
 
