@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
 import { Providers } from "./providers";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { CombinedControlDrawer } from "@/components/CombinedControlDrawer";
 
 export const metadata: Metadata = {
   title: "CodeInsight AI",
@@ -32,7 +32,7 @@ export default function RootLayout({
         </main>
         {/* 主题切换 — 固定在左下角，最高层级 */}
         <div className="fixed bottom-4 left-6 z-[60]">
-          <ThemeToggle />
+          <CombinedControlDrawer />
         </div>
       </body>
     </html>

@@ -1,7 +1,12 @@
+"use client";
+
+import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { CellAnimation } from "@/components/CellAnimation";
 
 export default function Home() {
+  const { t } = useTranslation();
+
   return (
     <main className="min-h-screen">
       <div className="mx-auto max-w-5xl px-6 py-16">
@@ -12,11 +17,11 @@ export default function Home() {
 
           <h1 className="text-5xl font-bold tracking-tight relative">
             <span className="bg-gradient-to-r from-brand via-brand-fg to-status-info bg-clip-text text-transparent">
-              CodeInsight AI
+              {t("home.title")}
             </span>
           </h1>
           <p className="mt-4 text-base text-[var(--text-muted)] max-w-lg leading-relaxed tracking-wide">
-            AI 驱动的代码知识提取与可视化分析平台
+            {t("home.tagline")}
           </p>
         </header>
 
@@ -29,13 +34,17 @@ export default function Home() {
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-brand/30 via-brand/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="relative">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-3">Navigation</div>
-              <div className="text-xl font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">仓库管理</div>
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-3">
+                {t("home.navSection")}
+              </div>
+              <div className="text-xl font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">
+                {t("home.repoCard.title")}
+              </div>
               <p className="mt-2 text-sm text-[var(--text-muted)] leading-relaxed">
-                添加代码仓库，启动 AI 分析
+                {t("home.repoCard.desc")}
               </p>
               <div className="mt-4 flex items-center gap-1 text-[10px] text-[var(--text-muted)] group-hover:text-brand transition-colors">
-                <span>进入</span>
+                <span>{t("home.repoCard.cta")}</span>
                 <span className="transform group-hover:translate-x-0.5 transition-transform">→</span>
               </div>
             </div>
@@ -48,13 +57,17 @@ export default function Home() {
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-brand/30 via-brand/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="relative">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-3">Knowledge</div>
-              <div className="text-xl font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">知识库</div>
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-3">
+                {t("home.knowledgeSection")}
+              </div>
+              <div className="text-xl font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">
+                {t("home.knowledgeCard.title")}
+              </div>
               <p className="mt-2 text-sm text-[var(--text-muted)] leading-relaxed">
-                浏览提取的知识点与代码链路
+                {t("home.knowledgeCard.desc")}
               </p>
               <div className="mt-4 flex items-center gap-1 text-[10px] text-[var(--text-muted)] group-hover:text-brand transition-colors">
-                <span>进入</span>
+                <span>{t("home.knowledgeCard.cta")}</span>
                 <span className="transform group-hover:translate-x-0.5 transition-transform">→</span>
               </div>
             </div>
@@ -67,13 +80,17 @@ export default function Home() {
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-brand/30 via-brand/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
             <div className="relative">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-3">Search</div>
-              <div className="text-xl font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">搜索</div>
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-3">
+                {t("home.searchSection")}
+              </div>
+              <div className="text-xl font-semibold text-[var(--text-primary)] group-hover:text-brand transition-colors">
+                {t("home.searchCard.title")}
+              </div>
               <p className="mt-2 text-sm text-[var(--text-muted)] leading-relaxed">
-                全文检索代码与知识点
+                {t("home.searchCard.desc")}
               </p>
               <div className="mt-4 flex items-center gap-1 text-[10px] text-[var(--text-muted)] group-hover:text-brand transition-colors">
-                <span>进入</span>
+                <span>{t("home.searchCard.cta")}</span>
                 <span className="transform group-hover:translate-x-0.5 transition-transform">→</span>
               </div>
             </div>
@@ -82,27 +99,29 @@ export default function Home() {
 
         {/* 快速开始 — 步骤线样式 */}
         <section className="rounded-2xl bg-[var(--bg-card)] border border-white/[0.06] p-8">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-6">Getting Started</div>
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-6">
+            {t("home.gettingStarted")}
+          </div>
           <ol className="space-y-6">
             <li className="flex items-start gap-4">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-sm font-semibold text-brand ring-1 ring-brand/20">1</div>
               <div>
-                <div className="text-sm font-medium text-[var(--text-primary)]">添加本地仓库路径</div>
-                <div className="text-xs text-[var(--text-muted)] mt-0.5">支持文件系统目录或 Git URL</div>
+                <div className="text-sm font-medium text-[var(--text-primary)]">{t("home.step1.title")}</div>
+                <div className="text-xs text-[var(--text-muted)] mt-0.5">{t("home.step1.desc")}</div>
               </div>
             </li>
             <li className="flex items-start gap-4">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-sm font-semibold text-brand ring-1 ring-brand/20">2</div>
               <div>
-                <div className="text-sm font-medium text-[var(--text-primary)]">等待 AI 分析完成</div>
-                <div className="text-xs text-[var(--text-muted)] mt-0.5">系统自动解析代码结构与依赖关系</div>
+                <div className="text-sm font-medium text-[var(--text-primary)]">{t("home.step2.title")}</div>
+                <div className="text-xs text-[var(--text-muted)] mt-0.5">{t("home.step2.desc")}</div>
               </div>
             </li>
             <li className="flex items-start gap-4">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-sm font-semibold text-brand ring-1 ring-brand/20">3</div>
               <div>
-                <div className="text-sm font-medium text-[var(--text-primary)]">浏览知识点卡片</div>
-                <div className="text-xs text-[var(--text-muted)] mt-0.5">查看函数、类、接口及其调用链路</div>
+                <div className="text-sm font-medium text-[var(--text-primary)]">{t("home.step3.title")}</div>
+                <div className="text-xs text-[var(--text-muted)] mt-0.5">{t("home.step3.desc")}</div>
               </div>
             </li>
           </ol>

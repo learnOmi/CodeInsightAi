@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -16,6 +16,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import NextLink from "next/link";
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getKnowledgePoints, getKnowledgeStats } from "@/api/knowledge";
 import { useRepositories } from "@/hooks/use-repositories";
@@ -34,31 +35,19 @@ function getCatColor(cat: string): string {
   return CATEGORY_COLORS[cat] ?? "#6b7280";
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  DP: "设计模式",
-  AD: "架构决策",
-  AL: "算法实现",
-  ET: "工程技巧",
-  DK: "领域知识",
-  TT: "开发模板",
-  TK: "技术栈",
-};
+function getCatLabel(t: ReturnType<typeof useTranslation>["t"], category: string): string {
+  return t(`knowledge.categories.${category}`, { fallback: category });
+}
 
-function resourceTypeLabel(type: string): string {
-  const map: Record<string, string> = {
-    book: "书籍",
-    article: "文章",
-    video: "视频",
-    course: "课程",
-  };
-  return map[type] ?? type;
+function getResourceTypeLabel(t: ReturnType<typeof useTranslation>["t"], type: string): string {
+  return t(`knowledge.resourceTypes.${type}`, { fallback: type });
 }
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
-function CategoryPill({ category }: { category: string }) {
+function CategoryPill({ category, t }: { category: string; t: ReturnType<typeof useTranslation>["t"] }) {
   const color = getCatColor(category);
-  const label = CATEGORY_LABELS[category] ?? category;
+  const label = getCatLabel(t, category);
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all"
@@ -98,9 +87,11 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
 function KnowledgeCard({
   kp,
   onSelect,
+  t,
 }: {
   kp: KnowledgePoint;
   onSelect: (kp: KnowledgePoint) => void;
+  t: ReturnType<typeof useTranslation>["t"];
 }) {
   const catColor = getCatColor(kp.category);
   const hasTags = kp.tags && kp.tags.length > 0;
@@ -120,7 +111,7 @@ function KnowledgeCard({
 
       {/* 头部：分类 + 置信度 */}
       <div className="flex items-center justify-between mb-4 pt-2">
-        <CategoryPill category={kp.category} />
+        <CategoryPill category={kp.category} t={t} />
         <ConfidenceBar confidence={kp.confidence} />
       </div>
 
@@ -163,7 +154,7 @@ function KnowledgeCard({
             border: `1px solid ${catColor}20`,
           }}
         >
-          <span className="relative z-10">查看详情</span>
+          <span className="relative z-10">{t("knowledge.viewDetail")}</span>
           <ArrowLeft className="w-3.5 h-3.5 relative z-10 rotate-180 transition-transform duration-300 group-hover/link:-translate-x-0.5" />
         </NextLink>
       </div>
@@ -173,14 +164,14 @@ function KnowledgeCard({
 
 // ── ExpansionPanel ──────────────────────────────────────────────────────────
 
-function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
+function ExpansionPanel({ expansion, t }: { expansion: ExpansionContent | null; t: ReturnType<typeof useTranslation>["t"] }) {
   if (!expansion) {
     return (
       <div className="text-center py-10">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.03] mb-3">
           <Sparkles className="w-5 h-5 text-[var(--text-muted)]" />
         </div>
-        <p className="text-sm text-[var(--text-muted)]">暂无 AI 拓展内容</p>
+        <p className="text-sm text-[var(--text-muted)]">{t("knowledge.expand.noExpand")}</p>
       </div>
     );
   }
@@ -190,7 +181,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
       {expansion.principle && (
         <div className="rounded-xl bg-brand/[0.04] border border-brand/[0.1] p-4">
           <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-brand" /> 核心原理
+            <Sparkles className="w-4 h-4 text-brand" /> {t("knowledge.expand.principle")}
           </h4>
           <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
             {expansion.principle}
@@ -200,7 +191,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 
       {expansion.applicableScenarios?.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">适用场景</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">{t("knowledge.expand.scenario")}</h4>
           <div className="space-y-1.5">
             {expansion.applicableScenarios.map((s: string, i: number) => (
               <div key={i} className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] px-3 py-2">
@@ -214,7 +205,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 
       {expansion.bestPractices?.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">最佳实践</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">{t("knowledge.expand.bestPractice")}</h4>
           <div className="space-y-1.5">
             {expansion.bestPractices.map((p: string, i: number) => (
               <div key={i} className="flex items-start gap-2.5 rounded-lg bg-white/[0.02] px-3 py-2">
@@ -228,7 +219,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 
       {expansion.relatedPatterns?.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">关联技术/模式</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">{t("knowledge.expand.related")}</h4>
           <div className="flex flex-wrap gap-1.5">
             {expansion.relatedPatterns.map((r: string, i: number) => (
               <span
@@ -244,7 +235,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 
       {expansion.learningResources?.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">学习资源</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">{t("knowledge.expand.resources")}</h4>
           <div className="space-y-1.5">
             {expansion.learningResources.map((r, i: number) => (
               <a
@@ -256,7 +247,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-[10px] uppercase font-semibold text-[var(--text-muted)] shrink-0 w-12">
-                    {resourceTypeLabel(r.type)}
+                    {getResourceTypeLabel(t, r.type)}
                   </span>
                   <span className="truncate">{r.title}</span>
                 </div>
@@ -275,9 +266,11 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 function KnowledgeDetailModal({
   kp,
   onClose,
+  t,
 }: {
   kp: KnowledgePoint;
   onClose: () => void;
+  t: ReturnType<typeof useTranslation>["t"];
 }) {
   const catColor = getCatColor(kp.category);
 
@@ -299,7 +292,7 @@ function KnowledgeDetailModal({
 
         <div className="p-6 pb-4 border-b border-white/[0.06]">
           <div className="flex items-center gap-2 mb-3">
-            <CategoryPill category={kp.category} />
+            <CategoryPill category={kp.category} t={t} />
             <ConfidenceBar confidence={kp.confidence} />
           </div>
           <h2 className="text-xl font-bold text-[var(--text-primary)] leading-tight">{kp.title}</h2>
@@ -320,9 +313,9 @@ function KnowledgeDetailModal({
 
         <div className="p-6">
           <h3 className="text-sm font-semibold uppercase tracking-widest text-[var(--text-muted)] mb-4 flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4" /> 拓展内容
+            <Sparkles className="w-4 h-4" /> {t("knowledge.expand.label")}
           </h3>
-          <ExpansionPanel expansion={kp.expansion || null} />
+          <ExpansionPanel expansion={kp.expansion || null} t={t} />
         </div>
       </div>
     </div>
@@ -332,13 +325,25 @@ function KnowledgeDetailModal({
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function KnowledgePage() {
+  return (
+    <Suspense fallback={null}>
+      <KnowledgePageContent />
+    </Suspense>
+  );
+}
+
+function KnowledgePageContent() {
+  const { t } = useTranslation();
+
   const CATEGORIES = [
-    { key: "all", label: "全部" },
-    { key: "DP", label: "设计模式" },
-    { key: "AD", label: "架构决策" },
-    { key: "AL", label: "算法实现" },
-    { key: "ET", label: "工程技巧" },
-    { key: "DK", label: "领域知识" },
+    { key: "all", label: t("knowledge.filterAll") },
+    { key: "DP", label: getCatLabel(t, "DP") },
+    { key: "AD", label: getCatLabel(t, "AD") },
+    { key: "AL", label: getCatLabel(t, "AL") },
+    { key: "ET", label: getCatLabel(t, "ET") },
+    { key: "DK", label: getCatLabel(t, "DK") },
+    { key: "TT", label: getCatLabel(t, "TT") },
+    { key: "TK", label: getCatLabel(t, "TK") },
   ];
 
   const router = useRouter();
@@ -428,8 +433,8 @@ export default function KnowledgePage() {
     <>
       {/* 背景装饰 */}
       <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] rounded-full bg-brand/[0.04] blur-[120px]" />
-        <div className="absolute bottom-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-purple-500/[0.04] blur-[120px]" />
+        <div className="absolute top-[-20%] right-[-10%] w-[600px] h>[600px] rounded-full bg-brand/[0.04] blur-[120px]" />
+        <div className="absolute bottom-[-20%] left-[-10%] w>[500px] h>[500px] rounded-full bg-purple-500/[0.04] blur>[120px]" />
       </div>
 
       {/* 全局导航栏 */}
@@ -446,17 +451,17 @@ export default function KnowledgePage() {
             </div>
             <h1 className="text-5xl font-bold tracking-tight">
               <span className="bg-gradient-to-r from-brand via-violet-400 to-sky-400 bg-clip-text text-transparent">
-                知识库
+                {t("knowledge.title")}
               </span>
             </h1>
           </div>
           <p className="mt-2 text-base text-[var(--text-muted)] max-w-xl leading-relaxed">
-            浏览从代码中提取的知识点与设计模式，查看项目中的应用方式与 AI 拓展内容
+            {t("knowledge.subtitle")}
           </p>
           {statsData && (
             <div className="mt-5 flex flex-wrap items-center gap-4 text-sm">
               <span className="text-[var(--text-primary)] font-medium">
-                共 {statsData.totalPoints} 个知识点
+                {t("knowledge.count", { n: statsData.totalPoints })}
               </span>
               {Object.entries(statsData.byCategory).map(([cat, count]) => (
                 <span key={cat} className="inline-flex items-center gap-1.5">
@@ -465,7 +470,7 @@ export default function KnowledgePage() {
                     style={{ backgroundColor: getCatColor(cat) }}
                   />
                   <span className="text-[var(--text-muted)]">
-                    {CATEGORY_LABELS[cat] ?? cat} {count}
+                    {getCatLabel(t, cat)} {count}
                   </span>
                 </span>
               ))}
@@ -483,7 +488,7 @@ export default function KnowledgePage() {
                 onChange={(e) => handleRepoChange(e.target.value)}
                 className="w-full appearance-none rounded-xl border border-white/[0.06] bg-[var(--bg-card)]/50 backdrop-blur px-4 py-2.5 pr-10 text-sm text-[var(--text-primary)] focus:outline-none focus:border-brand/40 transition-colors"
               >
-                <option value="all">所有仓库</option>
+                <option value="all">{t("knowledge.allRepos")}</option>
                 {repos?.items?.map((repo) => (
                   <option key={repo.id} value={repo.id}>
                     {repo.name}
@@ -500,7 +505,7 @@ export default function KnowledgePage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜索知识点..."
+                placeholder={t("knowledge.searchPlaceholder")}
                 className="w-full rounded-xl border border-white/[0.06] bg-[var(--bg-card)]/50 backdrop-blur pl-10 pr-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-brand/40 transition-colors"
               />
               {searchQuery && (
@@ -518,7 +523,7 @@ export default function KnowledgePage() {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/[0.06] bg-[var(--bg-card)]/50 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] transition-colors sm:hidden"
             >
               <Filter className="w-4 h-4" />
-              分类
+              {t("knowledge.filter")}
             </button>
           </div>
 
@@ -570,18 +575,18 @@ export default function KnowledgePage() {
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/[0.03] mb-4">
               <BookOpen className="w-7 h-7 text-[var(--text-muted)]" />
             </div>
-            <div className="text-lg font-medium text-[var(--text-primary)]">暂无知识点</div>
+            <div className="text-lg font-medium text-[var(--text-primary)]">{t("knowledge.empty")}</div>
             <p className="mt-1 text-sm text-[var(--text-muted)]">
               {searchQuery
-                ? "没有匹配搜索条件的知识点，请尝试其他关键词"
-                : "请先添加仓库并完成 AI 分析"}
+                ? t("knowledge.emptySearch")
+                : t("knowledge.emptyNoData")}
             </p>
           </div>
         ) : (
           <>
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {points.map((kp) => (
-                <KnowledgeCard key={kp.id} kp={kp} onSelect={setSelectedKp} />
+                <KnowledgeCard key={kp.id} kp={kp} onSelect={setSelectedKp} t={t} />
               ))}
             </div>
 
@@ -594,7 +599,7 @@ export default function KnowledgePage() {
                   className="flex items-center gap-1 px-3.5 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:bg-white/[0.05] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft className="w-4 h-4" />
-                  上一页
+                  {t("knowledge.prevPage")}
                 </button>
                 <span className="px-4 py-2 text-sm text-[var(--text-muted)]">
                   {page} / {totalPages}
@@ -604,7 +609,7 @@ export default function KnowledgePage() {
                   disabled={page >= totalPages}
                   className="flex items-center gap-1 px-3.5 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:bg-white/[0.05] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  下一页
+                  {t("knowledge.nextPage")}
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -615,7 +620,7 @@ export default function KnowledgePage() {
 
       {/* 详情弹窗 */}
       {selectedKp && (
-        <KnowledgeDetailModal kp={selectedKp} onClose={() => setSelectedKp(null)} />
+        <KnowledgeDetailModal kp={selectedKp} onClose={() => setSelectedKp(null)} t={t} />
       )}
     </>
   );

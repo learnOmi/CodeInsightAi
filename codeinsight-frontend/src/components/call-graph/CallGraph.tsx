@@ -11,6 +11,7 @@
  */
 
 import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import {
   Background,
@@ -645,7 +646,8 @@ async function buildGraphData(
 }
 
 /** 图例下拉按钮 */
-function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) {
+/** Legend dropdown with node type and call type information */
+function LegendDropdown({ edgeCounts, t }: { edgeCounts: Record<string, number>; t: (key: string) => string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
@@ -653,7 +655,7 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors px-2 py-1 rounded-md hover:bg-[var(--bg-hover)]"
       >
-        <span>图例</span>
+        <span>{t("callGraph.legendBtn")}</span>
         <span className="text-[9px]">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
@@ -662,18 +664,18 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
           <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg-card)] rounded-lg shadow-xl border border-[var(--border)] p-4 min-w-[280px]">
             <div className="space-y-3">
               <div>
-                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">节点类型</p>
+                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">{t("callGraph.legendNodeType")}</p>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1">
                   {Object.entries(NODE_TYPE_CONFIG).map(([type, config]) => (
                     <span key={type} className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                       <span className="w-2.5 h-2.5 rounded flex-shrink-0" style={{ backgroundColor: config.color }} />
-                      <span>{config.label}</span>
+                      <span>{t(`callGraph.nodeTypes.${type}`)}</span>
                     </span>
                   ))}
                 </div>
               </div>
               <div>
-                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">调用类型</p>
+                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">{t("callGraph.legendCallType")}</p>
                 <div className="space-y-1">
                   {["static", "dynamic", "unknown"].map((type) => (
                     <span key={type} className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
@@ -681,33 +683,33 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
                         backgroundColor: CALL_TYPE_STYLES[type].stroke,
                         ...(CALL_TYPE_STYLES[type].strokeDasharray ? { borderTop: `1px dashed ${CALL_TYPE_STYLES[type].stroke}`, backgroundColor: "transparent" } : {}),
                       }} />
-                      <span>{type} ({edgeCounts[type] || 0})</span>
+                      <span>{type} (${edgeCounts[type] || 0})</span>
                     </span>
                   ))}
                 </div>
               </div>
               <div>
-                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">交互说明</p>
+                <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">{t("callGraph.legendInteraction")}</p>
                 <div className="space-y-1">
                   <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                     <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "var(--color-brand)", color: "#fff", width: 16, height: 16 }}>▼N</span>
-                    <span>品牌色 ▼N：N 个外部调用可展开</span>
+                    <span>{t("callGraph.legendOutBrand")}</span>
                   </span>
                   <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                     <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "var(--color-status-error)", color: "#fff", width: 16, height: 16 }}>▼N</span>
-                    <span>红色 ▼N：已展开 N 个，点击折叠</span>
+                    <span>{t("callGraph.legendOutRed")}</span>
                   </span>
                   <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                     <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "var(--color-brand)", color: "#fff", width: 16, height: 16 }}>▲N</span>
-                    <span>品牌色 ▲N：N 个外部调用者可展开</span>
+                    <span>{t("callGraph.legendInBrand")}</span>
                   </span>
                   <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
                     <span className="inline-flex items-center justify-center rounded-full text-[8px] font-bold flex-shrink-0" style={{ backgroundColor: "var(--color-status-error)", color: "#fff", width: 16, height: 16 }}>▲N</span>
-                    <span>红色 ▲N：已展开 N 个，点击折叠</span>
+                    <span>{t("callGraph.legendInRed")}</span>
                   </span>
                   <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
-                    <span className="text-[10px] flex-shrink-0">点击节点</span>
-                    <span>切换聚焦模式</span>
+                    <span className="text-[10px] flex-shrink-0">{t("callGraph.legendClickNode")}</span>
+                    <span>{t("callGraph.legendFocusMode")}</span>
                   </span>
                 </div>
               </div>
@@ -720,6 +722,7 @@ function LegendDropdown({ edgeCounts }: { edgeCounts: Record<string, number> }) 
 }
 
 export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }: CallGraphProps) {
+  const { t } = useTranslation();
   // 用 file_id 查调用边（仅当前文件的调用）
   const { data: callEdges, isLoading: edgesLoading } = useCallEdges({ file_id: fileId });
   // 用 repository_id 查所有 AST 节点
@@ -1762,25 +1765,25 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-[var(--text-muted)]">
-                    ▼ 展开调用 · ▲ 展开调用者 · 点击节点聚焦 · 右键收起全部
+                    {t("callGraph.toolbarHint")}
                   </span>
                   {totalExpanded > 0 && (
                     <button
                       onClick={collapseAll}
                       className="text-xs px-2 py-0.5 rounded-md bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:bg-[var(--bg-card)] transition-colors font-medium whitespace-nowrap"
                     >
-                      收起全部 ({totalExpanded})
+                      {t("callGraph.collapseAll", { params: { n: totalExpanded } })}
                     </button>
                   )}
                   {totalPending > 0 && (
                     <span className="text-xs text-brand whitespace-nowrap">
-                      待展开: {totalPending}
+                      {t("callGraph.pendingCount", { params: { n: totalPending } })}
                     </span>
                   )}
                 </div>
               )}
             </div>
-            <LegendDropdown edgeCounts={edgeCounts} />
+            <LegendDropdown edgeCounts={edgeCounts} t={t} />
           </div>
 
           {/* 全局错误提示 */}
@@ -1803,7 +1806,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
                   <button
                     onClick={() => setSidebarOpen(!sidebarOpen)}
                     className="flex items-center justify-center w-8 h-8 rounded-full bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] shadow-lg transition-all duration-200 cursor-pointer hover:scale-110"
-                    title={sidebarOpen ? "收起节点列表" : "展开节点列表"}
+                    title={sidebarOpen ? t("callGraph.closeNodeList") : t("callGraph.openNodeList")}
                   >
                     <span className="text-xs font-bold leading-none">
                       {sidebarOpen ? "✕" : currentFileNodeList.length}
@@ -1815,7 +1818,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
                       <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />
                       <div className="absolute left-10 top-0 z-50 w-52 max-h-[60vh] bg-[var(--bg-card)] border border-[var(--border)] rounded-xl shadow-2xl overflow-hidden">
                         <div className="px-3 py-2 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg-hover)]">
-                          <span>本文件节点</span>
+                          <span>{t("callGraph.thisFileNodes")}</span>
                           <span className="text-[9px] font-normal normal-case">{currentFileNodeList.length}</span>
                         </div>
                         <div className="overflow-y-auto max-h-[calc(60vh-32px)] py-1">
@@ -1829,7 +1832,7 @@ export function CallGraph({ fileId, repositoryId, onNavigate, highlightNodeId }:
                                   setSidebarOpen(false);
                                 }}
                                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
-                                title={`定位到 ${node.label}`}
+                                title={t("callGraph.locateNode", { params: { label: node.label } })}
                               >
                                 <span
                                   className="w-2 h-2 rounded-full flex-shrink-0"

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useTranslation } from "react-i18next";
 import {
   ArrowLeft,
   FileCode,
@@ -27,35 +28,17 @@ type CallChainNode = components["schemas"]["CallChainNode"];
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const CATEGORY_COLORS = KNOWLEDGE_CATEGORY_COLORS as Record<string, string>;
-const CATEGORY_LABELS: Record<string, string> = {
-  DP: "设计模式",
-  AD: "架构决策",
-  AL: "算法实现",
-  ET: "工程技巧",
-  DK: "领域知识",
-  TT: "开发模板",
-  TK: "技术栈",
-};
 
 function getCatColor(cat: string): string {
   return CATEGORY_COLORS[cat] ?? "#6b7280";
 }
 
-function resourceTypeLabel(type: string): string {
-  const map: Record<string, string> = {
-    book: "书籍",
-    article: "文章",
-    video: "视频",
-    course: "课程",
-  };
-  return map[type] ?? type;
-}
-
 // ── Components ──────────────────────────────────────────────────────────────
 
 function CategoryPill({ category }: { category: string }) {
+  const { t } = useTranslation();
   const color = getCatColor(category);
-  const label = CATEGORY_LABELS[category] ?? category;
+  const label = t("knowledgeDetail.categories." + category, category);
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium"
@@ -132,6 +115,7 @@ function CodeSnippetDetail({ snippet }: { snippet: CodeSnippet }) {
 
 /** 调用链详情 */
 function CallChainDetail({ nodes }: { nodes: CallChainNode[] }) {
+  const { t } = useTranslation();
   const nodeTypeColors: Record<string, string> = {
     function: "bg-emerald-400/10 text-emerald-400",
     class: "bg-brand/10 text-brand",
@@ -164,7 +148,7 @@ function CallChainDetail({ nodes }: { nodes: CallChainNode[] }) {
               <span
                 className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-md ${typeColor}`}
               >
-                {node.nodeType || node.direction || "call"}
+                {node.nodeType || node.direction || t("knowledgeDetail.nodeTypes.call")}
               </span>
               <div className="flex-1 min-w-0">
                 <span className="text-sm text-[var(--text-primary)] font-mono truncate block">
@@ -189,13 +173,14 @@ function CallChainDetail({ nodes }: { nodes: CallChainNode[] }) {
 
 /** 拓展内容完整展示 */
 function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
+  const { t } = useTranslation();
   if (!expansion) {
     return (
       <div className="text-center py-10">
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.03] mb-3">
           <Sparkles className="w-5 h-5 text-[var(--text-muted)]" />
         </div>
-        <p className="text-sm text-[var(--text-muted)]">暂无 AI 拓展内容</p>
+        <p className="text-sm text-[var(--text-muted)]">{t("knowledgeDetail.sections.noExpand")}</p>
       </div>
     );
   }
@@ -205,7 +190,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
       {expansion.principle && (
         <div className="rounded-xl bg-brand/[0.04] border border-brand/[0.1] p-5">
           <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-brand" /> 核心原理
+            <Sparkles className="w-4 h-4 text-brand" /> {t("knowledgeDetail.sections.principle")}
           </h4>
           <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
             {expansion.principle}
@@ -215,7 +200,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 
       {expansion.applicableScenarios?.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">适用场景</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">{t("knowledgeDetail.sections.scenario")}</h4>
           <div className="space-y-1.5">
             {expansion.applicableScenarios.map((s: string, i: number) => (
               <div key={i} className="flex items-start gap-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] px-4 py-2.5">
@@ -229,7 +214,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 
       {expansion.bestPractices?.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">最佳实践</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">{t("knowledgeDetail.sections.bestPractice")}</h4>
           <div className="space-y-1.5">
             {expansion.bestPractices.map((p: string, i: number) => (
               <div key={i} className="flex items-start gap-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] px-4 py-2.5">
@@ -243,7 +228,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 
       {expansion.relatedPatterns?.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">关联技术/模式</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">{t("knowledgeDetail.sections.related")}</h4>
           <div className="flex flex-wrap gap-1.5">
             {expansion.relatedPatterns.map((r: string, i: number) => (
               <span
@@ -259,7 +244,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
 
       {expansion.learningResources?.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">学习资源</h4>
+          <h4 className="text-sm font-semibold text-[var(--text-primary)] mb-2.5">{t("knowledgeDetail.sections.resources")}</h4>
           <div className="space-y-1.5">
             {expansion.learningResources.map((r, i: number) => (
               <a
@@ -271,7 +256,7 @@ function ExpansionPanel({ expansion }: { expansion: ExpansionContent | null }) {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] shrink-0 w-12">
-                    {resourceTypeLabel(r.type)}
+                    {t("knowledgeDetail.resourceTypes." + r.type, r.type)}
                   </span>
                   <span className="truncate">{r.title}</span>
                 </div>
@@ -312,6 +297,7 @@ function SectionHeader({
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function KnowledgeDetailPage() {
+  const { t } = useTranslation();
   const params = useParams();
   const id = params.id as string;
 
@@ -343,14 +329,14 @@ export default function KnowledgeDetailPage() {
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/[0.03] mb-4">
           <FileText className="w-8 h-8 text-[var(--text-muted)] opacity-50" />
         </div>
-        <h2 className="text-xl font-semibold text-[var(--text-primary)]">知识点不存在</h2>
-        <p className="mt-2 text-sm text-[var(--text-muted)]">该知识点可能已被删除</p>
+        <h2 className="text-xl font-semibold text-[var(--text-primary)]">{t("knowledgeDetail.notFound")}</h2>
+        <p className="mt-2 text-sm text-[var(--text-muted)]">{t("knowledgeDetail.notFoundDesc")}</p>
         <Link
           href="/knowledge"
           className="inline-flex items-center gap-2 mt-6 px-4 py-2 rounded-lg bg-brand/[0.1] text-brand hover:bg-brand/[0.15] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          返回知识库
+          {t("knowledgeDetail.back")}
         </Link>
       </main>
     );
@@ -377,7 +363,7 @@ export default function KnowledgeDetailPage() {
           className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-sm text-[var(--text-secondary)] hover:bg-white/[0.06] transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          返回知识库
+          {t("knowledgeDetail.back")}
         </Link>
       </div>
 
@@ -417,7 +403,7 @@ export default function KnowledgeDetailPage() {
         <section className="mb-10">
           <SectionHeader
             icon={<GitBranch className="w-4 h-4 text-brand" />}
-            title="项目中的应用流程"
+            title={t("knowledgeDetail.sections.flow")}
             count={nodes.length}
           />
           <CallChainDetail nodes={nodes} />
@@ -429,7 +415,7 @@ export default function KnowledgeDetailPage() {
         <section className="mb-10">
           <SectionHeader
             icon={<Code2 className="w-4 h-4 text-brand" />}
-            title="相关代码片段"
+            title={t("knowledgeDetail.sections.codeSnippets")}
             count={snippets.length}
           />
           <div className="space-y-3">
@@ -444,7 +430,7 @@ export default function KnowledgeDetailPage() {
       <section>
         <SectionHeader
           icon={<Sparkles className="w-4 h-4 text-brand" />}
-          title="AI 拓展内容"
+          title={t("knowledgeDetail.sections.expand")}
         />
         <ExpansionPanel expansion={expansion} />
       </section>
@@ -453,10 +439,10 @@ export default function KnowledgeDetailPage() {
       <div className="mt-12 pt-8 border-t border-white/[0.06] flex items-center justify-between text-sm text-[var(--text-muted)]">
         <div className="flex items-center gap-4">
           {kp.createdAt && (
-            <span>创建于 {new Date(kp.createdAt).toLocaleDateString()}</span>
+            <span>{t("knowledgeDetail.createdAt", { d: new Date(kp.createdAt).toLocaleDateString() })}</span>
           )}
           {kp.updatedAt && kp.updatedAt !== kp.createdAt && (
-            <span>更新于 {new Date(kp.updatedAt).toLocaleDateString()}</span>
+            <span>{t("knowledgeDetail.updatedAt", { d: new Date(kp.updatedAt).toLocaleDateString() })}</span>
           )}
         </div>
         <span className="font-mono text-[var(--text-muted)]">v{kp.version || "—"}</span>

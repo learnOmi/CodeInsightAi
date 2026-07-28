@@ -1,34 +1,36 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BookOpen, FolderOpen, Search, ArrowLeft, ArrowRight, House } from "lucide-react";
 import { cn } from "@/utils";
 
-const navItems = [
-  {
-    label: "仓库管理",
-    href: "/repositories",
-    icon: FolderOpen,
-    match: (path: string) => path.startsWith("/repositories") && !path.startsWith("/repositories/"),
-  },
-  {
-    label: "知识库",
-    href: "/knowledge",
-    icon: BookOpen,
-    match: (path: string) => path.startsWith("/knowledge"),
-  },
-  {
-    label: "搜索",
-    href: "/search",
-    icon: Search,
-    match: (path: string) => path.startsWith("/search"),
-  },
-];
-
 export function GlobalNav() {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
+
+  const navItems = [
+    {
+      label: t("nav.repository"),
+      href: "/repositories",
+      icon: FolderOpen,
+      match: (path: string) => path.startsWith("/repositories") && !path.startsWith("/repositories/"),
+    },
+    {
+      label: t("nav.knowledgeShort"),
+      href: "/knowledge",
+      icon: BookOpen,
+      match: (path: string) => path.startsWith("/knowledge"),
+    },
+    {
+      label: t("nav.search"),
+      href: "/search",
+      icon: Search,
+      match: (path: string) => path.startsWith("/search"),
+    },
+  ];
 
   return (
     <nav className="sticky top-2 z-50">
@@ -41,7 +43,7 @@ export function GlobalNav() {
               "flex items-center justify-center w-8 h-8 rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/[0.06] transition-all duration-300 ease-out shrink-0 active:scale-95",
               pathname === "/" && "bg-brand/12 text-brand"
             )}
-            title="主页"
+            title={t("nav.home")}
           >
             <House className="w-4 h-4" />
           </Link>
@@ -52,14 +54,14 @@ export function GlobalNav() {
           <button
             onClick={() => router.back()}
             className="flex items-center justify-center w-8 h-8 rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/[0.06] transition-all duration-300 ease-out shrink-0 active:scale-95"
-            title="后退"
+            title={t("nav.back")}
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <button
             onClick={() => router.forward()}
             className="flex items-center justify-center w-8 h-8 rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/[0.06] transition-all duration-300 ease-out shrink-0 active:scale-95"
-            title="前进"
+            title={t("nav.forward")}
           >
             <ArrowRight className="w-4 h-4" />
           </button>

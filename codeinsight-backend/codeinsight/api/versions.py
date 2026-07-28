@@ -4,7 +4,8 @@
 提供分析版本的列表、切换和回滚接口。
 """
 
-from typing import Annotated
+import json
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,6 +18,26 @@ from codeinsight.db.session import get_db_session
 from codeinsight.models import RepositoryModel
 from codeinsight.repositories.analysis_version import AnalysisVersionDAO
 from codeinsight.schemas import AnalysisVersion, TaskStatus
+
+
+def _parse_agent_status(value: Any) -> dict[str, Any] | None:
+    """将 agent_status 从可能的 JSON 字符串解析为字典
+
+    数据库中以 JSONB 存储，但 asyncpg 在某些 Python 版本或驱动配置下
+    可能返回原始 JSON 字符串而非自动解析的字典。此函数确保统一返回
+    dict 类型，避免 Pydantic 校验失败。
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    return None
+
 
 router = APIRouter(
     dependencies=[Depends(get_api_key_dependency(settings.api_key))],
@@ -65,7 +86,7 @@ async def list_versions(
                 completed_at=v.completed_at,
                 error_message=v.error_message,
                 created_at=v.created_at,
-                agent_status=v.agent_status,
+                agent_status=_parse_agent_status(v.agent_status),
             )
         )
 

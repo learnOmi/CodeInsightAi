@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useRepositories } from "@/hooks/use-repositories";
 import { RepoCard } from "./RepoCard";
 import type { components } from "@codeinsight/shared";
@@ -10,18 +11,19 @@ type RepositoryStatus = components["schemas"]["RepositoryStatus"];
 
 const PAGE_SIZE = 30;
 
-const filterOptions: { value: RepositoryStatus | "all"; label: string }[] = [
-  { value: "all", label: "全部" },
-  { value: "pending", label: "待分析" },
-  { value: "analyzing", label: "分析中" },
-  { value: "completed", label: "已完成" },
-  { value: "failed", label: "失败" },
-  { value: "cancelled", label: "已取消" },
-];
-
 export function RepoList() {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<RepositoryStatus | "all">("all");
   const [page, setPage] = useState(1);
+
+  const filterOptions: { value: RepositoryStatus | "all"; label: string }[] = [
+    { value: "all", label: t("repoList.filter.all") },
+    { value: "pending", label: t("repoList.filter.pending") },
+    { value: "analyzing", label: t("repoList.filter.analyzing") },
+    { value: "completed", label: t("repoList.filter.done") },
+    { value: "failed", label: t("repoList.filter.failed") },
+    { value: "cancelled", label: t("repoList.filter.cancelled") },
+  ];
 
   const { data, isLoading, error } = useRepositories(page, PAGE_SIZE);
 
@@ -42,7 +44,7 @@ export function RepoList() {
   if (error) {
     return (
       <div className="text-center text-status-error py-8">
-        加载失败，请刷新重试
+        {t("repoList.loadError")}
       </div>
     );
   }
@@ -72,13 +74,17 @@ export function RepoList() {
           ))}
         </div>
         <span className="text-xs text-[var(--text-muted)]">
-          共 {total} 个仓库
+          {t("repoList.count", { n: total })}
         </span>
       </div>
 
       {filteredRepositories.length === 0 ? (
         <div className="text-center py-12 text-[var(--text-muted)]">
-          {filter === "all" ? "暂无仓库" : `暂无${filterOptions.find((o) => o.value === filter)?.label}的仓库`}
+          {filter === "all"
+            ? t("repoList.empty")
+            : t("repoList.emptyFilter", {
+                label: filterOptions.find((o) => o.value === filter)?.label,
+              })}
         </div>
       ) : (
         <>
@@ -96,7 +102,7 @@ export function RepoList() {
                 disabled={page <= 1}
                 className="px-3 py-1.5 rounded-md text-xs font-medium border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                上一页
+                {t("repoList.prevPage")}
               </button>
               {generatePageNumbers(page, totalPages).map((p, i) =>
                 p === "..." ? (
@@ -120,7 +126,7 @@ export function RepoList() {
                 disabled={page >= totalPages}
                 className="px-3 py-1.5 rounded-md text-xs font-medium border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                下一页
+                {t("repoList.nextPage")}
               </button>
             </div>
           )}

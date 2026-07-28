@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -21,19 +22,21 @@ interface RepoCardProps {
   repository: Repository;
 }
 
-const taskStepLabels: Record<TaskStatus, string> = {
-  pending: "等待中",
-  scanning: "扫描文件",
-  parsing: "解析代码",
-  analyzing_structures: "结构分析",
-  analyzing_modules: "AI 分析",
-  storing: "存储结果",
-  completed: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-};
-
 export function RepoCard({ repository }: RepoCardProps) {
+  const { t } = useTranslation();
+
+  const taskStepLabels: Record<TaskStatus, string> = {
+    pending: t("repoCard.step.waiting"),
+    scanning: t("repoCard.step.scanning"),
+    parsing: t("repoCard.step.parsing"),
+    analyzing_structures: t("repoCard.step.analyzingStructures"),
+    analyzing_modules: t("repoCard.step.analyzingModules"),
+    storing: t("repoCard.step.storing"),
+    completed: t("repoCard.step.completed"),
+    failed: t("repoCard.step.failed"),
+    cancelled: t("repoCard.step.cancelled"),
+  };
+
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [deleteError, setDeleteError] = useState("");
@@ -91,14 +94,14 @@ export function RepoCard({ repository }: RepoCardProps) {
     } catch (err) {
       if (err instanceof APIError) {
         if (err.status === 409) {
-          setSubmitError("已有分析任务正在进行");
+          setSubmitError(t("repoCard.errRunning"));
         } else if (err.status === 304) {
-          setSubmitError("代码内容未变化，无需重复分析");
+          setSubmitError(t("repoCard.errUnchanged"));
         } else {
           setSubmitError(err.message);
         }
       } else {
-        setSubmitError("提交失败，请重试");
+        setSubmitError(t("repoCard.errSubmit"));
       }
     }
   };
@@ -113,7 +116,7 @@ export function RepoCard({ repository }: RepoCardProps) {
         if (err instanceof APIError) {
           setCancelError(err.message);
         } else {
-          setCancelError("取消失败，请重试");
+          setCancelError(t("repoCard.errCancel"));
         }
       }
     }
@@ -126,9 +129,9 @@ export function RepoCard({ repository }: RepoCardProps) {
       setShowConfirm(false);
     } catch (err) {
       if (err instanceof APIError) {
-        setDeleteError(`删除失败: ${err.message}`);
+        setDeleteError(`${t("repoCard.deleteError")} ${err.message}`);
       } else {
-        setDeleteError("删除失败，请重试");
+        setDeleteError(t("repoCard.errDelete"));
       }
     }
   };
@@ -147,7 +150,7 @@ export function RepoCard({ repository }: RepoCardProps) {
       {isPartialFailure && (
         <div className="absolute top-0 right-0 z-10">
           <div className="bg-status-warning/90 text-status-warning px-3 py-1 text-xs font-medium rounded-bl-full">
-            ⚠️ AI 分析部分完成
+            {t("repoCard.partialDone")}
           </div>
         </div>
       )}
@@ -183,7 +186,7 @@ export function RepoCard({ repository }: RepoCardProps) {
         {showProgress && (
           <div className="mb-4 space-y-1.5">
             <div className="flex justify-between text-[11px]">
-              <span className="text-[var(--text-muted)]">{currentStep || "分析中"}</span>
+              <span className="text-[var(--text-muted)]">{currentStep || t("repoCard.step.analyzing")}</span>
               <span className="font-mono tabular-nums text-[var(--text-muted)]">{progress.percent}%</span>
             </div>
             <div className="w-full bg-[var(--bg-hover)] rounded-full h-1 overflow-hidden">
@@ -193,15 +196,15 @@ export function RepoCard({ repository }: RepoCardProps) {
               />
             </div>
             <div className="text-[11px] text-[var(--text-muted)]">
-              {progress.filesProcessed} / {progress.filesTotal} 文件
+              {t("repoCard.filesProgress", { processed: progress.filesProcessed, total: progress.filesTotal })}
             </div>
           </div>
         )}
 
         <div className="grid grid-cols-3 gap-4 mb-5 divide-x divide-[var(--border)]/50">
-          <StatItem value={showProgress ? progress.filesTotal || repository.fileCount : repository.fileCount} label="FILES" />
-          <StatItem value={showProgress ? progress.totalLines || repository.lineCount : repository.lineCount} label="LINES" />
-          <StatItem value={showProgress ? progress.knowledgePointsFound || repository.knowledgePointsCount : repository.knowledgePointsCount} label="INSIGHTS" />
+          <StatItem value={showProgress ? progress.filesTotal || repository.fileCount : repository.fileCount} label={t("repoCard.statFiles")} />
+          <StatItem value={showProgress ? progress.totalLines || repository.lineCount : repository.lineCount} label={t("repoCard.statLines")} />
+          <StatItem value={showProgress ? progress.knowledgePointsFound || repository.knowledgePointsCount : repository.knowledgePointsCount} label={t("repoCard.statInsights")} />
         </div>
 
         {submitError && (
@@ -223,7 +226,7 @@ export function RepoCard({ repository }: RepoCardProps) {
               href={`/repositories/${repository.id}/files`}
               className="flex-1 px-3 py-2 rounded-md text-xs font-medium text-center transition-colors bg-[var(--bg-hover)] text-[var(--text-primary)] hover:bg-[var(--border)]"
             >
-              文件
+              {t("repoCard.btnFiles")}
             </Link>
           )}
           {!showProgress && (
@@ -237,7 +240,7 @@ export function RepoCard({ repository }: RepoCardProps) {
                   : "bg-brand text-white hover:opacity-90 shadow-sm"
               )}
             >
-              {submitAnalysis.isPending ? "提交中..." : "开始分析"}
+              {submitAnalysis.isPending ? t("repoCard.submitting") : t("repoCard.startAnalysis")}
             </button>
           )}
           {showProgress && (
@@ -251,7 +254,7 @@ export function RepoCard({ repository }: RepoCardProps) {
                   : "bg-status-warning text-white shadow-sm"
               )}
             >
-              {cancelTask.isPending ? "取消中..." : "取消分析"}
+              {cancelTask.isPending ? t("repoCard.cancelling") : t("repoCard.cancelAnalysis")}
             </button>
           )}
           {showConfirm ? (
@@ -266,13 +269,13 @@ export function RepoCard({ repository }: RepoCardProps) {
                     : "text-status-error bg-status-error/10 hover:bg-status-error/20"
                 )}
               >
-                {deleteRepository.isPending ? "删除中..." : "确认删除"}
+                {deleteRepository.isPending ? t("repoCard.deleting") : t("repoCard.confirmDelete")}
               </button>
               <button
                 onClick={() => setShowConfirm(false)}
                 className="px-4 py-2 border border-[var(--border)] rounded-md text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
               >
-                取消
+                {t("repoCard.deleteCancel")}
               </button>
             </>
           ) : (
@@ -280,7 +283,7 @@ export function RepoCard({ repository }: RepoCardProps) {
               onClick={() => setShowConfirm(true)}
               className="px-4 py-2 border border-[var(--border)] rounded-md text-xs font-medium text-status-error/70 hover:bg-status-error/10 transition-colors"
             >
-              删除
+              {t("repoCard.deleteBtn")}
             </button>
           )}
         </div>

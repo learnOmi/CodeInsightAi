@@ -3,6 +3,7 @@
 import { use, type ReactNode } from "react";
 import Link from "next/link";
 import { BookOpen } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useRepository } from "@/hooks/use-repositories";
 import { useAnalysisStatus } from "@/hooks/use-analysis-status";
 import { StatusBadge } from "@/components/analysis-status";
@@ -16,6 +17,7 @@ export default function RepoDetailLayout({
   params: Promise<{ repo_id: string }>;
 }) {
   const { repo_id } = use(params);
+  const { t } = useTranslation();
   const { data: repo } = useRepository(repo_id);
   const { data: statusRepo } = useAnalysisStatus(repo_id);
 
@@ -30,11 +32,11 @@ export default function RepoDetailLayout({
             href="/repositories"
             className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
-            {"\u2190 仓库列表"}
+            {t("repoDetail.backToList")}
           </Link>
           <div className="h-4 w-px bg-[var(--border)]/50" />
           <h1 className="text-sm font-semibold text-[var(--text-primary)] tracking-tight">
-            {repo?.name ?? "\u52A0\u8F7D\u4E2D..."}
+            {repo?.name ?? t("repoDetail.loading")}
           </h1>
           {repo && (
             <span className="text-xs text-[var(--text-muted)] truncate max-w-xs">
@@ -47,7 +49,7 @@ export default function RepoDetailLayout({
               className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
             >
               <BookOpen className="w-4 h-4" />
-              <span>知识库</span>
+              {t("repoDetail.knowledge")}
             </Link>
             <StatusBadge status={currentStatus} />
           </div>

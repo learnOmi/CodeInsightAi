@@ -71,13 +71,13 @@ class Settings(BaseSettings):
     secret_key: str = ""
     access_token_expire_minutes: int = 60
 
-    # 认证
+    # 认证 — 空字符串表示开发环境跳过认证
     api_key: str = ""
 
-    # CORS
-    cors_origins: list[str] = ["http://localhost:3000"]
-    cors_allowed_methods: list[str] = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
-    cors_allowed_headers: list[str] = ["Authorization", "Content-Type", "X-API-Key", "Accept", "Cache-Control"]
+    # CORS — 开发环境允许所有来源，生产环境需显式配置
+    cors_origins: list[str] = ["*"]
+    cors_allowed_methods: list[str] = ["*"]
+    cors_allowed_headers: list[str] = ["*"]
 
     @field_validator("cors_origins", "cors_allowed_methods", "cors_allowed_headers", mode="before")
     @classmethod

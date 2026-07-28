@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, type FormEvent, type ChangeEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { useCreateRepository } from "@/hooks/use-repositories";
 import { APIError } from "@/api/base";
 import { cn } from "@/utils";
@@ -33,6 +34,7 @@ interface RepoFormProps {
 }
 
 export function RepoForm({ onClose }: RepoFormProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [autoAnalyze, setAutoAnalyze] = useState(true);
@@ -47,11 +49,11 @@ export function RepoForm({ onClose }: RepoFormProps) {
     setError("");
 
     if (!name.trim()) {
-      setError("请输入仓库名称");
+      setError(t("repoForm.nameRequired"));
       return;
     }
     if (!path.trim()) {
-      setError("请输入仓库路径");
+      setError(t("repoForm.pathRequired"));
       return;
     }
 
@@ -66,12 +68,12 @@ export function RepoForm({ onClose }: RepoFormProps) {
     } catch (err) {
       if (err instanceof APIError) {
         if (err.status === 409) {
-          setError("该路径已存在仓库");
+          setError(t("repoForm.existError"));
         } else {
           setError(err.message);
         }
       } else {
-        setError("创建失败，请重试");
+        setError(t("repoForm.createError"));
       }
     }
   };
@@ -94,7 +96,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
         // 如果有多级路径（如 "directives/index.js"），第一段是选中文件夹下的子目录名
         const hint = parts.length > 1 ? parts[0] : rawPath;
         setPath(hint);
-        setError("⚠ 浏览器未提供完整路径，请手动补充绝对路径前缀");
+        setError(t("repoForm.pathWarning"));
       }
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -109,23 +111,23 @@ export function RepoForm({ onClose }: RepoFormProps) {
 
   return (
     <div className="bg-[var(--bg-card)] rounded-xl border border-[var(--border)] p-5 shadow-sm">
-      <h2 className="text-lg font-semibold mb-4 tracking-tight text-[var(--text-primary)]">添加仓库</h2>
+      <h2 className="text-lg font-semibold mb-4 tracking-tight text-[var(--text-primary)]">{t("repoForm.title")}</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-            仓库名称
+            {t("repoForm.name")}
           </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full px-3.5 py-2 border border-[var(--border)] rounded-md text-sm bg-[var(--bg-base)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition-all placeholder:text-[var(--text-muted)]"
-            placeholder="例如：my-project"
+            placeholder={t("repoForm.namePlaceholder")}
           />
         </div>
         <div>
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">
-            仓库路径
+            {t("repoForm.path")}
           </label>
           <div className="flex gap-2">
             <input
@@ -133,7 +135,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
               value={path}
               onChange={(e) => setPath(e.target.value)}
               className="w-full px-3.5 py-2 border border-[var(--border)] rounded-md text-sm bg-[var(--bg-base)] text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition-all placeholder:text-[var(--text-muted)]"
-              placeholder="例如：/path/to/repo"
+              placeholder={t("repoForm.pathPlaceholder")}
             />
             <input
               ref={fileInputRef}
@@ -147,7 +149,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="px-3 py-2 bg-[var(--bg-hover)] border border-[var(--border)] rounded-md hover:bg-[var(--border)] transition-colors"
-              title="选择本地目录"
+              title={t("repoForm.selectDir")}
             >
               📁
             </button>
@@ -169,7 +171,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
                 onClick={handleClearHistory}
                 className="text-xs px-2 py-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
               >
-                清空
+                {t("repoForm.clearHistory")}
               </button>
             </div>
           )}
@@ -183,7 +185,7 @@ export function RepoForm({ onClose }: RepoFormProps) {
             className="w-4 h-4 text-brand border-[var(--border)] rounded focus:ring-brand/50"
           />
           <label htmlFor="auto-analyze" className="ml-2 text-sm text-[var(--text-secondary)]">
-            创建后自动分析
+            {t("repoForm.autoAnalyze")}
           </label>
         </div>
         {error && (
@@ -200,14 +202,14 @@ export function RepoForm({ onClose }: RepoFormProps) {
                 : "bg-brand text-white hover:opacity-90 shadow-sm"
             )}
           >
-            {createRepository.isPending ? "创建中..." : "创建"}
+            {createRepository.isPending ? t("repoForm.creating") : t("repoForm.create")}
           </button>
           <button
             type="button"
             onClick={onClose}
             className="px-3.5 py-2 text-sm border border-[var(--border)] rounded-md font-medium text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           >
-            取消
+            {t("repoForm.cancel")}
           </button>
         </div>
       </form>

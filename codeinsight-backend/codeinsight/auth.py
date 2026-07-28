@@ -58,15 +58,15 @@ def get_api_key_dependency(valid_key: str | None):
     创建 API Key 认证依赖
 
     Args:
-        valid_key: 有效的 API Key，为 None 时跳过认证（开发环境）
+        valid_key: 有效的 API Key，为 None 或空字符串时跳过认证（开发环境）
 
     Returns:
         认证依赖函数
     """
 
     def _check_api_key(key: ApiKeyDep):
-        if valid_key is None:
-            # 开发环境，跳过认证
+        if not valid_key:
+            # 开发环境（空字符串或 None），跳过认证
             return None
         APIKeyAuth(valid_key).authenticate(key)
         return None

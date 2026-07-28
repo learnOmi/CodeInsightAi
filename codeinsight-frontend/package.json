@@ -14,15 +14,17 @@
     "@codeinsight/shared": "*",
     "@tailwindcss/postcss": "^4.0.0",
     "@tanstack/react-query": "^5.62.0",
+    "@xyflow/react": "^12.0.0",
     "framer-motion": "^11.15.0",
+    "i18next": "^26.3.6",
     "lucide-react": "^1.24.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-i18next": "^17.0.11",
     "shiki": "^1.24.0",
     "tailwindcss": "^4.0.0",
-    "zustand": "^5.0.0",
-    "@xyflow/react": "^12.0.0"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "^15.1.0",

@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFiles } from "@/hooks/use-files";
 import { useVersions } from "@/hooks/use-repositories";
@@ -38,6 +39,7 @@ export default function FilesPage({
   params: Promise<{ repo_id: string }>;
 }) {
   const { repo_id } = use(params);
+  const { t } = useTranslation();
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string>("");
   const [selectedFilePath, setSelectedFilePath] = useState<string>("");
@@ -227,10 +229,10 @@ export default function FilesPage({
         <div className="w-1/2 max-w-md flex flex-col bg-[var(--bg-card)]/60 backdrop-blur-sm rounded-xl border border-white/[0.06] overflow-hidden">
           <div className="border-b border-white/[0.06] px-4 py-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-              {"文件树"}
+              {t("fileTreePage.fileTree")}
             </h2>
             <span className="text-xs text-[var(--text-muted)] font-mono tabular-nums">
-              {fileCount} {"个文件"}
+              {t("fileTreePage.fileCount", { n: fileCount })}
             </span>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
@@ -246,7 +248,7 @@ export default function FilesPage({
               </div>
             ) : error ? (
               <div className="text-center text-status-error text-sm py-4">
-                {"加载文件列表失败"}
+                {t("fileTreePage.loadError")}
               </div>
             ) : (
               <FileTree
@@ -264,21 +266,21 @@ export default function FilesPage({
         <div className="flex-1 flex flex-col bg-[var(--bg-card)]/60 backdrop-blur-sm rounded-xl border border-white/[0.06] overflow-hidden relative">
           {/* 标签页头部 — 无分隔线，单个 pill 激活态 */}
           <div className="flex flex-wrap gap-0.5 px-3 pt-3 pb-2 border-b border-white/[0.06]">
-            <TabButton label="项目概览" active={activeTab === "overview"} onClick={() => setActiveTab("overview")} />
-            <TabButton label="代码结构" active={activeTab === "structure"} onClick={() => setActiveTab("structure")} />
-            <TabButton label="调用图" active={activeTab === "callgraph"} onClick={() => setActiveTab("callgraph")} />
-            <TabButton label="API 路由" active={activeTab === "routes"} onClick={() => setActiveTab("routes")} />
-            <TabButton label="外部依赖" active={activeTab === "dependencies"} onClick={() => setActiveTab("dependencies")} />
-            <TabButton label="模块依赖" active={activeTab === "module-deps"} onClick={() => setActiveTab("module-deps")} />
-            <TabButton label="框架检测" active={activeTab === "frameworks"} onClick={() => setActiveTab("frameworks")} />
-            <TabButton label="版本管理" active={activeTab === "versions"} onClick={() => setActiveTab("versions")} />
+            <TabButton label={t("fileTreePage.tabs.overview")} active={activeTab === "overview"} onClick={() => setActiveTab("overview")} />
+            <TabButton label={t("fileTreePage.tabs.structure")} active={activeTab === "structure"} onClick={() => setActiveTab("structure")} />
+            <TabButton label={t("fileTreePage.tabs.callGraph")} active={activeTab === "callgraph"} onClick={() => setActiveTab("callgraph")} />
+            <TabButton label={t("fileTreePage.tabs.routes")} active={activeTab === "routes"} onClick={() => setActiveTab("routes")} />
+            <TabButton label={t("fileTreePage.tabs.dependencies")} active={activeTab === "dependencies"} onClick={() => setActiveTab("dependencies")} />
+            <TabButton label={t("fileTreePage.tabs.moduleDeps")} active={activeTab === "module-deps"} onClick={() => setActiveTab("module-deps")} />
+            <TabButton label={t("fileTreePage.tabs.frameworks")} active={activeTab === "frameworks"} onClick={() => setActiveTab("frameworks")} />
+            <TabButton label={t("fileTreePage.tabs.versions")} active={activeTab === "versions"} onClick={() => setActiveTab("versions")} />
           </div>
 
           {/* 标签页内容 */}
           <div className="flex-1 overflow-hidden">
             {FILE_DEPENDENT_TABS.includes(activeTab) && !selectedFileId ? (
               <div className="h-full flex items-center justify-center text-[var(--text-muted)] text-sm">
-                {"请从左侧文件树中选择一个文件"}
+                {t("fileTreePage.empty")}
               </div>
             ) : activeTab === "overview" ? (
               <div className="h-full overflow-y-auto p-4">
